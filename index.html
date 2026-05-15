@@ -11203,22 +11203,31 @@ function stFireSave() {
 
   clearTimeout(stSaveTimer);
   stSaveTimer = setTimeout(function() {
-    if (!window._db || !window._fsSetDoc || !window._fsDoc) {
-      stBadge('✓ Yerel olarak kaydedildi');
-      return;
-    }
-    try {
-      var p = window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'servis_takip_data'), {
-        data: JSON.stringify(ST_DATA),
-        updatedAt: Date.now()
-      });
-      if (p && p.then) {
-        p.then(function(){ stBadge('✓ Buluta kaydedildi'); })
-         .catch(function(e){ console.warn('Firebase kayıt hatası:', e); stBadge('✓ Yerel kaydedildi'); });
-      } else {
-        stBadge('✓ Kaydedildi');
+    function _doFireSave() {
+      if (!window._db || !window._fsSetDoc || !window._fsDoc) {
+        stBadge('✓ Yerel olarak kaydedildi');
+        return;
       }
-    } catch(e) { console.warn('Firebase kayıt hatası:', e); stBadge('✓ Yerel kaydedildi'); }
+      try {
+        var p = window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'servis_takip_data'), {
+          data: JSON.stringify(ST_DATA),
+          updatedAt: Date.now()
+        });
+        if (p && p.then) {
+          p.then(function(){ stBadge('✓ Buluta kaydedildi'); })
+           .catch(function(e){ console.warn('Firebase kayıt hatası:', e); stBadge('✓ Yerel kaydedildi'); });
+        } else {
+          stBadge('✓ Kaydedildi');
+        }
+      } catch(e) { console.warn('Firebase kayıt hatası:', e); stBadge('✓ Yerel kaydedildi'); }
+    }
+    // Firebase hazır değilse event'i bekle
+    if (!window._db) {
+      window.addEventListener('firebaseReady', function() { _doFireSave(); }, { once: true });
+      setTimeout(function() { _doFireSave(); }, 5000);
+    } else {
+      _doFireSave();
+    }
   }, 800);
 }
 
@@ -11230,30 +11239,73 @@ function stLoad() {
     if (pn0 && pn0.style.display !== 'none') { stAutoOnayAll(); stRender(); }
   }
 
-  // Sonra Firebase'den daha güncel veri varsa üzerine yaz
-  if (!window._db || !window._fsGetDoc || !window._fsDoc) return;
-  try {
-    window._fsGetDoc(window._fsDoc(window._db, 'malzeme', 'servis_takip_data')).then(function(snap) {
-      if (snap && snap.exists() && snap.data().data) {
-        var saved = JSON.parse(snap.data().data);
-        // localStorage'dan daha yeni mi kontrol et
-        var fbTime = snap.data().updatedAt || 0;
-        var lsRaw = null;
-        try { lsRaw = JSON.parse(localStorage.getItem(ST_LS_KEY) || 'null'); } catch(e){}
-        var lsTime = lsRaw ? (lsRaw.updatedAt || 0) : 0;
-        // Firebase daha yeni veya local yoksa Firebase'i kullan
-        if (fbTime >= lsTime) {
-          Object.keys(saved).forEach(function(k) {
-            if (saved[k]) ST_DATA[k] = saved[k];
-          });
-          // localStorage'ı da güncelle
-          stLocalSave();
+  // Firebase'den daha güncel veri varsa üzerine yaz
+  function _stFireLoad() {
+    if (!window._db || !window._fsGetDoc || !window._fsDoc) return;
+    try {
+      window._fsGetDoc(window._fsDoc(window._db, 'malzeme', 'servis_takip_data')).then(function(snap) {
+        if (snap && snap.exists() && snap.data().data) {
+          var saved = JSON.parse(snap.data().data);
+          var fbTime = snap.data().updatedAt || 0;
+          var lsRaw = null;
+          try { lsRaw = JSON.parse(localStorage.getItem(ST_LS_KEY) || 'null'); } catch(e){}
+          var lsTime = lsRaw ? (lsRaw.updatedAt || 0) : 0;
+          if (fbTime >= lsTime) {
+            Object.keys(saved).forEach(function(k) {
+              if (saved[k]) ST_DATA[k] = saved[k];
+            });
+            stLocalSave();
+          }
+          var pn = document.getElementById('stPanel');
+          if (pn && pn.style.display !== 'none') { stAutoOnayAll(); stRender(); }
         }
+      }).catch(function(e){ console.warn('Firebase yükleme hatası:', e); });
+    } catch(e) { console.warn('Firebase yükleme hatası:', e); }
+  }
+
+  // Firebase henüz hazır değilse event'i bekle, sonra yükle
+  if (!window._db) {
+    window.addEventListener('firebaseReady', function() {
+      _stFireLoad();
+      // Ayrıca gerçek zamanlı dinleyici başlat
+      _stStartRealtimeListener();
+    }, { once: true });
+    // 5 saniye zaman aşımı
+    setTimeout(function() { _stFireLoad(); }, 5000);
+  } else {
+    _stFireLoad();
+    _stStartRealtimeListener();
+  }
+}
+
+// Gerçek zamanlı Firestore dinleyicisi — başka cihazdan yapılan değişiklikleri anında alır
+var _stRealtimeActive = false;
+function _stStartRealtimeListener() {
+  if (_stRealtimeActive) return;
+  if (!window._db || !window._fsOnSnapshot || !window._fsDoc) return;
+  _stRealtimeActive = true;
+  var _stIsLocalUpdate = false;
+  // stFireSave'i wrap'le: kendi kayıtlarımızı atlamak için
+  var _origStFireSave = stFireSave;
+  window.stFireSave = stFireSave = function() {
+    _stIsLocalUpdate = true;
+    _origStFireSave();
+    setTimeout(function() { _stIsLocalUpdate = false; }, 2000);
+  };
+  window._fsOnSnapshot(window._fsDoc(window._db, 'malzeme', 'servis_takip_data'), function(snap) {
+    if (_stIsLocalUpdate) return;
+    if (snap && snap.exists() && snap.data().data) {
+      try {
+        var saved = JSON.parse(snap.data().data);
+        Object.keys(saved).forEach(function(k) {
+          if (saved[k]) ST_DATA[k] = saved[k];
+        });
+        stLocalSave();
         var pn = document.getElementById('stPanel');
         if (pn && pn.style.display !== 'none') { stAutoOnayAll(); stRender(); }
-      }
-    }).catch(function(e){ console.warn('Firebase yükleme hatası:', e); });
-  } catch(e) { console.warn('Firebase yükleme hatası:', e); }
+      } catch(e) { console.warn('ST realtime parse hatası:', e); }
+    }
+  });
 }
 
 // Sayfa ilk yüklenince localStorage'dan ST_DATA'yı hemen uygula
@@ -11268,6 +11320,46 @@ function stLoad() {
       if (saved[k]) ST_DATA[k] = saved[k];
     });
   } catch(e) {}
+})();
+
+// Firebase hazır olunca ST_DATA'yı da Firestore'dan otomatik yükle
+(function() {
+  function _stAutoFireLoad() {
+    if (!window._db || !window._fsGetDoc || !window._fsDoc) return;
+    try {
+      window._fsGetDoc(window._fsDoc(window._db, 'malzeme', 'servis_takip_data')).then(function(snap) {
+        if (snap && snap.exists() && snap.data().data) {
+          var saved = JSON.parse(snap.data().data);
+          var fbTime = snap.data().updatedAt || 0;
+          var lsRaw = null;
+          try { lsRaw = JSON.parse(localStorage.getItem(ST_LS_KEY) || 'null'); } catch(e){}
+          var lsTime = lsRaw ? (lsRaw.updatedAt || 0) : 0;
+          if (fbTime >= lsTime) {
+            Object.keys(saved).forEach(function(k) {
+              if (saved[k]) ST_DATA[k] = saved[k];
+            });
+            stLocalSave();
+          }
+          // UI güncelle (servis takip paneli açıksa)
+          var pn = document.getElementById('stPanel');
+          if (pn && pn.style.display !== 'none') { stAutoOnayAll(); stRender(); }
+          // Tab sayısını güncelle
+          var btn = document.getElementById('tabBtn-st');
+          if (btn) {
+            var total = ST_PAGES.reduce(function(s, pg){ return s + ((ST_DATA[pg[0]]||{}).data||[]).length; }, 0);
+            btn.innerHTML = '🔧 Servis Takip <span class="tab-count">'+total+'</span>';
+          }
+        }
+        // Gerçek zamanlı dinleyiciyi başlat
+        _stStartRealtimeListener();
+      }).catch(function(e){ console.warn('ST otomatik Firebase yükleme hatası:', e); });
+    } catch(e) {}
+  }
+  if (window._db) {
+    _stAutoFireLoad();
+  } else {
+    window.addEventListener('firebaseReady', _stAutoFireLoad, { once: true });
+  }
 })();
 
 function stAddTab() {
