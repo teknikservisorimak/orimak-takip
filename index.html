@@ -8834,10 +8834,15 @@ async function addRow() {
 // ── BAŞLAT ──
 isOnline = false;
 SHEETS = JSON.parse(JSON.stringify(OFFLINE_DATA));
-buildUI();
-// Oturum varsa butonları hemen göster (Firebase bekleme)
-if (window.reapplySession) window.reapplySession();
 window.loadData = loadData;
+// UI'yi tüm ek scriptler yüklendikten sonra başlat (Satış/Servis panelleri geç tanımlanıyor)
+window.__orimakStartUI = function(){
+  if(window.__orimakUIStarted) return;
+  window.__orimakUIStarted = true;
+  buildUI();
+  // Oturum varsa butonları hemen göster (Firebase bekleme)
+  if (window.reapplySession) window.reapplySession();
+};
 
 // ── ANA SAYFA FONKSİYONLARI ──
 function showHomePage() {
@@ -11793,6 +11798,7 @@ window.buildSatisPanel=function(si){
   tb.innerHTML='<div class="sf-toolbar-title">💼 SATIŞ TAKİP</div>'+
     '<div class="sf-search-wrap"><span class="sf-search-ico">🔍</span>'+
     '<input class="sf-search" id="sfSearch" type="text" placeholder="Makine, firma, il, seri no..." oninput="window._sfSearch(this.value)"/></div>'+
+    '<button class="add-row-btn" onclick="window.openProformaModal && window.openProformaModal()" style="white-space:nowrap;background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.35);color:var(--orange);">🧾 Proforma</button>'+
     (canEdit?'<button class="add-row-btn" onclick="window.openSatisYeni()" style="white-space:nowrap;">＋ Yeni Kayıt</button>':'');
   wrap.appendChild(tb);
   var stats=document.createElement('div'); stats.className='sf-stats';
@@ -13702,6 +13708,14 @@ window.invPDFIndir = function(){
   var date = document.getElementById('ci-date').value || new Date().toISOString().slice(0,10);
   var invno= document.getElementById('ci-invno').value || 'INVOICE';
 
+  // Servis Talep Formu'ndaki kaşeyi invoice çıktısında kullan (sağ alt)
+  var stampEl = document.querySelector('#servisFormPrint img[alt*="Ka"]') ||
+                document.querySelector('#servisFormPrint img[alt*="ka"]') ||
+                document.querySelector('#servisFormPrint img[alt*="Kase"]') ||
+                document.querySelector('#servisFormPrint img[alt*="kase"]');
+  var stampSrc = stampEl ? (stampEl.getAttribute('src') || stampEl.src || '') : '';
+  var stampHTML = stampSrc ? ('<div class="inv-stamp"><img src=\"'+stampSrc+'\" alt=\"Orimak Kaşe\"></div>') : '';
+
   /* collect CI items */
   var ciRows = Array.from(document.querySelectorAll('#ci-tbody tr')).map(function(tr){
     return {
@@ -13757,6 +13771,8 @@ window.invPDFIndir = function(){
     '.total-row td{font-weight:700;border-top:2px solid #222;background:#f0f0f0!important;}'+
     '.right{text-align:right;}'+
     '.header-meta{display:flex;justify-content:space-between;margin-bottom:10px;font-size:11px;}'+
+    '.inv-stamp{margin-top:3mm;text-align:right;opacity:.95;}'+
+    '.inv-stamp img{height:22mm;width:auto;filter:drop-shadow(0 2px 6px rgba(0,0,0,.12));}'+
     '@page{size:A4;margin:10mm;}'+
     '@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'+
     '</style></head><body>';
@@ -13783,7 +13799,7 @@ window.invPDFIndir = function(){
   html += '<td class="right"><strong>'+g('ci-payment')+'</strong></td>';
   html += '<td class="right"><strong>'+document.getElementById('ci-total').textContent+' '+cur+'</strong></td></tr>';
   if(g('ci-note')) html += '<tr><td colspan="4" style="color:#888;font-style:italic;">'+g('ci-note')+'</td></tr>';
-  html += '</tbody></table></div>';
+  html += '</tbody></table>'+stampHTML+'</div>';
 
   /* PAGE 2 — PACKING LIST */
   html += '<div class="page">';
@@ -13802,7 +13818,7 @@ window.invPDFIndir = function(){
     '<td></td><td></td>'+
     '<td class="right"><strong>'+document.getElementById('pl-total-gross').textContent+' KG</strong></td>'+
     '<td class="right"><strong>'+document.getElementById('pl-total-net').textContent+' KG</strong></td></tr>';
-  html += '</tbody></table></div>';
+  html += '</tbody></table>'+stampHTML+'</div>';
 
   /* PAGE 3 — ÇEKİ LİSTESİ */
   html += '<div class="page">';
@@ -13821,7 +13837,7 @@ window.invPDFIndir = function(){
     '<td></td><td></td>'+
     '<td class="right"><strong>'+document.getElementById('cl-total-gross').textContent+' KG</strong></td>'+
     '<td class="right"><strong>'+document.getElementById('cl-total-net').textContent+' KG</strong></td></tr>';
-  html += '</tbody></table></div>';
+  html += '</tbody></table>'+stampHTML+'</div>';
 
   html += '</body></html>';
 
@@ -13834,6 +13850,392 @@ window.invPDFIndir = function(){
 };
 
 })();
+</script>
+
+<!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+     PROFORMA FATURA (KOÇEL ŞABLONU) — Satış Takip
+     â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+<style>
+#proformaModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.86);z-index:21000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:20px 0;}
+#proformaModal.open{display:flex;}
+.pfm-shell{background:#1a1a1a;border:1px solid #2e2e2e;border-top:3px solid var(--orange);border-radius:12px;width:940px;max-width:98vw;padding:0;box-shadow:0 24px 80px rgba(0,0,0,.7);font-family:'Barlow Condensed',sans-serif;}
+.pfm-header{display:flex;align-items:center;justify-content:space-between;padding:18px 28px;border-bottom:1px solid #2a2a2a;}
+.pfm-header h2{font-size:18px;font-weight:800;letter-spacing:2px;color:var(--orange);margin:0;}
+.pfm-body{padding:22px 28px 26px;}
+.pfm-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.pfm-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+.pfm-field{display:flex;flex-direction:column;gap:4px;}
+.pfm-field label{font-size:11px;color:#666;letter-spacing:1px;}
+.pfm-field input,.pfm-field textarea,.pfm-field select{background:#111;border:1px solid #2e2e2e;border-radius:6px;padding:8px 10px;color:#ddd;font-family:'Barlow Condensed',sans-serif;font-size:13px;outline:none;transition:border-color .2s;}
+.pfm-field textarea{resize:vertical;min-height:56px;}
+.pfm-field input:focus,.pfm-field textarea:focus,.pfm-field select:focus{border-color:rgba(245,166,35,.65);}
+.pfm-field.full{grid-column:1/-1;}
+.pfm-section{margin-bottom:16px;}
+.pfm-section-title{font-size:11px;font-weight:700;letter-spacing:2px;color:#555;text-transform:uppercase;margin-bottom:8px;border-bottom:1px solid #2a2a2a;padding-bottom:4px;}
+.pfm-toprow{display:grid;grid-template-columns:1fr 260px;gap:14px;align-items:start;}
+.pfm-logo-line{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pfm-logo-line img{height:48px;width:auto;filter:drop-shadow(0 6px 14px rgba(0,0,0,.35));}
+.pfm-photo{background:#111;border:1px dashed rgba(245,166,35,.45);border-radius:10px;padding:10px;min-height:160px;cursor:pointer;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;}
+.pfm-photo:hover{border-color:rgba(245,166,35,.85);}
+.pfm-photo .hint{color:#777;font-size:12px;letter-spacing:1px;text-align:center;line-height:1.4;}
+.pfm-photo img{display:none;max-width:100%;max-height:160px;object-fit:contain;}
+.pfm-photo.has-img img{display:block;}
+.pfm-photo.has-img .hint{display:none;}
+.pfm-items-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px;}
+.pfm-items-table th{background:#111;color:var(--orange);font-weight:800;letter-spacing:1px;padding:7px 8px;text-align:left;border:1px solid #2a2a2a;font-size:11px;}
+.pfm-items-table td{padding:6px 6px;border:1px solid #1e1e1e;vertical-align:middle;}
+.pfm-items-table td input{background:transparent;border:none;color:#ddd;font-family:'Barlow Condensed',sans-serif;font-size:13px;width:100%;outline:none;padding:2px 4px;}
+.pfm-items-table td input:focus{background:#111;border-radius:4px;}
+.pfm-items-table .td-total{color:var(--orange);font-weight:800;text-align:right;white-space:nowrap;}
+.pfm-items-table .td-del{text-align:center;width:28px;}
+.pfm-items-table .del-btn{background:none;border:none;color:#c04040;cursor:pointer;font-size:16px;line-height:1;padding:0;}
+.pfm-add-row{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:6px 14px;background:#111;border:1px dashed rgba(245,166,35,.7);border-radius:6px;color:var(--orange);font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:1px;cursor:pointer;transition:all .2s;}
+.pfm-add-row:hover{background:rgba(245,166,35,.06);}
+.pfm-totals{margin-top:10px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;}
+.pfm-totals-row{display:flex;gap:16px;align-items:center;font-size:13px;}
+.pfm-totals-label{color:#888;min-width:120px;text-align:right;}
+.pfm-totals-value{color:var(--orange);font-weight:900;min-width:90px;text-align:right;}
+.pfm-totals-grand{font-size:15px;border-top:1px solid rgba(245,166,35,.45);padding-top:6px;margin-top:4px;}
+.pfm-footer{display:flex;gap:10px;justify-content:flex-end;padding:16px 28px;border-top:1px solid #2a2a2a;}
+</style>
+
+<div id="proformaModal" onclick="pfmModalOutside(event)">
+  <div class="pfm-shell" onclick="event.stopPropagation()">
+    <div class="pfm-header">
+      <h2>PROFORMA FATURA</h2>
+      <button onclick="closeProformaModal()" style="background:none;border:none;color:#666;font-size:22px;cursor:pointer;line-height:1;">X</button>
+    </div>
+    <div class="pfm-body">
+
+      <div class="pfm-toprow pfm-section">
+        <div>
+          <div class="pfm-logo-line">
+            <img id="pfm-logo-preview" alt="ORİMAK Logo">
+            <div style="display:flex;flex-direction:column;gap:2px;">
+              <div style="font-size:13px;font-weight:900;letter-spacing:1px;color:#eee;">ORİMAK MAKİNE SANAYİ TİC.LTD.ŞTİ.</div>
+              <div style="font-size:11px;color:#666;letter-spacing:1px;">KOÇEL EŞYA Proforma Şablonu</div>
+            </div>
+          </div>
+          <div class="pfm-grid-3">
+            <div class="pfm-field"><label>TARİH</label><input type="date" id="pfm-date"></div>
+            <div class="pfm-field"><label>TEKLİF NO</label><input id="pfm-quote-no" value="1"></div>
+            <div class="pfm-field"><label>PARA BİRİMİ</label>
+              <select id="pfm-currency" onchange="pfmCalc()">
+                <option value="EUR" selected>EUR</option><option value="USD">USD</option><option value="TRY">TRY</option><option value="GBP">GBP</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="pfm-section-title">Ürün Görseli</div>
+          <div id="pfm-photoBox" class="pfm-photo" onclick="pfmPickPhoto()">
+            <div class="hint">Makine fotoğrafı eklemek için tıkla<br><span style="font-size:10px;color:#555;">(Windows dosya seçici açılır)</span></div>
+            <img id="pfm-photoImg" alt="Makine Fotoğrafı">
+          </div>
+          <input id="pfm-photoInput" type="file" accept="image/*" style="display:none">
+        </div>
+      </div>
+
+      <div class="pfm-section">
+        <div class="pfm-section-title">Satıcı Bilgileri (Standart, düzenlenebilir)</div>
+        <div class="pfm-grid">
+          <div class="pfm-field full"><label>ÜNVAN</label><input id="pfm-seller-name" value="ORİMAK MAKİNE SANAYİ TİC.LTD.ŞTİ."></div>
+          <div class="pfm-field full"><label>ADRES</label><input id="pfm-seller-addr" value="Mahmudiye Mah. 19. Mobilya Sokak No:2E İnegöl / BURSA / TÜRKİYE - PK 16400"></div>
+          <div class="pfm-field"><label>TELEFON</label><input id="pfm-seller-tel" value="+90 (224) 718 62 68"></div>
+          <div class="pfm-field"><label>V.D. / VKN</label><input id="pfm-seller-vd" value="İNEGÖL 647 057 2044"></div>
+        </div>
+      </div>
+
+      <div class="pfm-section">
+        <div class="pfm-section-title">Alıcı Firma Bilgileri (Düzenlenecek)</div>
+        <div class="pfm-grid">
+          <div class="pfm-field full"><label>ÜNVAN</label><input id="pfm-buyer-name" value="KOÇEL ÇELİK EŞYA SAN. VE TİC. A.Ş."></div>
+          <div class="pfm-field full"><label>ADRES</label><textarea id="pfm-buyer-addr">Mahmutbey Mah. İstoç Toptancılar Çarşısı 2436 Sok. No:1\nBağcılar / İSTANBUL</textarea></div>
+          <div class="pfm-field"><label>TELEFON</label><input id="pfm-buyer-tel" value="0 262 677 11 30"></div>
+          <div class="pfm-field"><label>V.D. / VKN</label><input id="pfm-buyer-vd" value="573 038 3779"></div>
+        </div>
+      </div>
+
+      <div class="pfm-section">
+        <div class="pfm-section-title">Kalemler</div>
+        <table class="pfm-items-table">
+          <thead>
+            <tr>
+              <th>MAKİNE / AÇIKLAMA</th>
+              <th style="width:120px">GTİP NO</th>
+              <th style="width:70px">ADET</th>
+              <th style="width:110px">BİRİM FİYAT</th>
+              <th style="width:110px">FİYAT</th>
+              <th style="width:28px"></th>
+            </tr>
+          </thead>
+          <tbody id="pfm-tbody"></tbody>
+        </table>
+        <button class="pfm-add-row" onclick="pfmAddRow()">ï¼‹ Kalem Ekle</button>
+        <div class="pfm-totals">
+          <div class="pfm-totals-row"><span class="pfm-totals-label">TUTAR</span><span class="pfm-totals-value" id="pfm-subtotal">0.00</span></div>
+          <div class="pfm-totals-row"><span class="pfm-totals-label">KDV</span><span class="pfm-totals-value" id="pfm-vat">0.00</span></div>
+          <div class="pfm-totals-row pfm-totals-grand"><span class="pfm-totals-label">TOPLAM</span><span class="pfm-totals-value" id="pfm-total">0.00</span></div>
+        </div>
+      </div>
+
+      <div class="pfm-section">
+        <div class="pfm-section-title">Alt Bilgiler (Standart metinler, düzenlenebilir)</div>
+        <div class="pfm-grid">
+          <div class="pfm-field full"><label>NOTLAR</label>
+            <textarea id="pfm-notes">Makine 2026 model, yeni ve kullanılmamıştır. Makine CE standartlarına uygun üretilmiştir.\nYatırım Teşvik Kapsamında KDV muafiyeti mevcuttur.</textarea>
+          </div>
+          <div class="pfm-field full"><label>MAKİNE</label><input id="pfm-machine" value="ORITEQ Qs-BOX Karton Kesme Makinesi (Kırpıntı makinası dahil)"></div>
+          <div class="pfm-field full"><label>ÖDEME ŞEKLİ</label><input id="pfm-payment" value="Sipariş onayında % 25 peşin, Kalanı 30-60-90 gün vadeli çek."></div>
+          <div class="pfm-field full"><label>BANKA BİLGİLERİ</label><input id="pfm-bank" value="TÜRKİYE İŞ BANKASI A.Ş. - İŞBANKASI TL"></div>
+          <div class="pfm-field full"><label>IBAN</label><input id="pfm-iban" value="TR69 0006 4000 0012 2480 0840 48"></div>
+          <div class="pfm-field"><label>GARANTİ</label><input id="pfm-warranty" value="Montaj tarihinden itibaren 1 (bir) yıl"></div>
+          <div class="pfm-field"><label>TESLİM ŞEKLİ</label><input id="pfm-delivery" value="ORİMAK MAKİNE FABRİKA"></div>
+          <div class="pfm-field"><label>TESLİM TARİHİ</label><input id="pfm-delivery-date" value="Sipariş onayından sonra 10 gün."></div>
+          <div class="pfm-field"><label>TEKLİF GEÇERLİLİK</label><input id="pfm-validity" value="7 Gün"></div>
+          <div class="pfm-field full"><label>MONTAJ</label><input id="pfm-install" value="Makine montajı firmamız teknisyenleri tarafından yapılacaktır. Konaklama giderleri alıcıya aittir."></div>
+        </div>
+      </div>
+
+    </div>
+    <div class="pfm-footer">
+      <button class="hbtn hbtn-dark" onclick="closeProformaModal()">X Kapat</button>
+      <button class="hbtn" style="background:linear-gradient(135deg,#1d5c3a,#155230);color:#92D050;border:1px solid rgba(146,208,80,.5)!important;" onclick="pfmPDFIndir()">PDF İndir</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+function pfmSetToday(){
+  var today = new Date().toISOString().slice(0,10);
+  var d = document.getElementById('pfm-date');
+  if (d && !d.value) d.value = today;
+}
+function pfmGetLogoSrc(){
+  var el = document.querySelector('#servisFormPrint img') || document.querySelector('img[alt*=\"Logo\" i]');
+  return el ? (el.getAttribute('src') || el.src || '') : '';
+}
+function pfmGetStampSrc(){
+  var stampEl = document.querySelector('#servisFormPrint img[alt*=\"Ka\"]') ||
+                document.querySelector('#servisFormPrint img[alt*=\"ka\"]') ||
+                document.querySelector('#servisFormPrint img[alt*=\"Kase\"]') ||
+                document.querySelector('#servisFormPrint img[alt*=\"kase\"]');
+  return stampEl ? (stampEl.getAttribute('src') || stampEl.src || '') : '';
+}
+
+window.openProformaModal = function(){
+  var m = document.getElementById('proformaModal');
+  if(!m) return;
+  m.classList.add('open');
+  pfmSetToday();
+  var logo = pfmGetLogoSrc();
+  var prev = document.getElementById('pfm-logo-preview');
+  if(prev && logo) prev.src = logo;
+  if(!document.getElementById('pfm-tbody').children.length){
+    pfmAddRow();
+    var tr = document.querySelector('#pfm-tbody tr');
+    if(tr){
+      tr.querySelector('.pfm-desc').value = 'ORITEQ Qs-BOX Karton Kesme Makinası';
+      tr.querySelector('.pfm-gtip').value = '8441.10.20.00.00';
+      tr.querySelector('.pfm-qty').value  = '1';
+      tr.querySelector('.pfm-uprice').value = '26750';
+      pfmCalc();
+    }
+  }
+};
+window.closeProformaModal = function(){
+  var m = document.getElementById('proformaModal');
+  if(m) m.classList.remove('open');
+};
+window.pfmModalOutside = function(e){
+  if(e.target === document.getElementById('proformaModal')) window.closeProformaModal();
+};
+
+window.pfmPickPhoto = function(){
+  var inp = document.getElementById('pfm-photoInput');
+  if(inp) inp.click();
+};
+document.addEventListener('change', function(e){
+  if(e.target && e.target.id === 'pfm-photoInput'){
+    var file = e.target.files && e.target.files[0];
+    if(!file) return;
+    var fr = new FileReader();
+    fr.onload = function(){
+      var img = document.getElementById('pfm-photoImg');
+      var box = document.getElementById('pfm-photoBox');
+      if(img){ img.src = fr.result; }
+      if(box){ box.classList.add('has-img'); }
+    };
+    fr.readAsDataURL(file);
+  }
+});
+
+window.pfmAddRow = function(){
+  var tbody = document.getElementById('pfm-tbody');
+  var tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td><input type=\"text\" class=\"pfm-desc\" placeholder=\"Makine / açıklama\"></td>'+
+    '<td><input type=\"text\" class=\"pfm-gtip\" placeholder=\"GTİP\" style=\"text-align:center\"></td>'+
+    '<td><input type=\"number\" min=\"0\" step=\"any\" class=\"pfm-qty\" oninput=\"pfmCalc()\" placeholder=\"1\" style=\"text-align:center\"></td>'+
+    '<td><input type=\"number\" min=\"0\" step=\"any\" class=\"pfm-uprice\" oninput=\"pfmCalc()\" placeholder=\"0.00\" style=\"text-align:right\"></td>'+
+    '<td class=\"td-total pfm-line-total\">0.00</td>'+
+    '<td class=\"td-del\"><button class=\"del-btn\" onclick=\"this.closest(&quot;tr&quot;).remove();pfmCalc()\">✖</button></td>';
+  tbody.appendChild(tr);
+};
+window.pfmCalc = function(){
+  var cur = document.getElementById('pfm-currency').value || 'EUR';
+  var symbol = cur==='TRY'?'₺':(cur==='EUR'?'€':(cur==='USD'?'$':'£'));
+  var rows = document.querySelectorAll('#pfm-tbody tr');
+  var sub = 0;
+  rows.forEach(function(tr){
+    var qty = parseFloat(tr.querySelector('.pfm-qty').value)||0;
+    var up  = parseFloat(tr.querySelector('.pfm-uprice').value)||0;
+    var line = qty * up;
+    tr.querySelector('.pfm-line-total').textContent = line.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+symbol;
+    sub += line;
+  });
+  var vat = 0;
+  document.getElementById('pfm-subtotal').textContent = sub.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+symbol;
+  document.getElementById('pfm-vat').textContent = vat.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+symbol;
+  document.getElementById('pfm-total').textContent = (sub+vat).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+symbol;
+};
+
+window.pfmPDFIndir = function(){
+  var cur = document.getElementById('pfm-currency').value || 'EUR';
+  var symbol = cur==='TRY'?'₺':(cur==='EUR'?'€':(cur==='USD'?'$':'£'));
+  var date = document.getElementById('pfm-date').value || new Date().toISOString().slice(0,10);
+  var teklifNo = document.getElementById('pfm-quote-no').value || '';
+
+  function v(id){ var el=document.getElementById(id); return el? (el.value||'') : ''; }
+  function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  var logo = pfmGetLogoSrc();
+  var stamp = pfmGetStampSrc();
+  var photo = (document.getElementById('pfm-photoImg') && document.getElementById('pfm-photoImg').src) ? document.getElementById('pfm-photoImg').src : '';
+
+  var rows = Array.from(document.querySelectorAll('#pfm-tbody tr')).map(function(tr){
+    return {
+      desc: tr.querySelector('.pfm-desc').value||'',
+      gtip: tr.querySelector('.pfm-gtip').value||'',
+      qty:  tr.querySelector('.pfm-qty').value||'',
+      uprice: tr.querySelector('.pfm-uprice').value||'',
+      total: tr.querySelector('.pfm-line-total').textContent||''
+    };
+  });
+
+  var html = '<!DOCTYPE html><html><head><meta charset=\"UTF-8\">'+
+    '<title>PROFORMA FATURA</title>'+
+    '<style>'+
+    'body{font-family:Arial,sans-serif;font-size:11px;color:#111;margin:0;padding:0;}'+
+    '@page{size:A4;margin:10mm;}'+
+    '@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}'+
+    '.page{width:210mm;min-height:297mm;padding:12mm 12mm 16mm;box-sizing:border-box;}'+
+    '.hdr{display:flex;justify-content:space-between;gap:10mm;align-items:flex-start;margin-bottom:6mm;}'+
+    '.logo img{height:18mm;width:auto;}'+
+    '.meta{font-size:11px;line-height:1.5;text-align:right;}'+
+    'h1{font-size:16px;text-align:center;letter-spacing:3px;margin:6mm 0 5mm;text-transform:uppercase;border-bottom:2px solid #222;padding-bottom:5px;}'+
+    '.seller{font-size:11px;line-height:1.5;margin-bottom:4mm;}'+
+    '.buyer{border:1px solid #444;border-radius:4px;padding:6px 8px;margin:4mm 0 5mm;}'+
+    '.buyer .t{font-weight:700;margin-bottom:3px;}'+
+    '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}'+
+    '.photo{width:58mm;height:38mm;border:1px dashed #777;border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#fafafa;}'+
+    '.photo img{max-width:100%;max-height:100%;object-fit:contain;}'+
+    'table{width:100%;border-collapse:collapse;margin-top:3mm;}'+
+    'th{background:#222;color:#fff;font-size:10px;padding:5px 6px;text-align:left;letter-spacing:1px;border:1px solid #222;}'+
+    'td{padding:5px 6px;border:1px solid #ddd;font-size:11px;vertical-align:top;}'+
+    '.right{text-align:right;}'+
+    '.totals{margin-top:4mm;display:flex;justify-content:flex-end;}'+
+    '.totals table{width:70mm;border-collapse:collapse;}'+
+    '.totals td{border:1px solid #ddd;padding:5px 6px;}'+
+    '.totals .lbl{background:#f3f3f3;font-weight:700;}'+
+    '.stamp{margin-top:3mm;text-align:right;}'+
+    '.stamp img{height:22mm;width:auto;opacity:.95;}'+
+    '.foot{margin-top:6mm;font-size:11px;line-height:1.6;}'+
+    '.kv{display:grid;grid-template-columns:50mm 1fr;gap:6px 10px;margin-top:4mm;}'+
+    '.kv .k{font-weight:700;}'+
+    '</style></head><body><div class=\"page\">';
+
+  html += '<div class=\"hdr\">'+
+    '<div class=\"logo\">'+(logo?('<img src=\"'+logo+'\">'):'')+'</div>'+
+    '<div class=\"meta\">'+
+      '<div><strong>Tarih</strong>: '+esc(date)+'</div>'+
+      '<div><strong>Teklif No</strong>: '+esc(teklifNo)+'</div>'+
+    '</div></div>';
+
+  html += '<div class=\"grid2\">'+
+    '<div class=\"seller\">'+
+      '<strong>'+esc(v('pfm-seller-name'))+'</strong><br>'+
+      esc(v('pfm-seller-addr'))+'<br>'+
+      '<strong>Telefon</strong>: '+esc(v('pfm-seller-tel'))+'<br>'+
+      '<strong>V.D</strong>: '+esc(v('pfm-seller-vd'))+
+    '</div>'+
+    '<div class=\"photo\">'+(photo?('<img src=\"'+photo+'\">'):'<div style=\"color:#999;font-size:10px;letter-spacing:1px;\">MODEL / ÜRÜN GÖRSELİ</div>')+'</div>'+
+  '</div>';
+
+  html += '<h1>PROFORMA FATURA</h1>';
+  html += '<div class=\"buyer\"><div class=\"t\">Alıcı Firma Bilgileri</div>'+
+    '<div><strong>Ünvan</strong>: '+esc(v('pfm-buyer-name'))+'</div>'+
+    '<div><strong>Adres</strong>: '+esc(v('pfm-buyer-addr')).replace(/\\n/g,'<br>')+'</div>'+
+    '<div><strong>Telefon</strong>: '+esc(v('pfm-buyer-tel'))+'</div>'+
+    '<div><strong>V.D</strong>: '+esc(v('pfm-buyer-vd'))+'</div>'+
+  '</div>';
+
+  html += '<table><thead><tr>'+
+    '<th>MAKİNE</th><th style=\"width:36mm\">GTİP NO</th><th style=\"width:12mm\" class=\"right\">ADET</th>'+
+    '<th style=\"width:28mm\" class=\"right\">BİRİM FİYAT</th><th style=\"width:30mm\" class=\"right\">FİYAT</th>'+
+    '</tr></thead><tbody>';
+  rows.forEach(function(r){
+    html += '<tr>'+
+      '<td>'+esc(r.desc)+'</td>'+
+      '<td>'+esc(r.gtip)+'</td>'+
+      '<td class=\"right\">'+esc(r.qty)+'</td>'+
+      '<td class=\"right\">'+esc(r.uprice)+'</td>'+
+      '<td class=\"right\">'+esc(r.total)+'</td>'+
+    '</tr>';
+  });
+  html += '</tbody></table>';
+
+  html += '<div class=\"totals\"><table>'+
+    '<tr><td class=\"lbl\">TUTAR</td><td class=\"right\">'+esc(document.getElementById('pfm-subtotal').textContent)+'</td></tr>'+
+    '<tr><td class=\"lbl\">KDV</td><td class=\"right\">'+esc(document.getElementById('pfm-vat').textContent)+'</td></tr>'+
+    '<tr><td class=\"lbl\">TOPLAM</td><td class=\"right\"><strong>'+esc(document.getElementById('pfm-total').textContent)+'</strong></td></tr>'+
+  '</table></div>';
+
+  if(stamp){
+    html += '<div class=\"stamp\"><img src=\"'+stamp+'\" alt=\"Orimak Kaşe\"></div>';
+  }
+
+  html += '<div class=\"foot\">'+esc(v('pfm-notes')).replace(/\\n/g,'<br>')+'</div>';
+  html += '<div class=\"kv\">'+
+    '<div class=\"k\">MAKİNE</div><div>'+esc(v('pfm-machine'))+'</div>'+
+    '<div class=\"k\">ÖDEME ŞEKLİ</div><div>'+esc(v('pfm-payment'))+'</div>'+
+    '<div class=\"k\">BANKA BİLGİLERİ</div><div>'+esc(v('pfm-bank'))+'</div>'+
+    '<div class=\"k\">IBAN</div><div>'+esc(v('pfm-iban'))+'</div>'+
+    '<div class=\"k\">GARANTİ</div><div>'+esc(v('pfm-warranty'))+'</div>'+
+    '<div class=\"k\">TESLİM ŞEKLİ</div><div>'+esc(v('pfm-delivery'))+'</div>'+
+    '<div class=\"k\">TESLİM TARİHİ</div><div>'+esc(v('pfm-delivery-date'))+'</div>'+
+    '<div class=\"k\">TEKLİF GEÇERLİLİK</div><div>'+esc(v('pfm-validity'))+'</div>'+
+    '<div class=\"k\">MONTAJ</div><div>'+esc(v('pfm-install'))+'</div>'+
+  '</div>';
+
+  html += '</div></body></html>';
+
+  var w = window.open('','_blank','width=900,height=700');
+  if(w){
+    w.document.write(html);
+    w.document.close();
+    setTimeout(function(){ w.focus(); w.print(); }, 650);
+  }
+};
+
+})();
+</script>
+<script>
+// Dosya en sona kadar yüklendikten sonra UI'yi başlat
+try{ if(window.__orimakStartUI) window.__orimakStartUI(); }catch(e){ console.error('UI başlatılamadı:', e); }
 </script>
 </body>
 </html>
