@@ -12870,7 +12870,6 @@ var FL = {
   search: '',
   sortCol: null,  // 'isim'|'gelis'|'birim'|'marj'|'satis'
   sortDir: 1,
-  saveTimer: null,
   loaded: false   // fiyat listesi bir kez yüklendi mi? tekrar sıfırlanmasın
 };
 
@@ -12897,30 +12896,70 @@ function flFmt(n, birim){
 
 function flEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+/* ── localStorage yedekleme ── */
+var FL_LS_KEY = 'orimak_fiyat_listesi_data';
+
+function flLocalSave(){
+  try{
+    localStorage.setItem(FL_LS_KEY, JSON.stringify({data: JSON.stringify(FL.data), updatedAt: Date.now()}));
+  }catch(e){}
+}
+
+function flLocalLoad(){
+  try{
+    var raw = localStorage.getItem(FL_LS_KEY);
+    if(!raw) return false;
+    var obj = JSON.parse(raw);
+    if(!obj||!obj.data) return false;
+    var saved = JSON.parse(obj.data);
+    FL_MACHINES.forEach(function(m){ if(saved[m.key]) FL.data[m.key] = saved[m.key]; });
+    return true;
+  }catch(e){ return false; }
+}
+
 /* ── Firebase kaydet/yükle ── */
+var _flIsLocalUpdate = false;
+
 function flSave(){
-  clearTimeout(FL.saveTimer);
-  FL.saveTimer = setTimeout(function(){
-    try{
-      if(window._db&&window._fsSetDoc&&window._fsDoc){
-        window._fsSetDoc(window._fsDoc(window._db,'malzeme','fiyat_listesi'),{
-          data: JSON.stringify(FL.data),
-          updatedAt: Date.now()
-        });
+  /* 1) Anında localStorage'a yaz — sayfa kapansa bile veri korunur */
+  flLocalSave();
+
+  /* 2) Anında Firebase'e yaz (debounce yok) */
+  try{
+    if(window._db&&window._fsSetDoc&&window._fsDoc){
+      _flIsLocalUpdate = true;
+      var p = window._fsSetDoc(window._fsDoc(window._db,'malzeme','fiyat_listesi'),{
+        data: JSON.stringify(FL.data),
+        updatedAt: Date.now()
+      });
+      if(p&&p.then){
+        p.then(function(){ setTimeout(function(){ _flIsLocalUpdate=false; },1500); })
+         .catch(function(e){ _flIsLocalUpdate=false; console.warn('FL Firebase kayıt hatası:',e); });
+      } else {
+        setTimeout(function(){ _flIsLocalUpdate=false; },1500);
       }
-    }catch(e){}
-  }, 800);
+    }
+  }catch(e){ _flIsLocalUpdate=false; console.warn('FL Firebase kayıt hatası:',e); }
 }
 
 function flLoad(){
-  /* Fiyat listesi zaten yuklendiyse tekrar Firebase'den cekme;
-     yeni arsiv/parti olusturulunca sifirlanmasin. */
   if(FL.loaded) return;
+
+  /* 1) localStorage'dan anında yükle — sadece geçici görüntü, Firebase her zaman üzerine yazar */
+  var hadLocal = flLocalLoad();
+  if(hadLocal){
+    /* loaded=true DEMİYORUZ — Firebase gelince üzerine yazacak */
+    var pg0 = (typeof ST_PAGES!=='undefined'&&typeof stActiveIdx!=='undefined') ? ST_PAGES[stActiveIdx] : null;
+    if(pg0 && pg0[0]==='FiyatListesi.html') window.flRender(null);
+  }
+
+  /* 2) Firebase'den yükle — HER ZAMAN Firebase ana kaynak */
   try{
     if(window._db&&window._fsGetDoc&&window._fsDoc){
       window._fsGetDoc(window._fsDoc(window._db,'malzeme','fiyat_listesi')).then(function(snap){
         if(snap&&snap.exists()&&snap.data().data){
           var raw = JSON.parse(snap.data().data);
+
           /* Eski key formatlarini normalize et */
           var norm = {};
           FL_MACHINES.forEach(function(m){ norm[m.key] = []; });
@@ -12934,18 +12973,58 @@ function flLoad(){
             var dest = matched || FL_MACHINES[0].key;
             if(Array.isArray(raw[oldKey])) norm[dest] = norm[dest].concat(raw[oldKey]);
           });
+
+          /* Firebase her zaman ana kaynak — üzerine yaz */
           FL.data = norm;
-          FL.loaded = true; /* bir kez yuklendi, artik sifirlanmayacak */
-          /* Sadece FiyatListesi tab'i aktifse render et;
-             degilse data hazir, tab acilinca stRenderContent -> flRender calisacak */
+          FL.loaded = true;
+          flLocalSave(); // localStorage'ı da güncelle
+
           var pg = (typeof ST_PAGES!=='undefined'&&typeof stActiveIdx!=='undefined') ? ST_PAGES[stActiveIdx] : null;
           if(pg && pg[0]==='FiyatListesi.html'){
             window.flRender(null);
           }
+        } else {
+          /* Firebase'de veri yok — localStorage varsa onu kullan */
+          FL.loaded = true;
         }
-      }).catch(function(){});
+      }).catch(function(e){
+        console.warn('FL Firebase yükleme hatası:',e);
+        FL.loaded = true; /* offline durumda localStorage verisini koru */
+      });
+
+      /* 3) Realtime listener — başka cihazdan yapılan değişiklikler anında gelir */
+      if(window._fsOnSnapshot){
+        window._fsOnSnapshot(window._fsDoc(window._db,'malzeme','fiyat_listesi'), function(snap){
+          if(_flIsLocalUpdate) return; // kendi kayıtlarımızı atla
+          if(snap&&snap.exists()&&snap.data().data){
+            try{
+              var raw2 = JSON.parse(snap.data().data);
+              var norm2 = {};
+              FL_MACHINES.forEach(function(m){ norm2[m.key] = []; });
+              Object.keys(raw2).forEach(function(oldKey){
+                var upper = String(oldKey).toUpperCase().replace(/[^A-Z0-9]/g,'');
+                var matched = null;
+                FL_MACHINES.forEach(function(m){
+                  var mk = m.key.toUpperCase().replace(/[^A-Z0-9]/g,'');
+                  if(!matched && (mk===upper || upper.indexOf(mk)>=0 || mk.indexOf(upper)>=0)) matched = m.key;
+                });
+                var dest = matched || FL_MACHINES[0].key;
+                if(Array.isArray(raw2[oldKey])) norm2[dest] = norm2[dest].concat(raw2[oldKey]);
+              });
+              FL.data = norm2;
+              FL.loaded = true;
+              flLocalSave();
+              var pg2 = (typeof ST_PAGES!=='undefined'&&typeof stActiveIdx!=='undefined') ? ST_PAGES[stActiveIdx] : null;
+              if(pg2 && pg2[0]==='FiyatListesi.html') window.flRender(null);
+            }catch(e){ console.warn('FL realtime parse hatası:',e); }
+          }
+        });
+      }
+    } else {
+      /* Firebase henüz hazır değil — localStorage verisiyle devam */
+      FL.loaded = hadLocal;
     }
-  }catch(e){}
+  }catch(e){ console.warn('FL yükleme hatası:',e); FL.loaded = hadLocal; }
 }
 
 /* ══ ANA RENDER ══ */
@@ -13222,7 +13301,7 @@ function bindEvents(box){
   if(saveBtn) saveBtn.addEventListener('click', function(){
     flSave();
     var b = box.querySelector('#flBadge');
-    if(b){b.textContent='✓ Kaydedildi';setTimeout(function(){if(b)b.textContent='';},2000);}
+    if(b){b.textContent='✓ Kaydedildi ('+flRows(flKey()).length+' malzeme)';setTimeout(function(){if(b)b.textContent='';},3000);}
   });
 }
 
@@ -13280,6 +13359,24 @@ window.flRender = function(box){
 window.flRenderIfActive = function(){ window.flRender(null); };
 
 /* ── Yükle ── */
+/* Sayfa açılır açılmaz localStorage'dan yükle (hızlı geçici görüntü — Firebase üzerine yazacak) */
+(function(){
+  try{
+    var raw = localStorage.getItem(FL_LS_KEY);
+    if(!raw) return;
+    var obj = JSON.parse(raw);
+    if(!obj||!obj.data) return;
+    var saved = JSON.parse(obj.data);
+    FL_MACHINES.forEach(function(m){ if(saved[m.key]) FL.data[m.key] = saved[m.key]; });
+    /* FL.loaded = true DEMİYORUZ — flLoad içinde Firebase gelince üzerine yazacak */
+  }catch(e){}
+})();
+
+/* Sayfa kapanırken son veriyi localStorage'a garantile */
+window.addEventListener('beforeunload', function(){
+  if(FL.loaded) flLocalSave();
+});
+
 setTimeout(flLoad, 2000);
 window.addEventListener('firebaseReady', function(){ setTimeout(flLoad, 500); }, {once:true});
 
