@@ -2367,7 +2367,10 @@ function buildSiparisPanel(si) {
   wrap.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
       <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#666;letter-spacing:1px;">ÜRETİMDEN SATIN ALMAYA SİPARİŞ FORMU</div>
-      ${window._currentRole !== 'viewer' ? `<button onclick="openSiparisEkle()" class="add-row-btn">＋ Yeni Sipariş</button>` : ''}
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button onclick="siparisPDFIndir()" style="background:rgba(227,100,0,.2);border:1px solid rgba(227,100,0,.4);color:#e36400;border-radius:6px;padding:6px 14px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:flex;align-items:center;gap:4px;">📄 PDF</button>
+        ${window._currentRole !== 'viewer' ? `<button onclick="openSiparisEkle()" class="add-row-btn">＋ Yeni Sipariş</button>` : ''}
+      </div>
     </div>
     <div class="table-wrap">
       <table id="siparisTable">
@@ -2715,6 +2718,155 @@ window.buildSiparisPanel = buildSiparisPanel;
 window.buildTeslimPanel = buildTeslimPanel;
 window.renderSiparisRows = renderSiparisRows;
 window.renderTeslimRows = renderTeslimRows;
+
+// ── SİPARİŞ PDF ──
+function siparisPDFIndir() {
+  const allRows = getSiparisRows();
+  if (allRows.length === 0) { alert('Sipariş kaydı bulunamadı.'); return; }
+
+  const teslimRows = getTeslimRows();
+  const onayliRows = allRows.filter(r => r.yetkiliOnay === 'Onaylandı');
+  const onayliCount = onayliRows.length;
+  const tumCount = allRows.length;
+
+  const modal = document.createElement('div');
+  modal.id = 'sipPdfSecimModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10010;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = `
+    <div style="background:#1a1a1a;border:1px solid #2e2e2e;border-top:3px solid var(--orange);border-radius:12px;width:420px;max-width:92vw;box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;">
+      <div style="padding:18px 24px 14px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;color:var(--orange);">📄 SİPARİŞ PDF</div>
+        <button id="sipPdfKapat" style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <div style="padding:20px 24px;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#999;letter-spacing:1px;margin-bottom:6px;">SİPARİŞ FORMU</div>
+        <div style="font-family:'Barlow',sans-serif;font-size:12px;color:#bbb;margin-bottom:18px;">Hangi siparişleri PDF olarak oluşturmak istiyorsunuz?</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <button id="sipPdfOnay" style="display:flex;align-items:center;justify-content:space-between;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;padding:14px 18px;cursor:pointer;transition:all .2s;${onayliCount === 0 ? 'opacity:.4;pointer-events:none;' : ''}">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:18px;">✅</span>
+              <div style="text-align:left;">
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:#92D050;">SADECE ONAYLANMIŞ</div>
+                <div style="font-family:'Barlow',sans-serif;font-size:11px;color:#888;margin-top:2px;">Yetkili onayı verilmiş siparişler</div>
+              </div>
+            </div>
+            <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#92D050;background:rgba(146,208,80,.12);padding:3px 10px;border-radius:12px;letter-spacing:1px;">${onayliCount} kayıt</span>
+          </button>
+          <button id="sipPdfTum" style="display:flex;align-items:center;justify-content:space-between;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;padding:14px 18px;cursor:pointer;transition:all .2s;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:18px;">📋</span>
+              <div style="text-align:left;">
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:var(--orange);">TÜM SİPARİŞLER</div>
+                <div style="font-family:'Barlow',sans-serif;font-size:11px;color:#888;margin-top:2px;">Tüm sipariş kayıtları</div>
+              </div>
+            </div>
+            <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--orange);background:rgba(245,166,35,.12);padding:3px 10px;border-radius:12px;letter-spacing:1px;">${tumCount} kayıt</span>
+          </button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  ['sipPdfOnay','sipPdfTum'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn || btn.style.pointerEvents === 'none') return;
+    btn.onmouseenter = () => { btn.style.borderColor = 'var(--orange)'; btn.style.background = '#222'; };
+    btn.onmouseleave = () => { btn.style.borderColor = '#3a3a3a'; btn.style.background = '#1e1e1e'; };
+  });
+
+  document.getElementById('sipPdfKapat').onclick = () => modal.remove();
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  document.getElementById('sipPdfOnay').onclick = () => {
+    modal.remove();
+    _siparisPDFOlustur(onayliRows, teslimRows);
+  };
+  document.getElementById('sipPdfTum').onclick = () => {
+    modal.remove();
+    _siparisPDFOlustur(allRows, teslimRows);
+  };
+}
+window.siparisPDFIndir = siparisPDFIndir;
+
+function _siparisPDFOlustur(rows, teslimRows) {
+  const tarih = new Date().toLocaleDateString('tr-TR');
+  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Sipariş Raporu</title>
+  <style>
+    @page{size:A4 landscape;margin:8mm;}
+    body{font-family:Arial,sans-serif;font-size:8px;color:#000;margin:0;}
+    h1{font-size:13px;margin-bottom:2px;}
+    .sub{font-size:9px;color:#666;margin-bottom:10px;}
+    table{width:100%;border-collapse:collapse;table-layout:fixed;}
+    th{background:#e07000;color:#fff;padding:4px 5px;text-align:left;font-size:7.5px;word-wrap:break-word;}
+    td{padding:4px 5px;border-bottom:1px solid #eee;font-size:8px;word-wrap:break-word;}
+    tr:nth-child(even){background:#f9f9f9;}
+    .onay{color:#2a7a2a;font-weight:bold;}
+    .bekle{color:#b35a00;font-weight:bold;}
+    .eksik{color:#c00;font-weight:bold;}
+    .tam{color:#2a7a2a;font-weight:bold;}
+    @media print{button{display:none!important;}}
+  </style></head><body>
+  <h1>ORİMAK MAKİNA — SİPARİŞ RAPORU</h1>
+  <div class="sub">${tarih} | ${rows.length} kayıt</div>
+  <table>
+  <thead><tr>
+    <th style="width:3%">NO</th><th style="width:8%">ÜRÜN KODU</th><th style="width:14%">ÜRÜN ADI</th>
+    <th style="width:5%">SİP. ADET</th><th style="width:9%">OLUŞTURAN</th><th style="width:7%">YETKİLİ ONAYI</th>
+    <th style="width:7%">OLUŞTURMA</th><th style="width:7%">TERMİN</th>
+    <th style="width:7%">GELİŞ TARİHİ</th><th style="width:7%">GELİŞ ONAYI</th>
+    <th style="width:5%">GELEN</th><th style="width:8%">TESLİM DURUMU</th><th style="width:7%">DURUM</th><th style="width:6%">TESLİM ALAN</th>
+  </tr></thead><tbody>`;
+
+  rows.forEach((r, i) => {
+    const teslim = teslimRows.find(t => t.urunKodu === r.urunKodu);
+    const gelisAdet = teslim ? teslim.gelisAdet : '';
+    const gelisTarihi = teslim ? teslim.gelisTarihi : '';
+    const teslimAlan = teslim ? teslim.teslimAlan : '';
+
+    const yClass = r.yetkiliOnay === 'Onaylandı' ? 'onay' : r.yetkiliOnay === 'Beklemede' ? 'bekle' : '';
+    const gClass = r.gelisOnay === 'Onaylandı' ? 'onay' : r.gelisOnay ? 'bekle' : '';
+
+    let durumText = 'Yeni Sipariş';
+    if (teslim || r.gelisOnay === 'Onaylandı') durumText = 'Teslim Alındı';
+    else if (r.yetkiliOnay === 'Onaylandı') durumText = 'Onay Bekliyor';
+
+    let teslimDurum = '—';
+    const sipAdetNum = parseFloat(r.sipAdet);
+    const gelisAdetNum = parseFloat(gelisAdet);
+    if (!isNaN(sipAdetNum) && !isNaN(gelisAdetNum)) {
+      if (gelisAdetNum < sipAdetNum) teslimDurum = '<span class="eksik">Eksik (' + (sipAdetNum - gelisAdetNum) + ')</span>';
+      else if (gelisAdetNum > sipAdetNum) teslimDurum = '<span class="bekle">Fazla (+' + (gelisAdetNum - sipAdetNum) + ')</span>';
+      else teslimDurum = '<span class="tam">✓ Tam</span>';
+    }
+
+    html += `<tr>
+      <td>${i+1}</td>
+      <td>${r.urunKodu||''}</td>
+      <td>${r.urunAdi||''}</td>
+      <td>${r.sipAdet||''}</td>
+      <td>${r.olusturan||''}</td>
+      <td class="${yClass}">${r.yetkiliOnay||'—'}</td>
+      <td>${r.olusturmaTarihi||''}</td>
+      <td>${r.terminTarihi||''}</td>
+      <td>${gelisTarihi||'—'}</td>
+      <td class="${gClass}">${r.gelisOnay||'—'}</td>
+      <td>${gelisAdet||'—'}</td>
+      <td>${teslimDurum}</td>
+      <td>${durumText}</td>
+      <td>${teslimAlan||'—'}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table></body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { win.print(); }, 500);
+}
 
 function renderTeslimRows() {
   const tbody = document.getElementById('teslimBody');
@@ -3345,18 +3497,88 @@ window.saveRowEdit = saveRowEdit;
 function grupPDFIndir(si, groupRi, groupAd) {
   // Grup başlığından sonraki satırları topla (bir sonraki gruba kadar)
   const rows = state[si].rows;
-  const grupRows = [];
+  const allGrupRows = [];
   let collecting = false;
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     if (r._group && i === groupRi) { collecting = true; continue; }
     if (collecting) {
-      if (r._group) break; // başka grup başladı, dur
-      if (r['3'] || r['2']) grupRows.push(r);
+      if (r._group) break;
+      if (r['3'] || r['2']) allGrupRows.push(r);
     }
   }
-  if (grupRows.length === 0) { alert('Bu grupta kayıt yok.'); return; }
+  if (allGrupRows.length === 0) { alert('Bu grupta kayıt yok.'); return; }
 
+  // Onaylı satır sayısını hesapla
+  const onayliRows = allGrupRows.filter(r => (r._yetkili || r.yetkili || '') === 'Onaylandı');
+  const onayliCount = onayliRows.length;
+  const tumCount = allGrupRows.length;
+
+  // Seçim modalı göster
+  const modal = document.createElement('div');
+  modal.id = 'pdfSecimModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10010;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = `
+    <div style="background:#1a1a1a;border:1px solid #2e2e2e;border-top:3px solid var(--orange);border-radius:12px;width:420px;max-width:92vw;box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;">
+      <div style="padding:18px 24px 14px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;color:var(--orange);">📄 PDF OLUŞTUR</div>
+        <button id="pdfSecimKapat" style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <div style="padding:20px 24px;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#999;letter-spacing:1px;margin-bottom:6px;">${groupAd}</div>
+        <div style="font-family:'Barlow',sans-serif;font-size:12px;color:#bbb;margin-bottom:18px;">Hangi satırları PDF olarak oluşturmak istiyorsunuz?</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <button id="pdfSecimOnay" style="display:flex;align-items:center;justify-content:space-between;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;padding:14px 18px;cursor:pointer;transition:all .2s;${onayliCount === 0 ? 'opacity:.4;pointer-events:none;' : ''}">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:18px;">✅</span>
+              <div style="text-align:left;">
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:#92D050;">SADECE ONAYLANMIŞ</div>
+                <div style="font-family:'Barlow',sans-serif;font-size:11px;color:#888;margin-top:2px;">Yetkili onayı verilmiş satırlar</div>
+              </div>
+            </div>
+            <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#92D050;background:rgba(146,208,80,.12);padding:3px 10px;border-radius:12px;letter-spacing:1px;">${onayliCount} kayıt</span>
+          </button>
+          <button id="pdfSecimTum" style="display:flex;align-items:center;justify-content:space-between;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;padding:14px 18px;cursor:pointer;transition:all .2s;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:18px;">📋</span>
+              <div style="text-align:left;">
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:var(--orange);">TÜM SATIRLAR</div>
+                <div style="font-family:'Barlow',sans-serif;font-size:11px;color:#888;margin-top:2px;">Gruptaki tüm malzemeler</div>
+              </div>
+            </div>
+            <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--orange);background:rgba(245,166,35,.12);padding:3px 10px;border-radius:12px;letter-spacing:1px;">${tumCount} kayıt</span>
+          </button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  // Hover efektleri
+  ['pdfSecimOnay','pdfSecimTum'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn || btn.style.pointerEvents === 'none') return;
+    btn.onmouseenter = () => { btn.style.borderColor = 'var(--orange)'; btn.style.background = '#222'; };
+    btn.onmouseleave = () => { btn.style.borderColor = '#3a3a3a'; btn.style.background = '#1e1e1e'; };
+  });
+
+  // Kapatma
+  document.getElementById('pdfSecimKapat').onclick = () => modal.remove();
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+  // Sadece onaylılar
+  document.getElementById('pdfSecimOnay').onclick = () => {
+    modal.remove();
+    _grupPDFOlustur(si, groupAd, onayliRows);
+  };
+  // Tüm satırlar
+  document.getElementById('pdfSecimTum').onclick = () => {
+    modal.remove();
+    _grupPDFOlustur(si, groupAd, allGrupRows);
+  };
+}
+
+// PDF HTML oluşturup yazdıran iç fonksiyon
+function _grupPDFOlustur(si, groupAd, grupRows) {
   const sheetName = SHEETS[si].name;
   const tarih = new Date().toLocaleDateString('tr-TR');
 
