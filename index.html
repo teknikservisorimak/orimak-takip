@@ -3404,6 +3404,7 @@ function openRowEdit(si, ri) {
   document.getElementById('re_sip').value     = toISODate(r._sipTarihi || r.sipTarihi || '');
   document.getElementById('re_termin').value  = toISODate(r._terminTarihi || r.terminTarihi || '');
   document.getElementById('re_teslim').value  = toISODate(r._teslimTarihi || r.teslimTarihi || '');
+  document.getElementById('re_sipDurumu').value = r._sipDurumu || r.sipDurumu || '';
   // Sipariş ve termin tarihi sadece manager/admin girebilir
   const canEditTarih = (roleCheck === 'admin' || roleCheck === 'manager');
   document.getElementById('re_sip').disabled    = !canEditTarih;
@@ -3493,6 +3494,7 @@ async function saveRowEdit() {
   r._sipTarihi     = fromISODate(document.getElementById('re_sip').value);
   r._terminTarihi  = fromISODate(document.getElementById('re_termin').value);
   r._teslimTarihi  = fromISODate(document.getElementById('re_teslim').value);
+  r._sipDurumu     = document.getElementById('re_sipDurumu').value;
   if (isOnline) await apiUpdate(si, ri, 0, '');
   rebuildTable(si);
   updateStats(si);
@@ -3894,6 +3896,14 @@ function showAdminMsg(text, type) {
       <div class="rowedit-field">
         <label>Teslim Tarihi</label>
         <input type="date" id="re_teslim"/>
+      </div>
+      <div class="rowedit-field">
+        <label>Sipariş Durumu</label>
+        <select id="re_sipDurumu">
+          <option value="">—</option>
+          <option value="Sipariş Edildi">Sipariş Edildi</option>
+          <option value="Sipariş Edilmedi">Sipariş Edilmedi</option>
+        </select>
       </div>
     </div>
     <div class="rowedit-footer">
@@ -7973,7 +7983,7 @@ const OFFLINE_DATA = [
   }
 ];
 
-const HEADERS = ['NO','MALZEME KODU','MALZEME ADI','ÖLÇÜLER','ADET','MAKİNE SAYISI','GEREKEN ADET','YETKİLİ ONAYI','SİPARİŞ TARİHİ','TERMİN TARİHİ','TESLİM TARİHİ','GELEN ADET','GELİŞ ONAYI','TESLİMAT DURUMU','İŞLEMLER'];
+const HEADERS = ['NO','MALZEME KODU','MALZEME ADI','ÖLÇÜLER','ADET','MAKİNE SAYISI','GEREKEN ADET','YETKİLİ ONAYI','SİPARİŞ TARİHİ','TERMİN TARİHİ','TESLİM TARİHİ','GELEN ADET','GELİŞ ONAYI','TESLİMAT DURUMU','SİPARİŞ DURUMU','İŞLEMLER'];
 
 var SHEETS = [];
 var state = {};
@@ -8020,7 +8030,8 @@ function buildState() {
         _gelis: row.gelis || '',
         _gelisKisi: row.gelisKisi || '',
         _gelenAdet: row.gelenAdet || '',
-        _makine: row.makine || ''
+        _makine: row.makine || '',
+        _sipDurumu: row.sipDurumu || ''
       });
     });
   });
@@ -8502,6 +8513,7 @@ function makeRow(si, ri, row) {
       { type:'gelen' },
       { type:'gelis' },
       { type:'teslimat' },
+      { type:'sipDurumu' },
       { type:'actions' },
     ];
     cols.forEach((c, ci) => {
@@ -8648,6 +8660,37 @@ function makeRow(si, ri, row) {
           };
         }
         td.appendChild(inp);
+      } else if (c.type === 'sipDurumu') {
+        const sipDurSel = document.createElement('select');
+        sipDurSel.className = 'onay-select';
+        sipDurSel.style.cssText = 'min-width:100px;';
+        const sipDurOpts = ['', 'Sipariş Edildi', 'Sipariş Edilmedi'];
+        sipDurOpts.forEach(o => {
+          const opt = document.createElement('option');
+          opt.value = o; opt.textContent = o || '—';
+          if (o === (row._sipDurumu || '')) opt.selected = true;
+          sipDurSel.appendChild(opt);
+        });
+        if (window._currentRole === 'viewer') {
+          sipDurSel.disabled = true;
+        }
+        sipDurSel.onchange = () => {
+          state[si].rows[ri]._sipDurumu = sipDurSel.value;
+          refreshRow(si, ri);
+          if (isOnline) apiUpdate(si, ri, 14, sipDurSel.value);
+        };
+        // Renk badge
+        const sipDurVal = row._sipDurumu || '';
+        if (sipDurVal === 'Sipariş Edildi') {
+          sipDurSel.style.background = 'rgba(146,208,80,.15)';
+          sipDurSel.style.color = '#92D050';
+          sipDurSel.style.borderColor = 'rgba(146,208,80,.3)';
+        } else if (sipDurVal === 'Sipariş Edilmedi') {
+          sipDurSel.style.background = 'rgba(245,166,35,.15)';
+          sipDurSel.style.color = '#F5A623';
+          sipDurSel.style.borderColor = 'rgba(245,166,35,.3)';
+        }
+        td.appendChild(sipDurSel);
       } else if (c.type === 'actions') {
         const div = document.createElement('div');
         div.className = 'row-actions';
@@ -8921,6 +8964,7 @@ async function apiUpdate(si, rowId, col, val) {
     clean.sipTarihi  = r._sipTarihi  !== undefined ? r._sipTarihi  : (r.sipTarihi  || '');
     clean.terminTarihi = r._terminTarihi !== undefined ? r._terminTarihi : (r.terminTarihi || '');
     clean.teslimTarihi = r._teslimTarihi !== undefined ? r._teslimTarihi : (r.teslimTarihi || '');
+    clean.sipDurumu    = r._sipDurumu    !== undefined ? r._sipDurumu    : (r.sipDurumu    || '');
     return clean;
   });
   await fbSaveAll();
@@ -8984,7 +9028,7 @@ async function addRow() {
   try {
 
   const newRow = { '2': code || '', '3': name, '4': olcu || '', '5': adet || '',
-    _group: false, _rowNo: null, _yetkili: '', _yetkiliKisi: '', _gelis: '', _gelenAdet: '', _makine: '',
+    _group: false, _rowNo: null, _yetkili: '', _yetkiliKisi: '', _gelis: '', _gelenAdet: '', _makine: '', _sipDurumu: '',
     _notif: { type: 'new', user: window._currentUser || '', ts: Date.now() } };
 
   // Firebase'e kaydet
