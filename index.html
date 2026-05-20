@@ -2631,7 +2631,7 @@ function openSiparisEkle(editIdx = -1) {
         <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;letter-spacing:2px;color:var(--orange);">${editIdx>=0?'✏️ SİPARİŞ DÜZENLE':'➕ YENİ SİPARİŞ'}</h3>
         <button onclick="document.getElementById('siparisModal').remove()" style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;">✕</button>
       </div>
-      <div style="padding:20px 24px;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div style="padding:20px 24px;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;gap:12px;background:#1a1a1a;">
         ${siparisField('Ürün Kodu','sp_kod',r.urunKodu||'')}
         ${siparisField('Ürün Adı','sp_ad',r.urunAdi||'','full')}
         ${siparisField('Sipariş Adedi','sp_adet',r.sipAdet||'')}
@@ -2652,7 +2652,7 @@ window.openSiparisEkle = openSiparisEkle;
 function siparisField(label, id, val, cls='') {
   return `<div style="${cls==='full'?'grid-column:1/-1;':''}">
     <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:5px;font-family:'Barlow Condensed',sans-serif;">${label}</label>
-    <input id="${id}" type="text" value="${(val||'').replace(/"/g,'&quot;')}" style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:8px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;color-scheme:dark;" onfocus="this.style.borderColor='var(--orange)'" onblur="this.style.borderColor='#3a3a3a'"/>
+    <input id="${id}" type="text" value="${(val||'').replace(/"/g,'&quot;')}" style="width:100%;background:#222 !important;border:1px solid #3a3a3a;border-radius:5px;padding:8px 10px;color:#eee !important;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--orange)'" onblur="this.style.borderColor='#3a3a3a'"/>
   </div>`;
 }
 
