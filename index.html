@@ -427,42 +427,69 @@ function requestNotifPermission() {
   }
 }
 
-// ── Giriş Sonrası Başlat ──
-var _origOnLoggedIn = window.onLoggedIn;
-window.onLoggedIn = function(u) {
-  if (_origOnLoggedIn) _origOnLoggedIn(u);
-  var role = u.role || u.rol || 'viewer';
-  if (role === 'manager' || role === 'admin') {
-    requestNotifPermission();
-    // Firebase hazır olunca dinlemeye başla
-    var tries = 0;
-    var poll = setInterval(function() {
-      tries++;
-      if (window._db && window._fsCollection && window._fsOnSnapshot) {
-        clearInterval(poll);
-        startPushListener();
-      } else if (tries > 30) {
-        clearInterval(poll);
-      }
-    }, 300);
-  }
-};
+// ── Firebase hazır olunca push dinleyicisini başlat ──
+function _startPushWhenReady() {
+  var tries = 0;
+  var poll = setInterval(function() {
+    tries++;
+    if (window._db && window._fsCollection && window._fsOnSnapshot) {
+      clearInterval(poll);
+      startPushListener();
+    } else if (tries > 60) { // 18 saniye bekle
+      clearInterval(poll);
+    }
+  }, 300);
+}
 
-// Sayfa yenilenince oturum varsa da başlat
-window.addEventListener('firebaseReady', function() {
+// ── Giriş Sonrası Başlat ──
+// NOT: onLoggedIn bu noktada henüz tanımlanmamış olabilir,
+// bu yüzden window.onLoggedIn'i doğrudan wrap etmek yerine
+// load sonrası patch ediyoruz.
+window.addEventListener('load', function() {
+  var _origOnLoggedIn2 = window.onLoggedIn;
+  window.onLoggedIn = function(u) {
+    if (_origOnLoggedIn2) _origOnLoggedIn2(u);
+    var role = u.role || u.rol || 'viewer';
+    if (role === 'manager' || role === 'admin') {
+      requestNotifPermission();
+      _startPushWhenReady();
+    }
+  };
+}, { once: true });
+
+// ── Sayfa yenilenince oturum varsa da başlat ──
+// firebaseReady event'i module script'ten geliyor ve race condition
+// oluşabilir. Hem event'i dinle hem de polling yap (hangisi önce gelirse).
+var _pushStartedFromSession = false;
+function _tryStartFromSession() {
+  if (_pushStartedFromSession) return;
   try {
     var sess = localStorage.getItem('orimak_auth');
     if (!sess) return;
     var u    = JSON.parse(sess);
     var role = u.role || u.rol || 'viewer';
     if (role === 'manager' || role === 'admin') {
+      _pushStartedFromSession = true;
       window._currentUser = u.user || '';
       window._currentRole = role;
       requestNotifPermission();
-      setTimeout(startPushListener, 500);
+      _startPushWhenReady();
     }
   } catch(e) {}
+}
+
+// Yöntem 1: firebaseReady event'ini yakala
+window.addEventListener('firebaseReady', function() {
+  _tryStartFromSession();
 }, { once: true });
+
+// Yöntem 2: Event kaçırıldıysa polling ile yakala (module race condition)
+var _fbReadyPoll = setInterval(function() {
+  if (window._db && window._fsCollection && window._fsOnSnapshot) {
+    clearInterval(_fbReadyPoll);
+    _tryStartFromSession();
+  }
+}, 200);
 
 // ════════════════════════════════════════════════════════
 // ── BİLDİRİM KALICILIĞI + SAYFA BAŞINA TEMİZLE BUTONU ──
