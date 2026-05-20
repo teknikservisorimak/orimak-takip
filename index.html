@@ -2535,9 +2535,9 @@ function renderSiparisRows() {
     yetkiliDiv.appendChild(yetkiliKisiSip);
     yetkiliTd.appendChild(yetkiliDiv);
     tr.appendChild(yetkiliTd);
-    tr.appendChild(mkTd(r.olusturmaTarihi||'', 'font-size:11px;color:#ddd;'));
-    tr.appendChild(mkTd(r.terminTarihi||'', 'font-size:11px;' + (isTerminYakin(r.terminTarihi)?'color:#f5a623;font-weight:700;':'')));
-    tr.appendChild(mkTd(gelisTarihi, 'font-size:11px;color:#ddd;'));
+    tr.appendChild(mkTd(r.olusturmaTarihi||'', 'font-size:11px;color:#333;'));
+    tr.appendChild(mkTd(r.terminTarihi||'', 'font-size:11px;' + (isTerminYakin(r.terminTarihi)?'color:#e36400;font-weight:700;':'color:#333;')));
+    tr.appendChild(mkTd(gelisTarihi, 'font-size:11px;color:#333;'));
     tr.appendChild(mkTdEl(mkSiparisSelect(['','Onaylandı','Beklemede'], r.gelisOnay, v => { rows[i].gelisOnay=v; saveSiparisRows(); renderSiparisRows(); })));
     tr.appendChild(mkTd(String(gelisAdet||''), 'text-align:center;'));
 
@@ -2559,8 +2559,8 @@ function renderSiparisRows() {
     tr.appendChild(mkTd(teslimUyariHtml, 'text-align:center;'));
 
     tr.appendChild(mkTd(`<span class="sp-durum ${durumClass}">${durum}</span>`));
-    tr.appendChild(mkTd(r.notlar||'', 'font-size:11px;color:#ddd;'));
-    tr.appendChild(mkTd(teslimAlan, 'font-size:11px;color:#ddd;'));
+    tr.appendChild(mkTd(r.notlar||'', 'font-size:11px;color:#333;'));
+    tr.appendChild(mkTd(teslimAlan, 'font-size:11px;color:#333;'));
 
     const tdAct = document.createElement('td');
     const actDiv = document.createElement('div');
@@ -2652,7 +2652,7 @@ window.openSiparisEkle = openSiparisEkle;
 function siparisField(label, id, val, cls='') {
   return `<div style="${cls==='full'?'grid-column:1/-1;':''}">
     <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:5px;font-family:'Barlow Condensed',sans-serif;">${label}</label>
-    <input id="${id}" type="text" value="${(val||'').replace(/"/g,'&quot;')}" style="width:100%;background:#fff;border:1px solid #ccc;border-radius:5px;padding:8px 10px;color:#111;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--orange)'" onblur="this.style.borderColor='#ccc'"/>
+    <input id="${id}" type="text" value="${(val||'').replace(/"/g,'&quot;')}" style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:8px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;color-scheme:dark;" onfocus="this.style.borderColor='var(--orange)'" onblur="this.style.borderColor='#3a3a3a'"/>
   </div>`;
 }
 
