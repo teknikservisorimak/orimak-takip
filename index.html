@@ -1089,8 +1089,10 @@ tr.group-hidden{display:none !important;}
 .rowedit-field{display:flex;flex-direction:column;gap:5px;}
 .rowedit-field.full{grid-column:1/-1;}
 .rowedit-field label{font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#bbb;font-family:'Barlow Condensed',sans-serif;}
-.rowedit-field input,.rowedit-field select{background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:8px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;transition:border-color .2s;}
+.rowedit-field input,.rowedit-field select{background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:8px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;transition:border-color .2s;color-scheme:dark;}
 .rowedit-field input:focus,.rowedit-field select:focus{border-color:var(--orange);}
+.rowedit-field input[type=date]{color:#eee;color-scheme:dark;}
+.rowedit-field input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.6);cursor:pointer;}
 .rowedit-field select option{background:#1a1a1a;}
 .rowedit-footer{padding:16px 24px;border-top:1px solid #2a2a2a;display:flex;gap:8px;justify-content:flex-end;}
 .rowedit-save{padding:10px 24px;background:var(--orange);color:#1a1a1a;border:none;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;letter-spacing:1px;cursor:pointer;}
@@ -1108,6 +1110,10 @@ tr.group-hidden{display:none !important;}
 .date-input{width:110px;border:1px solid rgba(0,0,0,.2);border-radius:4px;padding:3px 5px;font-size:11px;text-align:center;background:rgba(255,255,255,.55);font-family:'Barlow',sans-serif;outline:none;transition:border-color .2s,background .2s;color:#1a1a1a;cursor:pointer;}
 .date-input:focus{border-color:var(--orange);background:white;}
 .date-input::-webkit-calendar-picker-indicator{opacity:.6;cursor:pointer;}
+/* Koyu temadaki tüm date inputları için renk düzeltmesi */
+.rowedit-field input[type=date]{color:#eee;color-scheme:dark;}
+.rowedit-field input[type=date]::-webkit-datetime-edit,.rowedit-field input[type=date]::-webkit-datetime-edit-fields-wrapper{color:#eee;}
+.rowedit-field input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.6);cursor:pointer;}
 .teslimat-ok{font-size:11px;font-weight:700;color:#1a7a1a;white-space:nowrap;}
 .teslimat-eksik{font-size:11px;font-weight:700;color:#fff;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.5);}
 .teslimat-fazla{font-size:11px;font-weight:700;color:#0055bb;white-space:nowrap;}
@@ -2646,7 +2652,7 @@ window.openSiparisEkle = openSiparisEkle;
 function siparisField(label, id, val, cls='') {
   return `<div style="${cls==='full'?'grid-column:1/-1;':''}">
     <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:5px;font-family:'Barlow Condensed',sans-serif;">${label}</label>
-    <input id="${id}" type="text" value="${(val||'').replace(/"/g,'&quot;')}" style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:8px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--orange)'" onblur="this.style.borderColor='#3a3a3a'"/>
+    <input id="${id}" type="text" value="${(val||'').replace(/"/g,'&quot;')}" style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:8px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;color-scheme:dark;" onfocus="this.style.borderColor='var(--orange)'" onblur="this.style.borderColor='#3a3a3a'"/>
   </div>`;
 }
 
@@ -11881,7 +11887,7 @@ if (window._db) setTimeout(stLoad, 1800);
 .ttm-field{display:flex;flex-direction:column;gap:5px;}
 .ttm-field.full{grid-column:1/-1;}
 .ttm-field label{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#666;}
-.ttm-field input[type=date],.ttm-field select{background:#1e1e1e;border:1px solid #303030;border-radius:6px;padding:9px 12px;color:#ddd;font-size:13px;font-family:'Barlow',sans-serif;outline:none;transition:border-color .2s;width:100%;box-sizing:border-box;}
+.ttm-field input[type=date],.ttm-field select{background:#1e1e1e;border:1px solid #303030;border-radius:6px;padding:9px 12px;color:#ddd;font-size:13px;font-family:'Barlow',sans-serif;outline:none;transition:border-color .2s;width:100%;box-sizing:border-box;color-scheme:dark;}
 .ttm-field input[type=date]:focus,.ttm-field select:focus{border-color:var(--orange);}
 .ttm-field input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.4);cursor:pointer;}
 .ttm-checkbox-row{display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 0;}
