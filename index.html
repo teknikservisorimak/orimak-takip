@@ -16,6 +16,7 @@ _style.textContent = [
   '#orimak-notif-container{',
   '  position:fixed;top:80px;right:20px;z-index:99999;',
   '  display:flex;flex-direction:column;gap:10px;pointer-events:none;',
+  '  max-height:calc(100vh - 100px);overflow:visible;',
   '}',
   '.orimak-notif{',
   '  background:#1e1e1e;border:1px solid #2e2e2e;border-left:4px solid #F5A623;',
@@ -49,13 +50,13 @@ _style.textContent = [
   '@keyframes rowBadgePulse{from{opacity:1}to{opacity:.4}}',
   'tr.row-highlight-active td{box-shadow:inset 0 0 0 2px #F5A623!important;}',
   'tr.row-highlight-edit td{box-shadow:inset 0 0 0 2px #7ab8f5!important;}',
-  '#orimak-notif-container{display:flex;flex-direction:column;gap:8px;}',
+  '#orimak-notif-container{display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 100px);}',
   '#orimak-clear-btn{',
-  '  order:9999;margin-top:2px;padding:5px 10px;',
-  '  background:rgba(30,30,30,.9);border:1px solid #2e2e2e;border-radius:6px;',
-  '  font-size:10px;font-family:"Barlow Condensed",sans-serif;letter-spacing:1px;',
-  '  color:#666;cursor:pointer;pointer-events:all;text-align:center;',
-  '  transition:color .2s,border-color .2s;',
+  '  order:-1;margin-bottom:4px;padding:8px 16px;',
+  '  background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.4);border-radius:8px;',
+  '  font-size:12px;font-weight:700;font-family:"Barlow Condensed",sans-serif;letter-spacing:1.5px;',
+  '  color:#F5A623;cursor:pointer;pointer-events:all;text-align:center;',
+  '  transition:background .2s,color .2s,border-color .2s;',
   '}',
 ].join('');
 document.head.appendChild(_style);
@@ -73,18 +74,23 @@ function getContainer() {
     _clearBtn.innerHTML = '🗑 Bildirimleri Temizle';
     _clearBtn.style.cssText = [
       'display:none;',
-      'text-align:right;',
-      'padding:4px 8px;',
-      'font-size:10px;',
+      'order:-1;',
+      'text-align:center;',
+      'padding:8px 16px;',
+      'font-size:12px;',
+      'font-weight:700;',
       'font-family:"Barlow Condensed",sans-serif;',
-      'letter-spacing:1px;',
-      'color:#666;',
+      'letter-spacing:1.5px;',
+      'color:#F5A623;',
+      'background:rgba(245,166,35,.15);',
+      'border:1px solid rgba(245,166,35,.4);',
+      'border-radius:8px;',
       'cursor:pointer;',
       'pointer-events:all;',
       'user-select:none;',
     ].join('');
-    _clearBtn.onmouseenter = function() { _clearBtn.style.color = '#F5A623'; };
-    _clearBtn.onmouseleave = function() { _clearBtn.style.color = '#666'; };
+    _clearBtn.onmouseenter = function() { _clearBtn.style.background = 'rgba(245,166,35,.3)'; _clearBtn.style.color = '#fff'; };
+    _clearBtn.onmouseleave = function() { _clearBtn.style.background = 'rgba(245,166,35,.15)'; _clearBtn.style.color = '#F5A623'; };
     _clearBtn.onclick = function() {
       // Sadece bu ekrandaki toast'ları kaldır
       var toasts = _container.querySelectorAll('.orimak-notif');
