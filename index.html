@@ -2829,7 +2829,9 @@ function listeMailOnizlemeGuncelle() {
   const el = document.getElementById('listeMailOnizleme');
   const filtreAdi = filtre === 'hepsi' ? 'Tümü' : filtre === 'onaylandi' ? 'Onaylandı' : 'Beklemede';
   const grupAdi = grupSel && grupSel.value !== 'tumu' ? ' · ' + grupSel.options[grupSel.selectedIndex].text : '';
-  if (el) el.innerHTML = `<span style="color:#5bc8e8;font-weight:700;">${seciliRows.length} satır</span> gönderilecek <span style="color:#888;">(${filtreAdi}${grupAdi})</span>`;
+  // Debug: ilk 3 satırın _yetkili değerini göster
+  const debugVals = seciliRows.slice(0,3).map(r => r._yetkili || r.yetkili || 'BOŞ').join(', ');
+  if (el) el.innerHTML = `<span style="color:#5bc8e8;font-weight:700;">${seciliRows.length} satır</span> gönderilecek <span style="color:#888;">(${filtreAdi}${grupAdi})</span><br><span style="color:#555;font-size:10px;">örnek: ${debugVals||'—'}</span>`;
 }
 window.listeMailOnizlemeGuncelle = listeMailOnizlemeGuncelle;
 
