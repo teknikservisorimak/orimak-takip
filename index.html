@@ -2750,16 +2750,6 @@ function openListeMailPopup() {
             <option value="tumu">— Tüm gruplar</option>
             ${grupOptions}
           </select>
-        </div>
-        <div id="listeMailOnayliGruplarDiv" style="display:none;">
-          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#5bc8e8;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">✅ Hangi grupların onaylananları gönderilsin?</label>
-          <div id="listeMailOnayliGruplarList" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;padding-right:4px;">
-            ${gruplar.map((g,i) => `
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 12px;background:#1a2a1a;border:1px solid #2a4a2a;border-radius:6px;">
-              <input type="checkbox" name="listeMailOnayliGrup" value="grup_${i}" checked style="accent-color:#5bc8e8;width:14px;height:14px;" onchange="listeMailOnizlemeGuncelle()"/>
-              <span style="color:#eee;font-size:13px;">📁 ${g}</span>
-            </label>`).join('')}
-          </div>
         </div>` : ''}
 
         <div>
@@ -2796,7 +2786,7 @@ function openListeMailPopup() {
 }
 window.openListeMailPopup = openListeMailPopup;
 
-function listeMailSatirlariBul(filtre, grupFiltre, seciliGruplar) {
+function listeMailSatirlariBul(filtre, grupFiltre) {
   const si = activeSheet;
   const rows = state[si].rows;
   const grupMap = [];
@@ -2812,11 +2802,7 @@ function listeMailSatirlariBul(filtre, grupFiltre, seciliGruplar) {
 
   // Grup filtresi uygula
   let grupFiltreli = grupMap;
-  if (seciliGruplar && seciliGruplar.length > 0) {
-    // Checkbox'lardan gelen çoklu seçim
-    const seciliIdxler = seciliGruplar.map(v => parseInt(v.replace('grup_','')));
-    grupFiltreli = grupMap.filter((_, i) => seciliIdxler.includes(i));
-  } else if (grupFiltre && grupFiltre !== 'tumu') {
+  if (grupFiltre && grupFiltre !== 'tumu') {
     const idx = parseInt(grupFiltre.replace('grup_',''));
     grupFiltreli = grupMap[idx] ? [grupMap[idx]] : [];
   }
@@ -2837,25 +2823,15 @@ function listeMailOnizlemeGuncelle() {
   const radios = document.querySelectorAll('input[name=listeMailFiltre]');
   let filtre = 'hepsi';
   radios.forEach(r => { if (r.checked) filtre = r.value; });
-
-  // Onaylı grup seçici göster/gizle
-  const onayliDiv = document.getElementById('listeMailOnayliGruplarDiv');
   const grupSel = document.getElementById('listeMailGrupSel');
-  if (onayliDiv) onayliDiv.style.display = filtre === 'onaylandi' ? 'block' : 'none';
-
-  // Grup filtresi: onaylandi seçiliyse checkbox'lardan al, değilse dropdown'dan
-  let seciliGruplar = null; // null = tümü
-  if (filtre === 'onaylandi' && onayliDiv) {
-    const checkboxlar = document.querySelectorAll('input[name=listeMailOnayliGrup]:checked');
-    seciliGruplar = Array.from(checkboxlar).map(c => c.value);
-  }
-
-  const grupFiltre = (seciliGruplar === null && grupSel) ? grupSel.value : 'tumu';
-  const { seciliRows } = listeMailSatirlariBul(filtre, grupFiltre, seciliGruplar);
+  const grupFiltre = grupSel ? grupSel.value : 'tumu';
+  const { seciliRows } = listeMailSatirlariBul(filtre, grupFiltre);
   const el = document.getElementById('listeMailOnizleme');
   const filtreAdi = filtre === 'hepsi' ? 'Tümü' : filtre === 'onaylandi' ? 'Onaylandı' : 'Beklemede';
-  const grupAdi = grupSel && grupSel.value !== 'tumu' && filtre !== 'onaylandi' ? ' · ' + grupSel.options[grupSel.selectedIndex].text : '';
-  if (el) el.innerHTML = `<span style="color:#5bc8e8;font-weight:700;">${seciliRows.length} satır</span> gönderilecek <span style="color:#888;">(${filtreAdi}${grupAdi})</span>`;
+  const grupAdi = grupSel && grupSel.value !== 'tumu' ? ' · ' + grupSel.options[grupSel.selectedIndex].text : '';
+  // Debug: ilk 3 satırın _yetkili değerini göster
+  const debugVals = seciliRows.slice(0,3).map(r => r._yetkili || r.yetkili || 'BOŞ').join(', ');
+  if (el) el.innerHTML = `<span style="color:#5bc8e8;font-weight:700;">${seciliRows.length} satır</span> gönderilecek <span style="color:#888;">(${filtreAdi}${grupAdi})</span><br><span style="color:#555;font-size:10px;">örnek: ${debugVals||'—'}</span>`;
 }
 window.listeMailOnizlemeGuncelle = listeMailOnizlemeGuncelle;
 
@@ -2869,13 +2845,6 @@ async function listeMailGonder() {
   const grupSel = document.getElementById('listeMailGrupSel');
   const grupFiltre = grupSel ? grupSel.value : 'tumu';
 
-  // Onaylandi seçiliyse checkbox'lardan grup listesi al
-  let seciliGruplar = null;
-  if (filtre === 'onaylandi') {
-    const checkboxlar = document.querySelectorAll('input[name=listeMailOnayliGrup]:checked');
-    seciliGruplar = Array.from(checkboxlar).map(c => c.value);
-  }
-
   if (!yetkiliSel || yetkiliSel.value === '') {
     yetkiliSel.style.borderColor = '#f87171';
     setTimeout(() => yetkiliSel.style.borderColor = '#3a3a3a', 1500);
@@ -2885,7 +2854,7 @@ async function listeMailGonder() {
   const y = yetkililer[parseInt(yetkiliSel.value)];
   if (!y) return;
 
-  const { seciliRows, grupMap } = listeMailSatirlariBul(filtre, grupFiltre, seciliGruplar);
+  const { seciliRows, grupMap } = listeMailSatirlariBul(filtre, grupFiltre);
   if (seciliRows.length === 0) { alert('Gönderilecek satır bulunamadı!'); return; }
 
   btn.textContent = '⏳ Gönderiliyor...'; btn.disabled = true;
@@ -2934,22 +2903,16 @@ window.listeMailGonder = listeMailGonder;
 
 function listeMailGrupHtml(grupAdi, rows) {
   const baslik = grupAdi ? `<div style="background:#333;color:#fff;padding:8px 12px;font-weight:700;font-size:12px;letter-spacing:1px;">${grupAdi}</div>` : '';
-  const satirlar = rows.map(r => {
-    const sipT = r._sipTarihi || r.sipTarihi || '—';
-    const terT = r._terminTarihi !== undefined ? r._terminTarihi : (r.terminTarihi || '—');
-    return `
+  const satirlar = rows.map(r => `
     <tr>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#333;">${r['2']||'—'}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#333;">${r['3']||'—'}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#555;">${r['4']||'—'}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#333;">${r['5']||'—'}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#555;">${sipT}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#b07000;font-weight:600;">${terT}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:${(r._yetkili==='Onaylandı'||r.yetkili==='Onaylandı')?'#2a7a2a':(r._yetkili==='Beklemede'||r.yetkili==='Beklemede')?'#b07000':'#888'};">
         ${r._yetkili||r.yetkili||'—'}
       </td>
-    </tr>`;
-  }).join('');
+    </tr>`).join('');
   return `${baslik}
     <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
       <thead>
@@ -2958,8 +2921,6 @@ function listeMailGrupHtml(grupAdi, rows) {
           <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Kod</th>
           <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Ölçü</th>
           <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Adet</th>
-          <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Sipariş Tarihi</th>
-          <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Termin Tarihi</th>
           <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Yetkili Onayı</th>
         </tr>
       </thead>
@@ -3109,32 +3070,115 @@ async function mailManuel(siparis, yetkiliMail, yetkiliAd) {
 }
 window.mailManuel = mailManuel;
 
-// Termin kontrolü — her 1 saatte bir çalışır, 3 gün kalan siparişlere uyarı gönderir
+// Termin kontrolü — her 1 saatte bir çalışır, ayarlardaki gün sayısına göre uyarı gönderir
 function terminKontrol() {
-  const rows = getSiparisRows();
+  const ayarlar = getMailAyarlari();
+  if (!ayarlar.termin.aktif) return;
   const yetkililer = getYetkililer();
   if (yetkililer.length === 0) return;
+  if (ayarlar.termin.yetkililer.length === 0) return;
+
   const bugun = new Date(); bugun.setHours(0,0,0,0);
-  rows.forEach(r => {
-    if (!r.terminTarihi || !r.yetkiliMailIdx) return;
-    const parcalar = r.terminTarihi.split('.');
-    if (parcalar.length !== 3) return;
-    const termin = new Date(parcalar[2], parcalar[1]-1, parcalar[0]);
-    const fark = Math.round((termin - bugun) / (1000*60*60*24));
-    if (fark >= 0 && fark <= 3) {
-      const y = yetkililer[r.yetkiliMailIdx];
-      if (y) {
-        const terminKey = `termin_uyari_${r.urunKodu}_${r.terminTarihi}`;
-        if (!sessionStorage.getItem(terminKey)) {
-          sessionStorage.setItem(terminKey, '1');
-          mailTerminUyari(r, y.mail, y.ad);
-        }
+  const gunSiniri = ayarlar.termin.gun || 3;
+
+  // Hangi sayfalar taransın: ayarlarda seçiliyse onlar, seçili değilse hiçbirini tarama
+  const sayfaIdxler = ayarlar.termin.sayfalar;
+  if (sayfaIdxler.length === 0) return;
+
+  sayfaIdxler.forEach(si => {
+    const sheet = SHEETS[si];
+    if (!sheet) return;
+    const rows = sheet.rows || (state[si] && state[si].rows) || [];
+
+    rows.forEach(r => {
+      // Her iki tarih formatını destekle
+      const terminStr = r._terminTarihi !== undefined ? r._terminTarihi : (r.terminTarihi || '');
+      if (!terminStr) return;
+
+      let termin = null;
+      if (terminStr.includes('.')) {
+        const p = terminStr.split('.'); if (p.length !== 3) return;
+        termin = new Date(p[2], p[1]-1, p[0]);
+      } else if (terminStr.includes('-')) {
+        termin = new Date(terminStr);
       }
-    }
+      if (!termin || isNaN(termin)) return;
+
+      const fark = Math.round((termin - bugun) / (1000*60*60*24));
+      if (fark >= 0 && fark <= gunSiniri) {
+        const rowKey = r.urunKodu || r['2'] || r['3'] || JSON.stringify(r).slice(0,40);
+        const terminKey = `orimak_termin_ls_${si}_${rowKey}_${terminStr}`;
+        // localStorage: bugünün tarihini kaydet, aynı gün tekrar gönderme
+        const sonGonderim = localStorage.getItem(terminKey);
+        const bugunStr = bugun.toISOString().slice(0,10);
+        if (sonGonderim === bugunStr) return;
+        localStorage.setItem(terminKey, bugunStr);
+
+        // Ayarlardaki her yetkiliye gönder
+        ayarlar.termin.yetkililer.forEach(yi => {
+          const y = yetkililer[yi];
+          if (!y) return;
+          const satirAdi = r.urunAdi || r['2'] || r['3'] || '—';
+          const sayfaAdi = sheet.name || '';
+          const html = `
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;border:1px solid #ddd;border-radius:8px;overflow:hidden;">
+              <div style="background:#b05000;padding:16px 22px;">
+                <h2 style="color:#fff;margin:0;font-size:17px;">⏰ Termin Uyarısı — ${sayfaAdi}</h2>
+                <p style="color:#ffd0a0;margin:4px 0 0;font-size:13px;">${fark === 0 ? 'BUGÜN son gün!' : fark + ' gün kaldı'}</p>
+              </div>
+              <div style="padding:18px 22px;">
+                <table style="width:100%;border-collapse:collapse;">
+                  <tr><td style="padding:7px 0;color:#888;font-size:12px;width:130px;">Malzeme/Ürün</td><td style="padding:7px 0;color:#222;font-size:13px;font-weight:600;">${satirAdi}</td></tr>
+                  ${r['3']||r.urunKodu ? `<tr><td style="padding:7px 0;color:#888;font-size:12px;">Kod</td><td style="padding:7px 0;color:#222;font-size:13px;">${r['3']||r.urunKodu||'—'}</td></tr>` : ''}
+                  <tr><td style="padding:7px 0;color:#888;font-size:12px;">Termin Tarihi</td><td style="padding:7px 0;color:#b05000;font-size:13px;font-weight:700;">${terminStr}</td></tr>
+                  <tr><td style="padding:7px 0;color:#888;font-size:12px;">Kalan Gün</td><td style="padding:7px 0;color:${fark===0?'#c00':'#b05000'};font-size:13px;font-weight:700;">${fark === 0 ? '🔴 BUGÜN!' : fark + ' gün'}</td></tr>
+                  <tr><td style="padding:7px 0;color:#888;font-size:12px;">Sayfa</td><td style="padding:7px 0;color:#555;font-size:12px;">${sayfaAdi}</td></tr>
+                </table>
+              </div>
+              <div style="background:#f0f0f0;padding:10px 22px;font-size:11px;color:#aaa;text-align:center;">Orimak Takip Sistemi — otomatik termin uyarısı</div>
+            </div>`;
+          brevoMailGonder(y.mail, y.ad, `⏰ Termin Uyarısı: ${satirAdi} — ${terminStr} (${fark===0?'BUGÜN':fark+' gün'})`, html);
+        });
+      }
+    });
   });
 }
 setInterval(terminKontrol, 60 * 60 * 1000);
 setTimeout(terminKontrol, 5000);
+
+// Yeni satır eklenince mail bildirimi
+function yeniSatirMailGonder(si, malzemeAdi, malzemeKodu, grup) {
+  const ayarlar = getMailAyarlari();
+  if (!ayarlar.yeniSatir.aktif) return;
+  if (!ayarlar.yeniSatir.sayfalar.includes(si)) return;
+  if (ayarlar.yeniSatir.yetkililer.length === 0) return;
+  const yetkililer = getYetkililer();
+  const sayfaAdi = (SHEETS[si] && SHEETS[si].name) || 'Malzeme Listesi';
+  const kim = window._currentUser || '—';
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;border:1px solid #ddd;border-radius:8px;overflow:hidden;">
+      <div style="background:#1a5070;padding:16px 22px;">
+        <h2 style="color:#fff;margin:0;font-size:17px;">➕ Yeni Satır Eklendi — ${sayfaAdi}</h2>
+        <p style="color:#a0d8ef;margin:4px 0 0;font-size:13px;">${new Date().toLocaleString('tr-TR')}</p>
+      </div>
+      <div style="padding:18px 22px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <tr><td style="padding:7px 0;color:#888;font-size:12px;width:130px;">Malzeme Adı</td><td style="padding:7px 0;color:#222;font-size:13px;font-weight:600;">${malzemeAdi||'—'}</td></tr>
+          ${malzemeKodu ? `<tr><td style="padding:7px 0;color:#888;font-size:12px;">Malzeme Kodu</td><td style="padding:7px 0;color:#222;font-size:13px;">${malzemeKodu}</td></tr>` : ''}
+          ${grup && grup !== '__end__' ? `<tr><td style="padding:7px 0;color:#888;font-size:12px;">Grup</td><td style="padding:7px 0;color:#555;font-size:12px;">${grup}</td></tr>` : ''}
+          <tr><td style="padding:7px 0;color:#888;font-size:12px;">Ekleyen</td><td style="padding:7px 0;color:#555;font-size:12px;">${kim}</td></tr>
+          <tr><td style="padding:7px 0;color:#888;font-size:12px;">Sayfa</td><td style="padding:7px 0;color:#555;font-size:12px;">${sayfaAdi}</td></tr>
+        </table>
+      </div>
+      <div style="background:#f0f0f0;padding:10px 22px;font-size:11px;color:#aaa;text-align:center;">Orimak Takip Sistemi — otomatik yeni satır bildirimi</div>
+    </div>`;
+  ayarlar.yeniSatir.yetkililer.forEach(yi => {
+    const y = yetkililer[yi];
+    if (!y) return;
+    brevoMailGonder(y.mail, y.ad, `➕ Yeni Satır: ${malzemeAdi||'—'} — ${sayfaAdi}`, html);
+  });
+}
+window.yeniSatirMailGonder = yeniSatirMailGonder;
 
 function openSiparisEkle(editIdx = -1) {
   const rows = getSiparisRows();
@@ -3643,7 +3687,7 @@ window.closeSiteYonetimOutside = closeSiteYonetimOutside;
 
 function switchSYTab(idx) {
   _syActiveTab = idx;
-  [0,1,2,3].forEach(i => {
+  [0,1,2,3,4].forEach(i => {
     var tab = document.getElementById(`syTab${i}`);
     var panel = document.getElementById(`syPanel${i}`);
     if (tab) tab.classList.toggle('active', i === idx);
@@ -3653,8 +3697,123 @@ function switchSYTab(idx) {
   if (idx === 1) renderSayfaListesi();
   if (idx === 2) renderGrupSayfaSel();
   if (idx === 3) renderYetkiliListesi();
+  if (idx === 4) renderMailAyarlari();
 }
 window.switchSYTab = switchSYTab;
+
+// ── MAİL AYARLARI ──
+function getMailAyarlari() {
+  try { return JSON.parse(localStorage.getItem('orimak_mail_ayarlari') || 'null') || {
+    termin: { aktif: true, gun: 3, yetkililer: [], sayfalar: [] },
+    yeniSatir: { aktif: false, yetkililer: [], sayfalar: [] }
+  }; } catch(e) { return { termin: { aktif: true, gun: 3, yetkililer: [], sayfalar: [] }, yeniSatir: { aktif: false, yetkililer: [], sayfalar: [] } }; }
+}
+function saveMailAyarlari(obj) {
+  localStorage.setItem('orimak_mail_ayarlari', JSON.stringify(obj));
+}
+
+function renderMailAyarlari() {
+  const panel = document.getElementById('syPanel4');
+  if (!panel) return;
+  const yetkililer = getYetkililer();
+  const ayarlar = getMailAyarlari();
+  const sayfaListesi = SHEETS.map((s, i) => ({ ad: s.name, idx: i, type: s.type }));
+
+  const yetkiliCheckboxHTML = (prefix, seciliIdxler) => yetkililer.length === 0
+    ? '<div style="color:#f87171;font-size:12px;padding:8px;">⚠️ Henüz yetkili eklenmedi. Yetkililer sekmesinden ekleyin.</div>'
+    : yetkililer.map((y, i) => `
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 10px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;">
+        <input type="checkbox" data-group="${prefix}" value="${i}" ${seciliIdxler.includes(i) ? 'checked' : ''} style="accent-color:#5bc8e8;width:13px;height:13px;" onchange="mailAyarDegisti()"/>
+        <span style="font-size:13px;color:#ddd;">${y.ad}</span>
+        <span style="font-size:11px;color:#666;margin-left:auto;">${y.mail}</span>
+      </label>`).join('');
+
+  const sayfaCheckboxHTML = (prefix, seciliIdxler) => sayfaListesi.map(s => `
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 10px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;">
+      <input type="checkbox" data-group="${prefix}" value="${s.idx}" ${seciliIdxler.includes(s.idx) ? 'checked' : ''} style="accent-color:#5bc8e8;width:13px;height:13px;" onchange="mailAyarDegisti()"/>
+      <span style="font-size:13px;color:#ddd;">${s.ad}</span>
+      <span style="font-size:11px;color:#666;margin-left:auto;font-family:'Barlow Condensed',sans-serif;letter-spacing:.5px;">${s.type||'malzeme'}</span>
+    </label>`).join('');
+
+  panel.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <!-- TERMİN UYARI BLOĞU -->
+      <div style="background:#111;border:1px solid #2a2a2a;border-left:3px solid #f5a623;border-radius:8px;padding:16px 18px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+          <input type="checkbox" id="ma_termin_aktif" ${ayarlar.termin.aktif ? 'checked' : ''} style="accent-color:#f5a623;width:15px;height:15px;" onchange="mailAyarDegisti()"/>
+          <span style="font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;letter-spacing:1.5px;color:#f5a623;">⏰ OTOMATİK TERMİN UYARISI</span>
+        </div>
+        <div style="font-size:12px;color:#888;margin-bottom:14px;line-height:1.6;">
+          Terminine belirlenen gün sayısı veya daha az kalan siparişler için seçili yetkililer otomatik olarak uyarılır.<br>
+          <strong style="color:#f5a623;">Not:</strong> Uyarı sadece tarayıcı açıkken çalışır, her gün ilk açılışta gönderir.
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+          <label style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#666;font-family:'Barlow Condensed',sans-serif;white-space:nowrap;">Kaç gün kala uyarsın?</label>
+          <input type="number" id="ma_termin_gun" value="${ayarlar.termin.gun}" min="1" max="30" onchange="mailAyarDegisti()" style="width:70px;background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:6px 10px;color:#eee;font-size:14px;font-family:'Barlow',sans-serif;outline:none;text-align:center;"/>
+          <span style="font-size:12px;color:#888;">gün</span>
+        </div>
+        <div style="margin-bottom:12px;">
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">Bildirim Gönderilecek Yetkililer</div>
+          <div style="display:flex;flex-direction:column;gap:5px;" id="ma_termin_yetkililer">
+            ${yetkiliCheckboxHTML('ma_termin_y', ayarlar.termin.yetkililer)}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">Hangi Sayfalar Kontrol Edilsin?</div>
+          <div style="display:flex;flex-direction:column;gap:5px;" id="ma_termin_sayfalar">
+            ${sayfaCheckboxHTML('ma_termin_s', ayarlar.termin.sayfalar)}
+          </div>
+        </div>
+      </div>
+
+      <!-- YENİ SATIR EKLENİNCE BLOĞU -->
+      <div style="background:#111;border:1px solid #2a2a2a;border-left:3px solid #5bc8e8;border-radius:8px;padding:16px 18px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+          <input type="checkbox" id="ma_yeniSatir_aktif" ${ayarlar.yeniSatir.aktif ? 'checked' : ''} style="accent-color:#5bc8e8;width:15px;height:15px;" onchange="mailAyarDegisti()"/>
+          <span style="font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;letter-spacing:1.5px;color:#5bc8e8;">➕ YENİ SATIR EKLENİNCE BİLDİR</span>
+        </div>
+        <div style="font-size:12px;color:#888;margin-bottom:14px;line-height:1.6;">
+          Seçili sayfalara yeni satır eklendiğinde belirlenen yetkililer otomatik olarak bilgilendirilir.
+        </div>
+        <div style="margin-bottom:12px;">
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">Bildirim Gönderilecek Yetkililer</div>
+          <div style="display:flex;flex-direction:column;gap:5px;" id="ma_yeniSatir_yetkililer">
+            ${yetkiliCheckboxHTML('ma_yeniSatir_y', ayarlar.yeniSatir.yetkililer)}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">Hangi Sayfalarda Bildirim Gönderilsin?</div>
+          <div style="display:flex;flex-direction:column;gap:5px;" id="ma_yeniSatir_sayfalar">
+            ${sayfaCheckboxHTML('ma_yeniSatir_s', ayarlar.yeniSatir.sayfalar)}
+          </div>
+        </div>
+      </div>
+
+      <div id="ma_kayitMsg" style="display:none;font-size:12px;padding:8px 14px;border-radius:6px;background:rgba(92,200,232,.15);color:#5bc8e8;border:1px solid rgba(92,200,232,.3);text-align:center;">✅ Ayarlar kaydedildi</div>
+    </div>`;
+}
+window.renderMailAyarlari = renderMailAyarlari;
+
+function mailAyarDegisti() {
+  const aktif_termin = document.getElementById('ma_termin_aktif')?.checked || false;
+  const gun = parseInt(document.getElementById('ma_termin_gun')?.value) || 3;
+  const aktif_yeniSatir = document.getElementById('ma_yeniSatir_aktif')?.checked || false;
+
+  const termin_yetkililer = Array.from(document.querySelectorAll('input[data-group="ma_termin_y"]:checked')).map(c => parseInt(c.value));
+  const termin_sayfalar = Array.from(document.querySelectorAll('input[data-group="ma_termin_s"]:checked')).map(c => parseInt(c.value));
+  const yeniSatir_yetkililer = Array.from(document.querySelectorAll('input[data-group="ma_yeniSatir_y"]:checked')).map(c => parseInt(c.value));
+  const yeniSatir_sayfalar = Array.from(document.querySelectorAll('input[data-group="ma_yeniSatir_s"]:checked')).map(c => parseInt(c.value));
+
+  saveMailAyarlari({
+    termin: { aktif: aktif_termin, gun, yetkililer: termin_yetkililer, sayfalar: termin_sayfalar },
+    yeniSatir: { aktif: aktif_yeniSatir, yetkililer: yeniSatir_yetkililer, sayfalar: yeniSatir_sayfalar }
+  });
+
+  const msg = document.getElementById('ma_kayitMsg');
+  if (msg) { msg.style.display = 'block'; setTimeout(() => { msg.style.display = 'none'; }, 2000); }
+}
+window.mailAyarDegisti = mailAyarDegisti;
 
 // Sayfa listesi düzenleme
 function renderSayfaListesi() {
@@ -4320,6 +4479,7 @@ function showAdminMsg(text, type) {
         <button class="siteynt-tab" id="syTab1" onclick="switchSYTab(1)">📄 Sayfalar</button>
         <button class="siteynt-tab" id="syTab2" onclick="switchSYTab(2)">📋 Gruplar</button>
         <button class="siteynt-tab" id="syTab3" onclick="switchSYTab(3)">📧 Yetkililer</button>
+        <button class="siteynt-tab" id="syTab4" onclick="switchSYTab(4)">📬 Mail Ayarları</button>
       </div>
       <button class="admin-close" onclick="closeSiteYonetim()">✕</button>
     </div>
@@ -4374,6 +4534,9 @@ function showAdminMsg(text, type) {
           <button class="admin-add-btn" onclick="addYetkili()">➕ YETKİLİ EKLE</button>
           <div class="admin-msg" id="yetkiliMsg"></div>
         </div>
+      </div>
+      <!-- Mail Ayarları -->
+      <div id="syPanel4" class="sy-panel">
       </div>
     </div>
   </div>
@@ -9680,6 +9843,8 @@ async function addRow() {
   }
 
     if (si === activeSheet) updateStats(si); else switchTab(si);
+    // ── YENİ SATIR MAİL BİLDİRİMİ ──
+    yeniSatirMailGonder(si, name, code, group);
     closeModal();
   } catch(e) {
     console.error('Satır eklenirken hata:', e);
