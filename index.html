@@ -1053,9 +1053,9 @@ td.col-code{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:
 #siteYonetimOverlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10000;display:none;align-items:center;justify-content:center;}
 #siteYonetimOverlay.open{display:flex;}
 .siteynt-box{background:#1a1a1a;border:1px solid #2e2e2e;border-top:3px solid var(--orange);border-radius:12px;width:720px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.8);}
-.siteynt-head{padding:12px 20px 0;border-bottom:1px solid #2a2a2a;display:flex;align-items:flex-end;justify-content:space-between;gap:8px;}
+.siteynt-head{padding:12px 16px 0;border-bottom:1px solid #2a2a2a;display:flex;flex-wrap:wrap;align-items:flex-end;gap:2px;}
 .siteynt-head>div{display:flex;flex-wrap:wrap;gap:0;flex:1;min-width:0;}
-.siteynt-tab{background:none;border:none;border-bottom:2px solid transparent;color:#666;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;padding:9px 12px;cursor:pointer;transition:all .2s;text-transform:uppercase;white-space:nowrap;}
+.siteynt-tab{background:none;border:none;border-bottom:2px solid transparent;color:#666;font-family:'Barlow Condensed',sans-serif;font-size:11.5px;font-weight:700;letter-spacing:1px;padding:8px 11px;cursor:pointer;transition:all .2s;text-transform:uppercase;white-space:nowrap;}
 .siteynt-tab:hover{color:#aaa;}
 .siteynt-tab.active{color:var(--orange);border-bottom-color:var(--orange);}
 .siteynt-body{padding:20px 24px;overflow-y:auto;flex:1;}
@@ -4475,14 +4475,12 @@ function showAdminMsg(text, type) {
 <div id="siteYonetimOverlay" onclick="closeSiteYonetimOutside(event)">
   <div class="siteynt-box">
     <div class="siteynt-head">
-      <div style="display:flex;gap:0;">
-        <button class="siteynt-tab active" id="syTab0" onclick="switchSYTab(0)">👤 Kullanıcılar</button>
-        <button class="siteynt-tab" id="syTab1" onclick="switchSYTab(1)">📄 Sayfalar</button>
-        <button class="siteynt-tab" id="syTab2" onclick="switchSYTab(2)">📋 Gruplar</button>
-        <button class="siteynt-tab" id="syTab3" onclick="switchSYTab(3)">📧 Yetkililer</button>
-        <button class="siteynt-tab" id="syTab4" onclick="switchSYTab(4)">📬 Mail Ayarları</button>
-      </div>
-      <button class="admin-close" onclick="closeSiteYonetim()">✕</button>
+      <button class="siteynt-tab active" id="syTab0" onclick="switchSYTab(0)">👤 Kullanıcılar</button>
+      <button class="siteynt-tab" id="syTab1" onclick="switchSYTab(1)">📄 Sayfalar</button>
+      <button class="siteynt-tab" id="syTab2" onclick="switchSYTab(2)">📋 Gruplar</button>
+      <button class="siteynt-tab" id="syTab3" onclick="switchSYTab(3)">📧 Yetkililer</button>
+      <button class="siteynt-tab" id="syTab4" onclick="switchSYTab(4)">📬 Mail Ayarları</button>
+      <button class="admin-close" onclick="closeSiteYonetim()" style="margin-left:auto;flex-shrink:0;">✕</button>
     </div>
     <div class="siteynt-body">
       <!-- Kullanıcılar -->
