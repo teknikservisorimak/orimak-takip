@@ -2633,12 +2633,85 @@ async function saveSiparisRows() {
 // ══════════════════════════════════════════════
 // YETKİLİ YÖNETİMİ
 // ══════════════════════════════════════════════
-function getYetkililer() {
+// ── YETKİLİ YÖNETİMİ (Firestore kalıcı) ──
+// Yetkilileri Firestore'da "ayarlar/yetkililer" dökümanında saklıyoruz.
+// Bu sayede her bilgisayarda aynı liste görünür.
+let _yetkiliCache = [];
+let _yetkiliListenerActive = false;
+
+const YETKILI_DOC_PATH = 'ayarlar';
+const YETKILI_DOC_ID   = 'yetkililer';
+
+// Firestore'dan yetkililer dökümanını oku
+async function loadYetkililerFromFirestore() {
+  try {
+    if (!window._db || !window._fsDoc || !window._fsGetDoc) {
+      console.warn('Firebase henüz hazır değil, localStorage fallback');
+      return _yetkiliCache = _getYetkililerLocal();
+    }
+    const ref = window._fsDoc(window._db, YETKILI_DOC_PATH, YETKILI_DOC_ID);
+    const snap = await window._fsGetDoc(ref);
+    if (snap.exists()) {
+      _yetkiliCache = snap.data().liste || [];
+    } else {
+      // Firestore'da henüz yoksa, localStorage'dan migration yap
+      const local = _getYetkililerLocal();
+      if (local.length > 0) {
+        _yetkiliCache = local;
+        await _saveYetkililerToFirestore(_yetkiliCache);
+        console.log('Yetkililer localStorage → Firestore taşındı');
+      } else {
+        _yetkiliCache = [];
+      }
+    }
+    return _yetkiliCache;
+  } catch(e) {
+    console.error('Firestore yetkili okuma hatası:', e);
+    return _yetkiliCache = _getYetkililerLocal();
+  }
+}
+
+// Firestore'a kaydet
+async function _saveYetkililerToFirestore(list) {
+  try {
+    if (!window._db || !window._fsDoc || !window._fsSetDoc) return;
+    const ref = window._fsDoc(window._db, YETKILI_DOC_PATH, YETKILI_DOC_ID);
+    await window._fsSetDoc(ref, { liste: list }, { merge: true });
+    // localStorage'ı da senkronize tut (offline fallback)
+    localStorage.setItem('orimak_yetkililer', JSON.stringify(list));
+  } catch(e) {
+    console.error('Firestore yetkili kaydetme hatası:', e);
+    // Fallback: en azından localStorage'a kaydet
+    localStorage.setItem('orimak_yetkililer', JSON.stringify(list));
+  }
+}
+
+// Gerçek zamanlı dinleyici — başka bilgisayardan eklenen yetkililer anında görünsün
+function startYetkiliListener() {
+  if (_yetkiliListenerActive) return;
+  if (!window._db || !window._fsDoc || !window._fsOnSnapshot) return;
+  try {
+    const ref = window._fsDoc(window._db, YETKILI_DOC_PATH, YETKILI_DOC_ID);
+    window._fsOnSnapshot(ref, (snap) => {
+      if (snap.exists()) {
+        _yetkiliCache = snap.data().liste || [];
+        localStorage.setItem('orimak_yetkililer', JSON.stringify(_yetkiliCache));
+        renderYetkiliListesi();
+      }
+    });
+    _yetkiliListenerActive = true;
+  } catch(e) { console.error('Yetkili listener hatası:', e); }
+}
+
+// localStorage fallback (offline veya firebase hazır değilken)
+function _getYetkililerLocal() {
   try { return JSON.parse(localStorage.getItem('orimak_yetkililer') || '[]'); } catch(e) { return []; }
 }
-function saveYetkililer(list) {
-  localStorage.setItem('orimak_yetkililer', JSON.stringify(list));
+
+function getYetkililer() {
+  return _yetkiliCache.length > 0 ? _yetkiliCache : _getYetkililerLocal();
 }
+
 function renderYetkiliListesi() {
   const list = document.getElementById('yetkiliListesi');
   if (!list) return;
@@ -2659,15 +2732,14 @@ function renderYetkiliListesi() {
 }
 window.renderYetkiliListesi = renderYetkiliListesi;
 
-function addYetkili() {
+async function addYetkili() {
   const ad = document.getElementById('newYetkiliAd').value.trim();
   const mail = document.getElementById('newYetkiliMail').value.trim();
   const msg = document.getElementById('yetkiliMsg');
   if (!ad || !mail) { msg.textContent = '⚠️ Ad ve e-posta zorunlu!'; msg.style.color='#f87171'; return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) { msg.textContent = '⚠️ Geçerli bir e-posta girin!'; msg.style.color='#f87171'; return; }
-  const list = getYetkililer();
-  list.push({ ad, mail });
-  saveYetkililer(list);
+  _yetkiliCache.push({ ad, mail });
+  await _saveYetkililerToFirestore(_yetkiliCache);
   document.getElementById('newYetkiliAd').value = '';
   document.getElementById('newYetkiliMail').value = '';
   msg.textContent = '✅ Yetkili eklendi!'; msg.style.color='#4ade80';
@@ -2676,13 +2748,26 @@ function addYetkili() {
 }
 window.addYetkili = addYetkili;
 
-function silYetkili(i) {
-  const list = getYetkililer();
-  list.splice(i, 1);
-  saveYetkililer(list);
+async function silYetkili(i) {
+  _yetkiliCache.splice(i, 1);
+  await _saveYetkililerToFirestore(_yetkiliCache);
   renderYetkiliListesi();
 }
 window.silYetkili = silYetkili;
+
+// Firebase hazır olunca yetkilileri yükle ve dinleyiciyi başlat
+window.addEventListener('firebaseReady', async function _yetkiliInit() {
+  await loadYetkililerFromFirestore();
+  startYetkiliListener();
+  renderYetkiliListesi();
+});
+// Sayfa yüklenirken firebase zaten hazırsa
+if (window._db) {
+  loadYetkililerFromFirestore().then(() => {
+    startYetkiliListener();
+    renderYetkiliListesi();
+  });
+}
 
 // ══════════════════════════════════════════════
 // BREVO MAIL SİSTEMİ
