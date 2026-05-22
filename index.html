@@ -2579,21 +2579,14 @@ function renderSiparisRows() {
     }
     // Mail butonu — sadece admin ve manager
     if (window._currentRole === 'admin' || window._currentRole === 'manager') {
-    const mailBtn = document.createElement('button');
-    mailBtn.title = r.yetkiliMailIdx !== undefined ? 'Mail Gönder' : 'Önce yetkili atayın';
-    mailBtn.textContent = '✉️';
-    mailBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;opacity:' + (r.yetkiliMailIdx !== undefined ? '1' : '0.3') + ';';
-    mailBtn.onclick = async () => {
-      if (r.yetkiliMailIdx === undefined) { alert('Bu sipariş için yetkili kişi atanmamış.\nDüzenle butonundan yetkili seçin.'); return; }
-      const yetkililer = getYetkililer();
-      const y = yetkililer[r.yetkiliMailIdx];
-      if (!y) { alert('Yetkili bulunamadı, lütfen kontrol edin.'); return; }
-      mailBtn.textContent = '⏳'; mailBtn.style.pointerEvents = 'none';
-      const ok = await mailManuel(r, y.mail, y.ad);
-      mailBtn.textContent = ok ? '✅' : '❌';
-      setTimeout(() => { mailBtn.textContent = '✉️'; mailBtn.style.pointerEvents = ''; }, 2000);
-    };
-    actDiv.appendChild(mailBtn);
+      const mailBtn = document.createElement('button');
+      mailBtn.title = 'Mail Gönder';
+      mailBtn.innerHTML = '✉️';
+      mailBtn.style.cssText = 'background:#1a2e3a;border:1px solid #1e5f74;color:#5bc8e8;border-radius:5px;cursor:pointer;font-size:13px;padding:4px 8px;transition:all .15s;';
+      mailBtn.onmouseover = () => mailBtn.style.background = '#1e4a5c';
+      mailBtn.onmouseout = () => mailBtn.style.background = '#1a2e3a';
+      mailBtn.onclick = () => openMailPopup(r, i);
+      actDiv.appendChild(mailBtn);
     } // end mail btn
     tdAct.appendChild(actDiv);
     tr.appendChild(tdAct);
@@ -2695,6 +2688,314 @@ window.silYetkili = silYetkili;
 const BREVO_API_KEY = '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';
 const BREVO_SENDER = { name: 'Orimak Takip', email: 'teknikservisorimak@gmail.com' };
 
+function openListeMailPopup() {
+  const si = activeSheet;
+  const sheet = SHEETS[si];
+  if (!sheet) return;
+  const yetkililer = getYetkililer();
+  const existing = document.getElementById('listeMailPopupOverlay');
+  if (existing) existing.remove();
+
+  // Grupları bul
+  const rows = state[si].rows;
+  const gruplar = [];
+  let mevcutGrup = null;
+  rows.forEach(r => {
+    if (r._group) { mevcutGrup = r['2'] || 'Grup'; gruplar.push(mevcutGrup); }
+  });
+
+  const grupOptions = gruplar.length > 0
+    ? gruplar.map((g,i) => `<option value="grup_${i}">${g}</option>`).join('')
+    : '';
+
+  const yetkiliOptions = yetkililer.length === 0
+    ? '<option value="">— Henüz yetkili eklenmedi —</option>'
+    : '<option value="">— Yetkili seçin —</option>' + yetkililer.map((y, i) => `<option value="${i}">${y.ad} — ${y.mail}</option>`).join('');
+
+  const overlay = document.createElement('div');
+  overlay.id = 'listeMailPopupOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10010;display:flex;align-items:center;justify-content:center;';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  overlay.innerHTML = `
+    <div style="background:#1a1a1a;border:1px solid #2e2e2e;border-top:3px solid #5bc8e8;border-radius:12px;width:520px;max-width:94vw;max-height:90vh;box-shadow:0 24px 80px rgba(0,0,0,.9);display:flex;flex-direction:column;">
+      <div style="padding:16px 22px 12px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;justify-content:space-between;">
+        <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;color:#5bc8e8;margin:0;">✉️ LİSTEYİ MAİLE GÖNDER</h3>
+        <button onclick="document.getElementById('listeMailPopupOverlay').remove()" style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <div style="padding:20px 22px;display:flex;flex-direction:column;gap:16px;overflow-y:auto;">
+
+        <div>
+          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">Hangi Satırlar Gönderilsin?</label>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;background:#222;border:1px solid #3a3a3a;border-radius:6px;">
+              <input type="radio" name="listeMailFiltre" value="hepsi" checked style="accent-color:#5bc8e8;width:15px;height:15px;"/>
+              <span style="color:#eee;font-size:13px;">📋 Tüm satırlar</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;background:#222;border:1px solid #3a3a3a;border-radius:6px;">
+              <input type="radio" name="listeMailFiltre" value="onaylandi" style="accent-color:#5bc8e8;width:15px;height:15px;"/>
+              <span style="color:#eee;font-size:13px;">✅ Sadece Yetkili Onayı → Onaylandı olanlar</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;background:#222;border:1px solid #3a3a3a;border-radius:6px;">
+              <input type="radio" name="listeMailFiltre" value="beklemede" style="accent-color:#5bc8e8;width:15px;height:15px;"/>
+              <span style="color:#eee;font-size:13px;">🟡 Sadece Beklemede olanlar</span>
+            </label>
+            ${gruplar.length > 0 ? `
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 12px;background:#222;border:1px solid #3a3a3a;border-radius:6px;">
+              <input type="radio" name="listeMailFiltre" value="grup" style="accent-color:#5bc8e8;width:15px;height:15px;" onchange="document.getElementById('listeMailGrupSel').style.display='block'"/>
+              <span style="color:#eee;font-size:13px;">📁 Belirli bir grup</span>
+            </label>
+            <select id="listeMailGrupSel" style="display:none;width:100%;background:#222;border:1px solid #3a3a3a;border-radius:6px;padding:9px 12px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;">
+              ${grupOptions}
+            </select>` : ''}
+          </div>
+        </div>
+
+        <div>
+          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:7px;font-family:'Barlow Condensed',sans-serif;">Yetkili Kişi</label>
+          <select id="listeMailYetkili" style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:6px;padding:10px 12px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;">
+            ${yetkiliOptions}
+          </select>
+          ${yetkililer.length === 0 ? '<div style="font-size:11px;color:#f87171;margin-top:6px;">⚠️ Site Yönetimi → Yetkililer sekmesinden yetkili ekleyin.</div>' : ''}
+        </div>
+
+        <div>
+          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:7px;font-family:'Barlow Condensed',sans-serif;">Ek Not (isteğe bağlı)</label>
+          <textarea id="listeMailNot" rows="2" placeholder="Maille birlikte gönderilecek ek not..." style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:6px;padding:10px 12px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;resize:vertical;"></textarea>
+        </div>
+
+        <div id="listeMailOnizleme" style="background:#111;border:1px solid #2a2a2a;border-radius:6px;padding:10px 14px;font-size:11px;color:#888;">
+          Filtre seçerek kaç satır gönderileceğini görmek için yukarıdan seçim yapın.
+        </div>
+      </div>
+
+      <div style="padding:14px 22px;border-top:1px solid #2a2a2a;display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="document.getElementById('listeMailPopupOverlay').remove()" style="padding:10px 18px;background:#2a2a2a;border:1px solid #3a3a3a;color:#888;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer;">İptal</button>
+        <button id="listeMailGonderBtn" onclick="listeMailGonder()" style="padding:10px 24px;background:#1e5f74;color:#fff;border:1px solid #1e90ff;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;cursor:pointer;">✉️ Gönder</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+
+  // Önizleme güncelle
+  overlay.querySelectorAll('input[name=listeMailFiltre]').forEach(radio => {
+    radio.addEventListener('change', listeMailOnizlemeGuncelle);
+  });
+  listeMailOnizlemeGuncelle();
+}
+window.openListeMailPopup = openListeMailPopup;
+
+function listeMailSatirlariBul(filtre, grupIdx) {
+  const si = activeSheet;
+  const rows = state[si].rows;
+  const gruplar = [];
+  let mevcutGrup = null;
+  const grupMap = []; // [{grupAdi, rows:[]}]
+
+  rows.forEach(r => {
+    if (r._group) {
+      mevcutGrup = r['2'] || 'Grup';
+      grupMap.push({ grupAdi: mevcutGrup, rows: [] });
+    } else if (r['3'] || r['2']) {
+      if (grupMap.length > 0) grupMap[grupMap.length-1].rows.push(r);
+      else grupMap.push({ grupAdi: '', rows: [r] });
+    }
+  });
+
+  let seciliRows = [];
+  if (filtre === 'hepsi') {
+    seciliRows = rows.filter(r => !r._group && (r['3'] || r['2']));
+  } else if (filtre === 'onaylandi') {
+    seciliRows = rows.filter(r => !r._group && (r['3'] || r['2']) && (r._yetkili === 'Onaylandı' || r.yetkili === 'Onaylandı'));
+  } else if (filtre === 'beklemede') {
+    seciliRows = rows.filter(r => !r._group && (r['3'] || r['2']) && (r._yetkili === 'Beklemede' || r.yetkili === 'Beklemede'));
+  } else if (filtre === 'grup' && grupIdx !== undefined) {
+    seciliRows = grupMap[grupIdx] ? grupMap[grupIdx].rows : [];
+  }
+  return { seciliRows, grupMap };
+}
+
+function listeMailOnizlemeGuncelle() {
+  const radios = document.querySelectorAll('input[name=listeMailFiltre]');
+  let filtre = 'hepsi';
+  radios.forEach(r => { if (r.checked) filtre = r.value; });
+  const grupSel = document.getElementById('listeMailGrupSel');
+  const grupIdx = grupSel ? parseInt(grupSel.value.replace('grup_','')) : 0;
+  const { seciliRows } = listeMailSatirlariBul(filtre, grupIdx);
+  const el = document.getElementById('listeMailOnizleme');
+  if (el) el.innerHTML = `<span style="color:#5bc8e8;font-weight:700;">${seciliRows.length} satır</span> gönderilecek.`;
+}
+window.listeMailOnizlemeGuncelle = listeMailOnizlemeGuncelle;
+
+async function listeMailGonder() {
+  const btn = document.getElementById('listeMailGonderBtn');
+  const yetkiliSel = document.getElementById('listeMailYetkili');
+  const not = document.getElementById('listeMailNot').value.trim();
+  const radios = document.querySelectorAll('input[name=listeMailFiltre]');
+  let filtre = 'hepsi';
+  radios.forEach(r => { if (r.checked) filtre = r.value; });
+  const grupSel = document.getElementById('listeMailGrupSel');
+  const grupIdx = grupSel ? parseInt(grupSel.value.replace('grup_','')) : 0;
+
+  if (!yetkiliSel || yetkiliSel.value === '') {
+    yetkiliSel.style.borderColor = '#f87171';
+    setTimeout(() => yetkiliSel.style.borderColor = '#3a3a3a', 1500);
+    return;
+  }
+  const yetkililer = getYetkililer();
+  const y = yetkililer[parseInt(yetkiliSel.value)];
+  if (!y) return;
+
+  const { seciliRows, grupMap } = listeMailSatirlariBul(filtre, grupIdx);
+  if (seciliRows.length === 0) { alert('Gönderilecek satır bulunamadı!'); return; }
+
+  btn.textContent = '⏳ Gönderiliyor...'; btn.disabled = true;
+
+  const si = activeSheet;
+  const sayfaAdi = SHEETS[si].name || 'Malzeme Listesi';
+
+  // HTML tablosu oluştur
+  let tableHtml = '';
+  if (filtre === 'grup') {
+    const g = grupMap[grupIdx];
+    tableHtml = listeMailGrupHtml(g ? g.grupAdi : '', seciliRows);
+  } else if (filtre === 'hepsi') {
+    // Gruplu göster
+    tableHtml = grupMap.filter(g => g.rows.length > 0).map(g => listeMailGrupHtml(g.grupAdi, g.rows)).join('<br>');
+    if (!tableHtml) tableHtml = listeMailGrupHtml('', seciliRows);
+  } else {
+    tableHtml = listeMailGrupHtml(filtre === 'onaylandi' ? '✅ Onaylandı' : '🟡 Beklemede', seciliRows);
+  }
+
+  const filtreEtiket = filtre === 'hepsi' ? 'Tüm Liste' : filtre === 'onaylandi' ? 'Yetkili Onaylılar' : filtre === 'beklemede' ? 'Beklemedekiler' : (grupMap[grupIdx]?.grupAdi || 'Grup');
+
+  const htmlIcerik = `
+    <div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;background:#f9f9f9;border:1px solid #ddd;border-radius:8px;overflow:hidden;">
+      <div style="background:#E36400;padding:18px 24px;">
+        <h2 style="color:#fff;margin:0;font-size:18px;">🏭 Orimak Takip — ${sayfaAdi}</h2>
+        <p style="color:#ffe0c0;margin:4px 0 0;font-size:13px;">${filtreEtiket} · ${seciliRows.length} satır</p>
+      </div>
+      <div style="padding:20px;">
+        ${not ? `<div style="background:#fff8e0;border-left:3px solid #E36400;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#333;border-radius:4px;"><strong>Not:</strong> ${not}</div>` : ''}
+        ${tableHtml}
+      </div>
+      <div style="background:#f0f0f0;padding:12px 24px;font-size:11px;color:#aaa;text-align:center;">
+        Bu mail Orimak Takip Sistemi tarafından otomatik gönderilmiştir.
+      </div>
+    </div>`;
+
+  const konu = `📋 ${sayfaAdi} — ${filtreEtiket} (${seciliRows.length} satır)`;
+  const ok = await brevoMailGonder(y.mail, y.ad, konu, htmlIcerik);
+
+  btn.textContent = ok ? '✅ Gönderildi!' : '❌ Hata!';
+  btn.style.background = ok ? '#1a4a2a' : '#4a1a1a';
+  setTimeout(() => { document.getElementById('listeMailPopupOverlay')?.remove(); }, 1500);
+}
+window.listeMailGonder = listeMailGonder;
+
+function listeMailGrupHtml(grupAdi, rows) {
+  const baslik = grupAdi ? `<div style="background:#333;color:#fff;padding:8px 12px;font-weight:700;font-size:12px;letter-spacing:1px;">${grupAdi}</div>` : '';
+  const satirlar = rows.map(r => `
+    <tr>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#333;">${r['2']||'—'}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#333;">${r['3']||'—'}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#555;">${r['4']||'—'}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#333;">${r['5']||'—'}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:${(r._yetkili==='Onaylandı'||r.yetkili==='Onaylandı')?'#2a7a2a':(r._yetkili==='Beklemede'||r.yetkili==='Beklemede')?'#b07000':'#888'};">
+        ${r._yetkili||r.yetkili||'—'}
+      </td>
+    </tr>`).join('');
+  return `${baslik}
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+      <thead>
+        <tr style="background:#f0f0f0;">
+          <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Malzeme Adı</th>
+          <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Kod</th>
+          <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Ölçü</th>
+          <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Adet</th>
+          <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Yetkili Onayı</th>
+        </tr>
+      </thead>
+      <tbody>${satirlar}</tbody>
+    </table>`;
+}
+
+function openMailPopup(siparis, idx) {
+  const yetkililer = getYetkililer();
+  const existing = document.getElementById('mailPopupOverlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'mailPopupOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10010;display:flex;align-items:center;justify-content:center;';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+  const yetkiliOptions = yetkililer.length === 0
+    ? '<option value="">— Henüz yetkili eklenmedi —</option>'
+    : '<option value="">— Yetkili seçin —</option>' + yetkililer.map((y, i) => `<option value="${i}" ${siparis.yetkiliMailIdx == i ? 'selected' : ''}>${y.ad} — ${y.mail}</option>`).join('');
+
+  overlay.innerHTML = `
+    <div style="background:#1a1a1a;border:1px solid #2e2e2e;border-top:3px solid #1e90ff;border-radius:12px;width:480px;max-width:94vw;box-shadow:0 24px 80px rgba(0,0,0,.9);display:flex;flex-direction:column;">
+      <div style="padding:16px 22px 12px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;justify-content:space-between;">
+        <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;color:#5bc8e8;margin:0;">✉️ MAİL GÖNDER</h3>
+        <button onclick="document.getElementById('mailPopupOverlay').remove()" style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <div style="padding:20px 22px;display:flex;flex-direction:column;gap:14px;">
+        <div style="background:#111;border:1px solid #2a2a2a;border-radius:8px;padding:12px 16px;">
+          <div style="font-size:10px;color:#666;font-family:'Barlow Condensed',sans-serif;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px;">Sipariş Bilgisi</div>
+          <div style="font-size:13px;color:#eee;font-weight:600;">${siparis.urunAdi||'—'} <span style="color:#888;font-weight:400;">/ ${siparis.urunKodu||'—'}</span></div>
+          <div style="font-size:12px;color:#888;margin-top:3px;">Adet: ${siparis.sipAdet||'—'} &nbsp;·&nbsp; Termin: <span style="color:#f5a623;">${siparis.terminTarihi||'—'}</span></div>
+        </div>
+        <div>
+          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:7px;font-family:'Barlow Condensed',sans-serif;">Yetkili Kişi</label>
+          <select id="mailPopupYetkili" style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:6px;padding:10px 12px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;">
+            ${yetkiliOptions}
+          </select>
+          ${yetkililer.length === 0 ? '<div style="font-size:11px;color:#f87171;margin-top:6px;">⚠️ Site Yönetimi → Yetkililer sekmesinden yetkili ekleyin.</div>' : ''}
+        </div>
+        <div>
+          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:7px;font-family:'Barlow Condensed',sans-serif;">Ek Not (isteğe bağlı)</label>
+          <textarea id="mailPopupNot" rows="3" placeholder="Maille birlikte gönderilecek ek not..." style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:6px;padding:10px 12px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid #2a2a2a;display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="document.getElementById('mailPopupOverlay').remove()" style="padding:10px 18px;background:#2a2a2a;border:1px solid #3a3a3a;color:#888;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer;">İptal</button>
+        <button id="mailPopupGonderBtn" onclick="mailPopupGonder(${JSON.stringify(siparis).replace(/"/g,'&quot;')}, ${idx})" style="padding:10px 24px;background:#1e5f74;color:#fff;border:1px solid #1e90ff;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:8px;">✉️ Gönder</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+}
+window.openMailPopup = openMailPopup;
+
+async function mailPopupGonder(siparis, idx) {
+  const sel = document.getElementById('mailPopupYetkili');
+  const not = document.getElementById('mailPopupNot').value.trim();
+  const btn = document.getElementById('mailPopupGonderBtn');
+  if (!sel || sel.value === '') { sel.style.borderColor='#f87171'; setTimeout(()=>sel.style.borderColor='#3a3a3a',1500); return; }
+  const yetkililer = getYetkililer();
+  const y = yetkililer[parseInt(sel.value)];
+  if (!y) return;
+
+  btn.textContent = '⏳ Gönderiliyor...'; btn.disabled = true;
+
+  // Seçilen yetkiliyi sipariş ile ilişkilendir
+  const rows = getSiparisRows();
+  if (rows[idx]) { rows[idx].yetkiliMailIdx = parseInt(sel.value); const si = getSiparisIdx(); SHEETS[si].rows = rows; if (isOnline) fbSaveAll(); }
+
+  const siparisKopi = Object.assign({}, siparis, { yetkiliMailIdx: parseInt(sel.value) });
+  if (not) siparisKopi._ekNot = not;
+  const ok = await mailManuel(siparisKopi, y.mail, y.ad);
+
+  btn.textContent = ok ? '✅ Gönderildi!' : '❌ Hata!';
+  btn.style.background = ok ? '#1a4a2a' : '#4a1a1a';
+  setTimeout(() => {
+    document.getElementById('mailPopupOverlay')?.remove();
+    renderSiparisRows();
+  }, 1500);
+}
+window.mailPopupGonder = mailPopupGonder;
+
 async function brevoMailGonder(toEmail, toName, konu, htmlIcerik) {
   try {
     const res = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -2733,6 +3034,7 @@ function siparisMaliHtml(siparis, baslik) {
           <tr><td style="padding:8px 0;color:#888;">Oluşturma Tarihi</td><td style="padding:8px 0;color:#222;">${siparis.olusturmaTarihi||'—'}</td></tr>
           <tr style="background:#f0f0f0;"><td style="padding:8px 6px;color:#888;">Termin Tarihi</td><td style="padding:8px 6px;color:#E36400;font-weight:700;">${siparis.terminTarihi||'—'}</td></tr>
           ${siparis.notlar ? `<tr><td style="padding:8px 0;color:#888;">Notlar</td><td style="padding:8px 0;color:#222;">${siparis.notlar}</td></tr>` : ''}
+          ${siparis._ekNot ? `<tr style="background:#fff8e0;"><td style="padding:8px 6px;color:#888;">Ek Not</td><td style="padding:8px 6px;color:#333;font-style:italic;">${siparis._ekNot}</td></tr>` : ''}
         </table>
       </div>
       <div style="background:#f0f0f0;padding:12px 24px;font-size:11px;color:#aaa;text-align:center;">
@@ -2808,13 +3110,6 @@ function openSiparisEkle(editIdx = -1) {
         ${siparisField('Sipariş Oluşturan','sp_olusturan',r.olusturan||'')}
         ${siparisField('Oluşturma Tarihi','sp_otar',r.olusturmaTarihi||bugun)}
         ${siparisField('Termin Tarihi','sp_termin',r.terminTarihi||'')}
-        <div style="grid-column:1/-1;">
-          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:5px;font-family:'Barlow Condensed',sans-serif;">Yetkili Kişi (Mail Gönderilecek)</label>
-          <select id="sp_yetkili" style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:8px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;">
-            <option value="">— Seçiniz —</option>
-            ${getYetkililer().map((y,i) => `<option value="${i}" ${(r.yetkiliMailIdx !== undefined && r.yetkiliMailIdx == i) ? 'selected' : ''}>${y.ad} (${y.mail})</option>`).join('')}
-          </select>
-        </div>
         ${siparisField('Notlar','sp_notlar',r.notlar||'','full')}
       </div>
       <div style="padding:16px 24px;border-top:1px solid #2a2a2a;display:flex;gap:8px;justify-content:flex-end;">
@@ -4310,6 +4605,7 @@ function showAdminMsg(text, type) {
     <button onclick="applyGlobalMakine()" style="background:var(--orange);border:none;color:#111;border-radius:4px;padding:4px 12px;font-size:11px;font-weight:700;font-family:'Barlow Condensed',sans-serif;letter-spacing:1px;cursor:pointer;">UYGULA</button>
   </div>
   <button id="topluOnayBtn" onclick="window.openTopluOnay&&window.openTopluOnay()" style="display:none;align-items:center;gap:6px;background:rgba(146,208,80,.08);border:1px solid rgba(146,208,80,.3);border-radius:6px;padding:5px 12px;color:#92D050;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;cursor:pointer;transition:all .2s;white-space:nowrap;">✅ TOPLU ONAY</button>
+  <button id="listeMailBtn" onclick="openListeMailPopup()" style="display:none;align-items:center;gap:6px;background:#1a2e3a;border:1px solid #1e5f74;border-radius:6px;padding:5px 14px;color:#5bc8e8;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;cursor:pointer;transition:all .2s;white-space:nowrap;">✉️ LİSTEYİ MAİLE GÖNDER</button>
   <button id="addRowBtn" class="add-row-btn" onclick="openModal()">＋ Yeni Satır Ekle</button>
 </div>
 <div class="legend" id="legendBar">
@@ -8481,6 +8777,11 @@ function switchTab(idx) {
   if (toBtn) {
     const canOnay = (role === 'admin' || role === 'manager' || role === 'operator') && !isSpecialPage;
     toBtn.style.display = canOnay ? 'inline-flex' : 'none';
+  }
+  const listeMailBtn = document.getElementById('listeMailBtn');
+  if (listeMailBtn) {
+    const canMail = (role === 'admin' || role === 'manager') && !isSpecialPage;
+    listeMailBtn.style.display = canMail ? 'inline-flex' : 'none';
   }
   refreshGlobalMakineInput(idx);
   closeSidebar();
