@@ -2750,6 +2750,16 @@ function openListeMailPopup() {
             <option value="tumu">— Tüm gruplar</option>
             ${grupOptions}
           </select>
+        </div>
+        <div id="listeMailOnayliGruplarDiv" style="display:none;">
+          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#5bc8e8;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">✅ Hangi grupların onaylananları gönderilsin?</label>
+          <div id="listeMailOnayliGruplarList" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;padding-right:4px;">
+            ${gruplar.map((g,i) => `
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 12px;background:#1a2a1a;border:1px solid #2a4a2a;border-radius:6px;">
+              <input type="checkbox" name="listeMailOnayliGrup" value="grup_${i}" checked style="accent-color:#5bc8e8;width:14px;height:14px;" onchange="listeMailOnizlemeGuncelle()"/>
+              <span style="color:#eee;font-size:13px;">📁 ${g}</span>
+            </label>`).join('')}
+          </div>
         </div>` : ''}
 
         <div>
@@ -2786,7 +2796,7 @@ function openListeMailPopup() {
 }
 window.openListeMailPopup = openListeMailPopup;
 
-function listeMailSatirlariBul(filtre, grupFiltre) {
+function listeMailSatirlariBul(filtre, grupFiltre, seciliGruplar) {
   const si = activeSheet;
   const rows = state[si].rows;
   const grupMap = [];
@@ -2802,7 +2812,11 @@ function listeMailSatirlariBul(filtre, grupFiltre) {
 
   // Grup filtresi uygula
   let grupFiltreli = grupMap;
-  if (grupFiltre && grupFiltre !== 'tumu') {
+  if (seciliGruplar && seciliGruplar.length > 0) {
+    // Checkbox'lardan gelen çoklu seçim
+    const seciliIdxler = seciliGruplar.map(v => parseInt(v.replace('grup_','')));
+    grupFiltreli = grupMap.filter((_, i) => seciliIdxler.includes(i));
+  } else if (grupFiltre && grupFiltre !== 'tumu') {
     const idx = parseInt(grupFiltre.replace('grup_',''));
     grupFiltreli = grupMap[idx] ? [grupMap[idx]] : [];
   }
@@ -2823,15 +2837,25 @@ function listeMailOnizlemeGuncelle() {
   const radios = document.querySelectorAll('input[name=listeMailFiltre]');
   let filtre = 'hepsi';
   radios.forEach(r => { if (r.checked) filtre = r.value; });
+
+  // Onaylı grup seçici göster/gizle
+  const onayliDiv = document.getElementById('listeMailOnayliGruplarDiv');
   const grupSel = document.getElementById('listeMailGrupSel');
-  const grupFiltre = grupSel ? grupSel.value : 'tumu';
-  const { seciliRows } = listeMailSatirlariBul(filtre, grupFiltre);
+  if (onayliDiv) onayliDiv.style.display = filtre === 'onaylandi' ? 'block' : 'none';
+
+  // Grup filtresi: onaylandi seçiliyse checkbox'lardan al, değilse dropdown'dan
+  let seciliGruplar = null; // null = tümü
+  if (filtre === 'onaylandi' && onayliDiv) {
+    const checkboxlar = document.querySelectorAll('input[name=listeMailOnayliGrup]:checked');
+    seciliGruplar = Array.from(checkboxlar).map(c => c.value);
+  }
+
+  const grupFiltre = (seciliGruplar === null && grupSel) ? grupSel.value : 'tumu';
+  const { seciliRows } = listeMailSatirlariBul(filtre, grupFiltre, seciliGruplar);
   const el = document.getElementById('listeMailOnizleme');
   const filtreAdi = filtre === 'hepsi' ? 'Tümü' : filtre === 'onaylandi' ? 'Onaylandı' : 'Beklemede';
-  const grupAdi = grupSel && grupSel.value !== 'tumu' ? ' · ' + grupSel.options[grupSel.selectedIndex].text : '';
-  // Debug: ilk 3 satırın _yetkili değerini göster
-  const debugVals = seciliRows.slice(0,3).map(r => r._yetkili || r.yetkili || 'BOŞ').join(', ');
-  if (el) el.innerHTML = `<span style="color:#5bc8e8;font-weight:700;">${seciliRows.length} satır</span> gönderilecek <span style="color:#888;">(${filtreAdi}${grupAdi})</span><br><span style="color:#555;font-size:10px;">örnek: ${debugVals||'—'}</span>`;
+  const grupAdi = grupSel && grupSel.value !== 'tumu' && filtre !== 'onaylandi' ? ' · ' + grupSel.options[grupSel.selectedIndex].text : '';
+  if (el) el.innerHTML = `<span style="color:#5bc8e8;font-weight:700;">${seciliRows.length} satır</span> gönderilecek <span style="color:#888;">(${filtreAdi}${grupAdi})</span>`;
 }
 window.listeMailOnizlemeGuncelle = listeMailOnizlemeGuncelle;
 
@@ -2845,6 +2869,13 @@ async function listeMailGonder() {
   const grupSel = document.getElementById('listeMailGrupSel');
   const grupFiltre = grupSel ? grupSel.value : 'tumu';
 
+  // Onaylandi seçiliyse checkbox'lardan grup listesi al
+  let seciliGruplar = null;
+  if (filtre === 'onaylandi') {
+    const checkboxlar = document.querySelectorAll('input[name=listeMailOnayliGrup]:checked');
+    seciliGruplar = Array.from(checkboxlar).map(c => c.value);
+  }
+
   if (!yetkiliSel || yetkiliSel.value === '') {
     yetkiliSel.style.borderColor = '#f87171';
     setTimeout(() => yetkiliSel.style.borderColor = '#3a3a3a', 1500);
@@ -2854,7 +2885,7 @@ async function listeMailGonder() {
   const y = yetkililer[parseInt(yetkiliSel.value)];
   if (!y) return;
 
-  const { seciliRows, grupMap } = listeMailSatirlariBul(filtre, grupFiltre);
+  const { seciliRows, grupMap } = listeMailSatirlariBul(filtre, grupFiltre, seciliGruplar);
   if (seciliRows.length === 0) { alert('Gönderilecek satır bulunamadı!'); return; }
 
   btn.textContent = '⏳ Gönderiliyor...'; btn.disabled = true;
@@ -2903,16 +2934,22 @@ window.listeMailGonder = listeMailGonder;
 
 function listeMailGrupHtml(grupAdi, rows) {
   const baslik = grupAdi ? `<div style="background:#333;color:#fff;padding:8px 12px;font-weight:700;font-size:12px;letter-spacing:1px;">${grupAdi}</div>` : '';
-  const satirlar = rows.map(r => `
+  const satirlar = rows.map(r => {
+    const sipT = r._sipTarihi || r.sipTarihi || '—';
+    const terT = r._terminTarihi !== undefined ? r._terminTarihi : (r.terminTarihi || '—');
+    return `
     <tr>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#333;">${r['2']||'—'}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#333;">${r['3']||'—'}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#555;">${r['4']||'—'}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#333;">${r['5']||'—'}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#555;">${sipT}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#b07000;font-weight:600;">${terT}</td>
       <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:${(r._yetkili==='Onaylandı'||r.yetkili==='Onaylandı')?'#2a7a2a':(r._yetkili==='Beklemede'||r.yetkili==='Beklemede')?'#b07000':'#888'};">
         ${r._yetkili||r.yetkili||'—'}
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   return `${baslik}
     <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
       <thead>
@@ -2921,6 +2958,8 @@ function listeMailGrupHtml(grupAdi, rows) {
           <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Kod</th>
           <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Ölçü</th>
           <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Adet</th>
+          <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Sipariş Tarihi</th>
+          <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Termin Tarihi</th>
           <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Yetkili Onayı</th>
         </tr>
       </thead>
