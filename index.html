@@ -3240,6 +3240,11 @@ function terminKontrol() {
       const fark = Math.round((termin - bugun) / (1000*60*60*24));
       if (fark < 0 || fark > gunSiniri) return;
 
+      // Yalnızca yetkili onayı 'Onaylandı' olan satırları gönder.
+      // (malzeme sayfaları: yetkili/_yetkili, sipariş sayfaları: yetkiliOnay)
+      const onayli = r.yetkili === 'Onaylandı' || r._yetkili === 'Onaylandı' || r.yetkiliOnay === 'Onaylandı';
+      if (!onayli) return;
+
       // localStorage: aynı satır aynı gün tekrar gönderilmesin
       const rowKey = r.urunKodu || r['2'] || r['3'] || JSON.stringify(r).slice(0,40);
       const terminKey = `orimak_termin_ls_${si}_${rowKey}_${terminStr}`;
