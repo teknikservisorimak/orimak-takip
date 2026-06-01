@@ -3157,7 +3157,37 @@ async function mailManuel(siparis, yetkiliMail, yetkiliAd) {
 }
 window.mailManuel = mailManuel;
 
-// Termin kontrolü — her 1 saatte bir çalışır, ayarlardaki gün sayısına göre uyarı gönderir
+// Termin kontrolü — her 1 saatte bir çalışır; termini yaklaşan ürünleri
+// TEK BİR TOPLU mailde, bölüm bölüm (sayfa -> grup) gönderir.
+function terminGrupHtml(grupAdi, rows) {
+  const baslik = grupAdi
+    ? `<div style="background:#3a3a3a;color:#fff;padding:7px 12px;font-weight:700;font-size:12px;letter-spacing:.5px;">${grupAdi}</div>`
+    : '';
+  const satirlar = rows.map(r => {
+    const renk = r.fark === 0 ? '#c00' : '#b05000';
+    const kalanTxt = r.fark === 0 ? '🔴 BUGÜN' : r.fark + ' gün';
+    return `
+      <tr>
+        <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;color:#333;font-weight:600;">${r.satirAdi}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;color:#555;">${r.kod || '—'}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;color:#222;font-weight:700;">${r.terminStr}</td>
+        <td style="padding:7px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:${renk};font-weight:700;">${kalanTxt}</td>
+      </tr>`;
+  }).join('');
+  return `${baslik}
+    <table style="width:100%;border-collapse:collapse;margin-bottom:10px;background:#fff;">
+      <thead>
+        <tr style="background:#f0f0f0;">
+          <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Malzeme/Ürün</th>
+          <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Kod</th>
+          <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Termin</th>
+          <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Kalan</th>
+        </tr>
+      </thead>
+      <tbody>${satirlar}</tbody>
+    </table>`;
+}
+
 function terminKontrol() {
   const ayarlar = getMailAyarlari();
   if (!ayarlar.termin.aktif) return;
@@ -3166,18 +3196,34 @@ function terminKontrol() {
   if (ayarlar.termin.yetkililer.length === 0) return;
 
   const bugun = new Date(); bugun.setHours(0,0,0,0);
+  const bugunStr = bugun.toISOString().slice(0,10);
   const gunSiniri = ayarlar.termin.gun || 3;
 
   // Hangi sayfalar taransın: ayarlarda seçiliyse onlar, seçili değilse hiçbirini tarama
   const sayfaIdxler = ayarlar.termin.sayfalar;
   if (sayfaIdxler.length === 0) return;
 
+  // Termini yaklaşan satırları bölüm bölüm topla: [{ sayfaAdi, gruplar:[{grupAdi, rows:[...] }] }]
+  const bolumler = [];
+  const gonderilecekKeys = [];
+
   sayfaIdxler.forEach(si => {
     const sheet = SHEETS[si];
     if (!sheet) return;
     const rows = sheet.rows || (state[si] && state[si].rows) || [];
+    const sayfaAdi = sheet.name || '';
+
+    const gruplar = [];
+    let aktifGrup = null;
 
     rows.forEach(r => {
+      // Grup başlığı satırı: yeni bölüm aç
+      if (r._group) {
+        aktifGrup = { grupAdi: r['2'] || 'Grup', rows: [] };
+        gruplar.push(aktifGrup);
+        return;
+      }
+
       // Her iki tarih formatını destekle
       const terminStr = r._terminTarihi !== undefined ? r._terminTarihi : (r.terminTarihi || '');
       if (!terminStr) return;
@@ -3192,44 +3238,75 @@ function terminKontrol() {
       if (!termin || isNaN(termin)) return;
 
       const fark = Math.round((termin - bugun) / (1000*60*60*24));
-      if (fark >= 0 && fark <= gunSiniri) {
-        const rowKey = r.urunKodu || r['2'] || r['3'] || JSON.stringify(r).slice(0,40);
-        const terminKey = `orimak_termin_ls_${si}_${rowKey}_${terminStr}`;
-        // localStorage: bugünün tarihini kaydet, aynı gün tekrar gönderme
-        const sonGonderim = localStorage.getItem(terminKey);
-        const bugunStr = bugun.toISOString().slice(0,10);
-        if (sonGonderim === bugunStr) return;
-        localStorage.setItem(terminKey, bugunStr);
+      if (fark < 0 || fark > gunSiniri) return;
 
-        // Ayarlardaki her yetkiliye gönder
-        ayarlar.termin.yetkililer.forEach(yi => {
-          const y = yetkililer[yi];
-          if (!y) return;
-          const satirAdi = r.urunAdi || r['2'] || r['3'] || '—';
-          const sayfaAdi = sheet.name || '';
-          const html = `
-            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;border:1px solid #ddd;border-radius:8px;overflow:hidden;">
-              <div style="background:#b05000;padding:16px 22px;">
-                <h2 style="color:#fff;margin:0;font-size:17px;">⏰ Termin Uyarısı — ${sayfaAdi}</h2>
-                <p style="color:#ffd0a0;margin:4px 0 0;font-size:13px;">${fark === 0 ? 'BUGÜN son gün!' : fark + ' gün kaldı'}</p>
-              </div>
-              <div style="padding:18px 22px;">
-                <table style="width:100%;border-collapse:collapse;">
-                  <tr><td style="padding:7px 0;color:#888;font-size:12px;width:130px;">Malzeme/Ürün</td><td style="padding:7px 0;color:#222;font-size:13px;font-weight:600;">${satirAdi}</td></tr>
-                  ${r['3']||r.urunKodu ? `<tr><td style="padding:7px 0;color:#888;font-size:12px;">Kod</td><td style="padding:7px 0;color:#222;font-size:13px;">${r['3']||r.urunKodu||'—'}</td></tr>` : ''}
-                  <tr><td style="padding:7px 0;color:#888;font-size:12px;">Termin Tarihi</td><td style="padding:7px 0;color:#b05000;font-size:13px;font-weight:700;">${terminStr}</td></tr>
-                  <tr><td style="padding:7px 0;color:#888;font-size:12px;">Kalan Gün</td><td style="padding:7px 0;color:${fark===0?'#c00':'#b05000'};font-size:13px;font-weight:700;">${fark === 0 ? '🔴 BUGÜN!' : fark + ' gün'}</td></tr>
-                  <tr><td style="padding:7px 0;color:#888;font-size:12px;">Sayfa</td><td style="padding:7px 0;color:#555;font-size:12px;">${sayfaAdi}</td></tr>
-                </table>
-              </div>
-              <div style="background:#f0f0f0;padding:10px 22px;font-size:11px;color:#aaa;text-align:center;">Orimak Takip Sistemi — otomatik termin uyarısı</div>
-            </div>`;
-          brevoMailGonder(y.mail, y.ad, `⏰ Termin Uyarısı: ${satirAdi} — ${terminStr} (${fark===0?'BUGÜN':fark+' gün'})`, html);
-        });
-      }
+      // localStorage: aynı satır aynı gün tekrar gönderilmesin
+      const rowKey = r.urunKodu || r['2'] || r['3'] || JSON.stringify(r).slice(0,40);
+      const terminKey = `orimak_termin_ls_${si}_${rowKey}_${terminStr}`;
+      if (localStorage.getItem(terminKey) === bugunStr) return;
+
+      // Grup yoksa varsayılan (başlıksız) bölüm
+      if (!aktifGrup) { aktifGrup = { grupAdi: '', rows: [] }; gruplar.push(aktifGrup); }
+
+      aktifGrup.rows.push({
+        satirAdi: r.urunAdi || r['2'] || r['3'] || '—',
+        kod: r['3'] || r.urunKodu || '',
+        terminStr,
+        fark
+      });
+      gonderilecekKeys.push(terminKey);
     });
+
+    const doluGruplar = gruplar.filter(g => g.rows.length > 0);
+    if (doluGruplar.length > 0) bolumler.push({ sayfaAdi, gruplar: doluGruplar });
+  });
+
+  // Gönderilecek yeni satır yoksa çık
+  if (bolumler.length === 0) return;
+
+  // Toplam satır sayısı
+  const toplamSatir = bolumler.reduce((acc, b) =>
+    acc + b.gruplar.reduce((a, g) => a + g.rows.length, 0), 0);
+
+  // Bölüm bölüm HTML
+  const bolumlerHtml = bolumler.map(b => {
+    const gruplarHtml = b.gruplar.map(g => terminGrupHtml(g.grupAdi, g.rows)).join('');
+    return `
+      <div style="margin-bottom:20px;">
+        <div style="background:#b05000;color:#fff;padding:10px 16px;border-radius:6px 6px 0 0;font-size:14px;font-weight:700;">📄 ${b.sayfaAdi}</div>
+        <div style="border:1px solid #e0e0e0;border-top:none;border-radius:0 0 6px 6px;padding:10px;">
+          ${gruplarHtml}
+        </div>
+      </div>`;
+  }).join('');
+
+  const htmlIcerik = `
+    <div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;background:#f9f9f9;border:1px solid #ddd;border-radius:8px;overflow:hidden;">
+      <div style="background:#b05000;padding:18px 24px;">
+        <h2 style="color:#fff;margin:0;font-size:18px;">⏰ Termin Uyarısı — Toplu Liste</h2>
+        <p style="color:#ffd0a0;margin:4px 0 0;font-size:13px;">${toplamSatir} ürün · termini ${gunSiniri} gün ve altında</p>
+      </div>
+      <div style="padding:20px;">
+        ${bolumlerHtml}
+      </div>
+      <div style="background:#f0f0f0;padding:12px 24px;font-size:11px;color:#aaa;text-align:center;">
+        Orimak Takip Sistemi — otomatik termin uyarısı
+      </div>
+    </div>`;
+
+  const konu = `⏰ Termin Uyarısı — ${toplamSatir} ürün (${gunSiniri} gün ve altı)`;
+
+  // Bu satırları bugün gönderildi olarak işaretle (yetkili döngüsünden önce)
+  gonderilecekKeys.forEach(k => localStorage.setItem(k, bugunStr));
+
+  // Ayarlardaki her yetkiliye TEK toplu mail gönder
+  ayarlar.termin.yetkililer.forEach(yi => {
+    const y = yetkililer[yi];
+    if (!y) return;
+    brevoMailGonder(y.mail, y.ad, konu, htmlIcerik);
   });
 }
+
 setInterval(terminKontrol, 60 * 60 * 1000);
 setTimeout(terminKontrol, 5000);
 
@@ -12312,8 +12389,25 @@ function stLocalLoad() {
   } catch(e) { return false; }
 }
 
+// ── Servis Takip kalıcılık katmanı ──────────────────────────────
+// ÖNEMLI: ST_DATA (hafıza) ve localStorage TEK parça kalır; tüm sayfalar
+// bir arada durur, böylece sayfalar arası haberleşme bozulmaz.
+// Sadece Firestore'a yazma/okuma SAYFA BAŞINA AYRI dokümana bölünür,
+// çünkü Firestore'da doküman başına 1 MiB sınırı vardır.
+
+// Sayfa anahtarından güvenli Firestore doküman kimliği üret
+function _stDocId(pageKey) {
+  return 'servis_takip__' + String(pageKey).replace(/[^A-Za-z0-9]/g, '_');
+}
+
+// Bir metnin byte uzunluğu (1 MiB sınır kontrolü için)
+function _stByteLen(str) {
+  try { return new TextEncoder().encode(str).length; }
+  catch(e) { return (str || '').length * 2; }
+}
+
 function stFireSave() {
-  // Hemen localStorage'a kaydet (yenileme güvenliği)
+  // Hemen localStorage'a kaydet (yenileme güvenliği) — tek parça, değişmedi
   stLocalSave();
 
   clearTimeout(stSaveTimer);
@@ -12323,20 +12417,59 @@ function stFireSave() {
         stBadge('✓ Yerel olarak kaydedildi');
         return;
       }
-      try {
-        var p = window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'servis_takip_data'), {
-          data: JSON.stringify(ST_DATA),
-          updatedAt: Date.now()
-        });
-        if (p && p.then) {
-          p.then(function(){ stBadge('✓ Buluta kaydedildi'); })
-           .catch(function(e){ console.warn('Firebase kayıt hatası:', e); stBadge('✓ Yerel kaydedildi'); });
-        } else {
-          stBadge('✓ Kaydedildi');
+      var keys = Object.keys(ST_DATA);
+      if (keys.length === 0) { stBadge('✓ Kaydedildi'); return; }
+
+      var now = Date.now();
+      var promises = [];
+      var tooBig = [];
+
+      keys.forEach(function(k) {
+        if (!ST_DATA[k]) return;
+        var payload = JSON.stringify(ST_DATA[k]);
+        // Güvenli pay: 1 MiB'in biraz altı
+        if (_stByteLen(payload) > 1000000) {
+          tooBig.push(k);
+          return; // bu sayfayı buluta gönderme (tek başına sınırı aşıyor)
         }
-      } catch(e) { console.warn('Firebase kayıt hatası:', e); stBadge('✓ Yerel kaydedildi'); }
+        try {
+          var p = window._fsSetDoc(
+            window._fsDoc(window._db, 'malzeme', _stDocId(k)),
+            { page: k, data: payload, updatedAt: now }
+          );
+          if (p && p.then) {
+            promises.push(
+              p.then(function(){ return null; })
+               .catch(function(e){ console.warn('FB kayıt hatası [' + k + ']:', e); return k; })
+            );
+          }
+        } catch(e) {
+          console.warn('FB kayıt hatası [' + k + ']:', e);
+        }
+      });
+
+      function _bildir() {
+        if (tooBig.length) {
+          stBadge('⚠️ Çok büyük, buluta gitmedi: ' + tooBig.join(', '));
+          return true;
+        }
+        return false;
+      }
+
+      if (promises.length) {
+        Promise.all(promises).then(function(results) {
+          var hatali = results.filter(Boolean);
+          if (hatali.length) {
+            stBadge('⚠️ Bulut kaydı başarısız: ' + hatali.join(', '));
+          } else if (!_bildir()) {
+            stBadge('✓ Buluta kaydedildi');
+          }
+        });
+      } else if (!_bildir()) {
+        stBadge('✓ Kaydedildi');
+      }
     }
-    // Firebase hazır değilse event'i bekle
+
     if (!window._db) {
       window.addEventListener('firebaseReady', function() { _doFireSave(); }, { once: true });
       setTimeout(function() { _doFireSave(); }, 5000);
@@ -12346,84 +12479,134 @@ function stFireSave() {
   }, 800);
 }
 
+// Eski tek doküman + yeni sayfa-başı dokümanları oku, en günceli birleştir
+function _stFireLoadAll(cb) {
+  if (!window._db || !window._fsGetDoc || !window._fsDoc) { if (cb) cb(); return; }
+
+  var jobs = [];
+
+  // 1) Eski birleşik doküman (taşıma / yedek kaynağı)
+  jobs.push(
+    window._fsGetDoc(window._fsDoc(window._db, 'malzeme', 'servis_takip_data'))
+      .then(function(snap) {
+        var out = {};
+        if (snap && snap.exists() && snap.data().data) {
+          try {
+            var all = JSON.parse(snap.data().data);
+            var t = snap.data().updatedAt || 0;
+            Object.keys(all).forEach(function(k) { out[k] = { value: all[k], time: t }; });
+          } catch(e) {}
+        }
+        return out;
+      }).catch(function() { return {}; })
+  );
+
+  // 2) Sayfa başına dokümanlar
+  ST_PAGES.forEach(function(pg) {
+    var k = pg[0];
+    jobs.push(
+      window._fsGetDoc(window._fsDoc(window._db, 'malzeme', _stDocId(k)))
+        .then(function(snap) {
+          var out = {};
+          if (snap && snap.exists() && snap.data().data) {
+            try { out[k] = { value: JSON.parse(snap.data().data), time: (snap.data().updatedAt || 0) }; }
+            catch(e) {}
+          }
+          return out;
+        }).catch(function() { return {}; })
+    );
+  });
+
+  Promise.all(jobs).then(function(parts) {
+    // Her sayfa için en yeni zamanlı kaynağı seç (sayfa-başı > eski birleşik)
+    var best = {};
+    parts.forEach(function(obj) {
+      Object.keys(obj).forEach(function(k) {
+        if (!best[k] || obj[k].time >= best[k].time) best[k] = obj[k];
+      });
+    });
+
+    var lsRaw = null;
+    try { lsRaw = JSON.parse(localStorage.getItem(ST_LS_KEY) || 'null'); } catch(e) {}
+    var lsTime = lsRaw ? (lsRaw.updatedAt || 0) : 0;
+
+    var changed = false;
+    Object.keys(best).forEach(function(k) {
+      if (!best[k].value) return;
+      // Bulut bu sayfa için yerelden yeni ya da eşitse → al
+      // Ya da yerelde bu sayfa hiç yoksa → yine al (veri kaybetme)
+      if (best[k].time >= lsTime || !ST_DATA[k]) {
+        ST_DATA[k] = best[k].value;
+        changed = true;
+      }
+    });
+    if (changed) stLocalSave();
+
+    var pn = document.getElementById('stPanel');
+    if (pn && pn.style.display !== 'none') { stAutoOnayAll(); stRender(); }
+    var btn = document.getElementById('tabBtn-st');
+    if (btn) {
+      var total = ST_PAGES.reduce(function(s, pg){ return s + ((ST_DATA[pg[0]]||{}).data||[]).length; }, 0);
+      btn.innerHTML = '🔧 Servis Takip <span class="tab-count">' + total + '</span>';
+    }
+    if (cb) cb();
+  });
+}
+
 function stLoad() {
-  // Önce localStorage'dan yükle (hızlı, anlık görüntü)
+  // Önce localStorage'dan yükle (hızlı, anlık görüntü) — tek parça
   var hadLocal = stLocalLoad();
   if (hadLocal) {
     var pn0 = document.getElementById('stPanel');
     if (pn0 && pn0.style.display !== 'none') { stAutoOnayAll(); stRender(); }
   }
 
-  // Firebase'den daha güncel veri varsa üzerine yaz
-  function _stFireLoad() {
-    if (!window._db || !window._fsGetDoc || !window._fsDoc) return;
-    try {
-      window._fsGetDoc(window._fsDoc(window._db, 'malzeme', 'servis_takip_data')).then(function(snap) {
-        if (snap && snap.exists() && snap.data().data) {
-          var saved = JSON.parse(snap.data().data);
-          var fbTime = snap.data().updatedAt || 0;
-          var lsRaw = null;
-          try { lsRaw = JSON.parse(localStorage.getItem(ST_LS_KEY) || 'null'); } catch(e){}
-          var lsTime = lsRaw ? (lsRaw.updatedAt || 0) : 0;
-          if (fbTime >= lsTime) {
-            Object.keys(saved).forEach(function(k) {
-              if (saved[k]) ST_DATA[k] = saved[k];
-            });
-            stLocalSave();
-          }
-          var pn = document.getElementById('stPanel');
-          if (pn && pn.style.display !== 'none') { stAutoOnayAll(); stRender(); }
-        }
-      }).catch(function(e){ console.warn('Firebase yükleme hatası:', e); });
-    } catch(e) { console.warn('Firebase yükleme hatası:', e); }
-  }
-
-  // Firebase henüz hazır değilse event'i bekle, sonra yükle
   if (!window._db) {
     window.addEventListener('firebaseReady', function() {
-      _stFireLoad();
-      // Ayrıca gerçek zamanlı dinleyici başlat
-      _stStartRealtimeListener();
+      _stFireLoadAll(function(){ _stStartRealtimeListener(); });
     }, { once: true });
-    // 5 saniye zaman aşımı
-    setTimeout(function() { _stFireLoad(); }, 5000);
+    setTimeout(function() { _stFireLoadAll(); }, 5000);
   } else {
-    _stFireLoad();
-    _stStartRealtimeListener();
+    _stFireLoadAll(function(){ _stStartRealtimeListener(); });
   }
 }
 
-// Gerçek zamanlı Firestore dinleyicisi — başka cihazdan yapılan değişiklikleri anında alır
+// Gerçek zamanlı dinleyici — her sayfa-başı dokümanı ayrı dinler
 var _stRealtimeActive = false;
+var _stIsLocalUpdate = false;
 function _stStartRealtimeListener() {
   if (_stRealtimeActive) return;
   if (!window._db || !window._fsOnSnapshot || !window._fsDoc) return;
   _stRealtimeActive = true;
-  var _stIsLocalUpdate = false;
-  // stFireSave'i wrap'le: kendi kayıtlarımızı atlamak için
+
+  // stFireSave'i sarmala: kendi kayıtlarımızı snapshot'ta atlamak için
   var _origStFireSave = stFireSave;
   window.stFireSave = stFireSave = function() {
     _stIsLocalUpdate = true;
     _origStFireSave();
-    setTimeout(function() { _stIsLocalUpdate = false; }, 2000);
+    setTimeout(function() { _stIsLocalUpdate = false; }, 2500);
   };
-  window._fsOnSnapshot(window._fsDoc(window._db, 'malzeme', 'servis_takip_data'), function(snap) {
-    if (_stIsLocalUpdate) return;
-    if (snap && snap.exists() && snap.data().data) {
-      try {
-        var saved = JSON.parse(snap.data().data);
-        Object.keys(saved).forEach(function(k) {
-          if (saved[k]) ST_DATA[k] = saved[k];
-        });
-        stLocalSave();
-        var pn = document.getElementById('stPanel');
-        if (pn && pn.style.display !== 'none') { stAutoOnayAll(); stRender(); }
-      } catch(e) { console.warn('ST realtime parse hatası:', e); }
-    }
+
+  ST_PAGES.forEach(function(pg) {
+    var k = pg[0];
+    window._fsOnSnapshot(window._fsDoc(window._db, 'malzeme', _stDocId(k)), function(snap) {
+      if (_stIsLocalUpdate) return;
+      if (snap && snap.exists() && snap.data().data) {
+        try {
+          var v = JSON.parse(snap.data().data);
+          if (v) {
+            ST_DATA[k] = v;
+            stLocalSave();
+            var pn = document.getElementById('stPanel');
+            if (pn && pn.style.display !== 'none') { stAutoOnayAll(); stRender(); }
+          }
+        } catch(e) { console.warn('ST realtime parse hatası [' + k + ']:', e); }
+      }
+    });
   });
 }
 
-// Sayfa ilk yüklenince localStorage'dan ST_DATA'yı hemen uygula
+// Sayfa ilk yüklenince localStorage'dan ST_DATA'yı hemen uygula (tek parça)
 (function() {
   try {
     var raw = localStorage.getItem(ST_LS_KEY);
@@ -12437,38 +12620,10 @@ function _stStartRealtimeListener() {
   } catch(e) {}
 })();
 
-// Firebase hazır olunca ST_DATA'yı da Firestore'dan otomatik yükle
+// Firebase hazır olunca ST_DATA'yı sayfa-başı dokümanlardan otomatik yükle
 (function() {
   function _stAutoFireLoad() {
-    if (!window._db || !window._fsGetDoc || !window._fsDoc) return;
-    try {
-      window._fsGetDoc(window._fsDoc(window._db, 'malzeme', 'servis_takip_data')).then(function(snap) {
-        if (snap && snap.exists() && snap.data().data) {
-          var saved = JSON.parse(snap.data().data);
-          var fbTime = snap.data().updatedAt || 0;
-          var lsRaw = null;
-          try { lsRaw = JSON.parse(localStorage.getItem(ST_LS_KEY) || 'null'); } catch(e){}
-          var lsTime = lsRaw ? (lsRaw.updatedAt || 0) : 0;
-          if (fbTime >= lsTime) {
-            Object.keys(saved).forEach(function(k) {
-              if (saved[k]) ST_DATA[k] = saved[k];
-            });
-            stLocalSave();
-          }
-          // UI güncelle (servis takip paneli açıksa)
-          var pn = document.getElementById('stPanel');
-          if (pn && pn.style.display !== 'none') { stAutoOnayAll(); stRender(); }
-          // Tab sayısını güncelle
-          var btn = document.getElementById('tabBtn-st');
-          if (btn) {
-            var total = ST_PAGES.reduce(function(s, pg){ return s + ((ST_DATA[pg[0]]||{}).data||[]).length; }, 0);
-            btn.innerHTML = '🔧 Servis Takip <span class="tab-count">'+total+'</span>';
-          }
-        }
-        // Gerçek zamanlı dinleyiciyi başlat
-        _stStartRealtimeListener();
-      }).catch(function(e){ console.warn('ST otomatik Firebase yükleme hatası:', e); });
-    } catch(e) {}
+    _stFireLoadAll(function(){ _stStartRealtimeListener(); });
   }
   if (window._db) {
     _stAutoFireLoad();
