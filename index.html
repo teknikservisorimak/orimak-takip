@@ -2425,6 +2425,7 @@ function buildSiparisPanel(si) {
       <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#666;letter-spacing:1px;">ÜRETİMDEN SATIN ALMAYA SİPARİŞ FORMU</div>
       <div style="display:flex;align-items:center;gap:8px;">
         <button onclick="siparisPDFIndir()" style="background:rgba(227,100,0,.2);border:1px solid rgba(227,100,0,.4);color:#e36400;border-radius:6px;padding:6px 14px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:flex;align-items:center;gap:4px;">📄 PDF</button>
+        ${(window._currentRole === 'admin' || window._currentRole === 'manager') ? `<button onclick="openSiparisTopluMail()" style="background:#1a2e3a;border:1px solid #1e5f74;color:#5bc8e8;border-radius:6px;padding:6px 14px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:flex;align-items:center;gap:4px;">✉️ TOPLU MAİL</button>` : ''}
         ${window._currentRole !== 'viewer' ? `<button onclick="openSiparisEkle()" class="add-row-btn">＋ Yeni Sipariş</button>` : ''}
       </div>
     </div>
@@ -3147,6 +3148,168 @@ async function mailPopupGonder(siparis, idx) {
   }, 1500);
 }
 window.mailPopupGonder = mailPopupGonder;
+
+// ════════ SİPARİŞ — TOPLU MAİL ════════
+function siparisTopluMailFiltrele(filtre) {
+  const rows = getSiparisRows();
+  if (filtre === 'onaylandi') return rows.filter(r => r.yetkiliOnay === 'Onaylandı');
+  if (filtre === 'beklemede') return rows.filter(r => r.yetkiliOnay === 'Beklemede' || !r.yetkiliOnay);
+  return rows.slice();
+}
+
+function siparisTopluMailOnizleme() {
+  const radios = document.querySelectorAll('input[name=sipTopluFiltre]');
+  let filtre = 'hepsi';
+  radios.forEach(r => { if (r.checked) filtre = r.value; });
+  const satirlar = siparisTopluMailFiltrele(filtre);
+  const el = document.getElementById('sipTopluOnizleme');
+  const filtreAdi = filtre === 'hepsi' ? 'Tümü' : filtre === 'onaylandi' ? 'Yetkili Onaylı' : 'Beklemede';
+  if (el) el.innerHTML = `<span style="color:#5bc8e8;font-weight:700;">${satirlar.length} sipariş</span> gönderilecek <span style="color:#888;">(${filtreAdi})</span>`;
+}
+window.siparisTopluMailOnizleme = siparisTopluMailOnizleme;
+
+function openSiparisTopluMail() {
+  const existing = document.getElementById('sipTopluOverlay');
+  if (existing) existing.remove();
+  const yetkililer = getYetkililer();
+  const yetkiliOptions = yetkililer.length === 0
+    ? '<option value="">— Henüz yetkili eklenmedi —</option>'
+    : '<option value="">— Yetkili seçin —</option>' + yetkililer.map((y, i) => `<option value="${i}">${(y.ad||'').replace(/</g,'&lt;')} — ${(y.mail||'').replace(/</g,'&lt;')}</option>`).join('');
+
+  const overlay = document.createElement('div');
+  overlay.id = 'sipTopluOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10010;display:flex;align-items:center;justify-content:center;';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div style="background:#1a1a1a;border:1px solid #2e2e2e;border-top:3px solid #5bc8e8;border-radius:12px;width:520px;max-width:94vw;max-height:90vh;box-shadow:0 24px 80px rgba(0,0,0,.9);display:flex;flex-direction:column;">
+      <div style="padding:16px 22px 12px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;justify-content:space-between;">
+        <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;letter-spacing:2px;color:#5bc8e8;margin:0;">✉️ SİPARİŞ LİSTESİNİ MAİLE GÖNDER</h3>
+        <button onclick="document.getElementById('sipTopluOverlay').remove()" style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <div style="padding:20px 22px;display:flex;flex-direction:column;gap:16px;overflow-y:auto;">
+        <div>
+          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">Yetkili Onay Durumu</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;background:#222;border:1px solid #3a3a3a;border-radius:6px;flex:1;min-width:120px;">
+              <input type="radio" name="sipTopluFiltre" value="hepsi" checked style="accent-color:#5bc8e8;width:14px;height:14px;" onchange="siparisTopluMailOnizleme()"/>
+              <span style="color:#eee;font-size:13px;">📋 Tümü</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;background:#222;border:1px solid #3a3a3a;border-radius:6px;flex:1;min-width:120px;">
+              <input type="radio" name="sipTopluFiltre" value="onaylandi" style="accent-color:#5bc8e8;width:14px;height:14px;" onchange="siparisTopluMailOnizleme()"/>
+              <span style="color:#eee;font-size:13px;">✅ Onaylandı</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;background:#222;border:1px solid #3a3a3a;border-radius:6px;flex:1;min-width:120px;">
+              <input type="radio" name="sipTopluFiltre" value="beklemede" style="accent-color:#5bc8e8;width:14px;height:14px;" onchange="siparisTopluMailOnizleme()"/>
+              <span style="color:#eee;font-size:13px;">🟡 Beklemede</span>
+            </label>
+          </div>
+        </div>
+        <div>
+          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:7px;font-family:'Barlow Condensed',sans-serif;">Yetkili Kişi</label>
+          <select id="sipTopluYetkili" style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:6px;padding:10px 12px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;">
+            ${yetkiliOptions}
+          </select>
+          ${yetkililer.length === 0 ? '<div style="font-size:11px;color:#f87171;margin-top:6px;">⚠️ Site Yönetimi → Yetkililer sekmesinden yetkili ekleyin.</div>' : ''}
+        </div>
+        <div>
+          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:7px;font-family:'Barlow Condensed',sans-serif;">Ek Not (isteğe bağlı)</label>
+          <textarea id="sipTopluNot" rows="2" placeholder="Maille birlikte gönderilecek ek not..." style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:6px;padding:10px 12px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;resize:vertical;"></textarea>
+        </div>
+        <div id="sipTopluOnizleme" style="background:#111;border:1px solid #2a2a2a;border-radius:6px;padding:10px 14px;font-size:11px;color:#888;"></div>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid #2a2a2a;display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="document.getElementById('sipTopluOverlay').remove()" style="padding:10px 18px;background:#2a2a2a;border:1px solid #3a3a3a;color:#888;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer;">İptal</button>
+        <button id="sipTopluGonderBtn" onclick="siparisTopluMailGonder()" style="padding:10px 24px;background:#1e5f74;color:#fff;border:1px solid #1e90ff;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;cursor:pointer;">✉️ Gönder</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  siparisTopluMailOnizleme();
+}
+window.openSiparisTopluMail = openSiparisTopluMail;
+
+function siparisTopluMailTabloHtml(rows) {
+  const teslimRows = (typeof getTeslimRows === 'function') ? getTeslimRows() : [];
+  const satirlar = rows.map(r => {
+    const teslim = teslimRows.find(t => t.urunKodu === r.urunKodu);
+    const gelen = teslim ? (teslim.gelisAdet || '—') : '—';
+    const yColor = r.yetkiliOnay === 'Onaylandı' ? '#2a7a2a' : r.yetkiliOnay === 'Beklemede' ? '#b07000' : '#888';
+    const sipColor = r.sipDurumu === 'Sipariş Edildi' ? '#2a7a2a' : r.sipDurumu === 'Sipariş Edilmedi' ? '#b07000' : '#888';
+    return `
+      <tr>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#333;">${r.urunKodu||'—'}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#333;font-weight:600;">${r.urunAdi||'—'}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#333;">${r.sipAdet||'—'}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#555;">${r.olusturan||'—'}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;color:#E36400;font-weight:600;">${r.terminTarihi||'—'}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:${yColor};">${r.yetkiliOnay||'—'}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#333;">${gelen}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:${sipColor};">${r.sipDurumu||'—'}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+      <thead>
+        <tr style="background:#f0f0f0;">
+          <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Ürün Kodu</th>
+          <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Ürün Adı</th>
+          <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Sip. Adedi</th>
+          <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Oluşturan</th>
+          <th style="padding:7px 10px;text-align:left;font-size:11px;color:#888;font-weight:600;">Termin</th>
+          <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Yetkili Onayı</th>
+          <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Gelen</th>
+          <th style="padding:7px 10px;text-align:center;font-size:11px;color:#888;font-weight:600;">Sipariş Durumu</th>
+        </tr>
+      </thead>
+      <tbody>${satirlar}</tbody>
+    </table>`;
+}
+
+async function siparisTopluMailGonder() {
+  const btn = document.getElementById('sipTopluGonderBtn');
+  const yetkiliSel = document.getElementById('sipTopluYetkili');
+  const not = document.getElementById('sipTopluNot').value.trim();
+  const radios = document.querySelectorAll('input[name=sipTopluFiltre]');
+  let filtre = 'hepsi';
+  radios.forEach(r => { if (r.checked) filtre = r.value; });
+
+  if (!yetkiliSel || yetkiliSel.value === '') {
+    yetkiliSel.style.borderColor = '#f87171';
+    setTimeout(() => yetkiliSel.style.borderColor = '#3a3a3a', 1500);
+    return;
+  }
+  const yetkililer = getYetkililer();
+  const y = yetkililer[parseInt(yetkiliSel.value)];
+  if (!y) return;
+
+  const satirlar = siparisTopluMailFiltrele(filtre);
+  if (satirlar.length === 0) { alert('Gönderilecek sipariş bulunamadı!'); return; }
+
+  btn.textContent = '⏳ Gönderiliyor...'; btn.disabled = true;
+
+  const filtreAdi = filtre === 'hepsi' ? 'Tüm Siparişler' : filtre === 'onaylandi' ? 'Yetkili Onaylılar' : 'Beklemedekiler';
+  const tableHtml = siparisTopluMailTabloHtml(satirlar);
+  const htmlIcerik = `
+    <div style="font-family:Arial,sans-serif;max-width:760px;margin:0 auto;background:#f9f9f9;border:1px solid #ddd;border-radius:8px;overflow:hidden;">
+      <div style="background:#E36400;padding:18px 24px;">
+        <h2 style="color:#fff;margin:0;font-size:18px;">🏭 Orimak Takip — Sipariş Formu</h2>
+        <p style="color:#ffe0c0;margin:4px 0 0;font-size:13px;">${filtreAdi} · ${satirlar.length} sipariş</p>
+      </div>
+      <div style="padding:20px;">
+        ${not ? `<div style="background:#fff8e0;border-left:3px solid #E36400;padding:10px 14px;margin-bottom:16px;font-size:13px;color:#333;border-radius:4px;"><strong>Not:</strong> ${not}</div>` : ''}
+        ${tableHtml}
+      </div>
+      <div style="background:#f0f0f0;padding:12px 24px;font-size:11px;color:#aaa;text-align:center;">
+        Bu mail Orimak Takip Sistemi tarafından otomatik gönderilmiştir.
+      </div>
+    </div>`;
+  const konu = `📋 Sipariş Formu — ${filtreAdi} (${satirlar.length} sipariş)`;
+  const ok = await brevoMailGonder(y.mail, y.ad, konu, htmlIcerik);
+
+  btn.textContent = ok ? '✅ Gönderildi!' : '❌ Hata!';
+  btn.style.background = ok ? '#1a4a2a' : '#4a1a1a';
+  setTimeout(() => { document.getElementById('sipTopluOverlay')?.remove(); }, 1500);
+}
+window.siparisTopluMailGonder = siparisTopluMailGonder;
 
 async function brevoMailGonder(toEmail, toName, konu, htmlIcerik) {
   try {
