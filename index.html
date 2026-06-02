@@ -1080,6 +1080,8 @@ td.col-code{font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:
 .group-toggle{margin-right:8px;font-size:11px;display:inline-block;transition:transform .15s;}
 .group-row.collapsed .group-toggle{transform:rotate(-90deg);}
 tr.group-hidden{display:none !important;}
+.pdf-row-chk,.pdf-grp-chk{width:14px;height:14px;accent-color:var(--orange);cursor:pointer;flex:none;vertical-align:middle;}
+.pdf-grp-chk{margin-right:6px;}
 
 /* SATIR DÜZENLEME MODALİ */
 #rowEditOverlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10002;display:none;align-items:center;justify-content:center;}
@@ -2433,7 +2435,7 @@ function buildSiparisPanel(si) {
           <th>SİPARİŞİ OLUŞTURAN</th><th>YETKİLİ ONAYI</th>
           <th>OLUŞTURMA TARİHİ</th><th>TERMİN TARİHİ</th>
           <th>GELİŞ TARİHİ</th><th>GELİŞ ONAYI</th>
-          <th>GELEN ADET</th><th>TESLİM DURUMU</th><th>SİPARİŞ DURUMU</th><th>NOTLAR</th><th>TESLİM ALAN</th><th>İŞLEMLER</th>
+          <th>GELEN ADET</th><th>TESLİM DURUMU</th><th>DURUM</th><th>SİPARİŞ DURUMU</th><th>NOTLAR</th><th>TESLİM ALAN</th><th>İŞLEMLER</th>
         </tr></thead>
         <tbody id="siparisBody"></tbody>
       </table>
@@ -2448,7 +2450,7 @@ function renderSiparisRows() {
   const rows = getSiparisRows();
   tbody.innerHTML = '';
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;padding:32px;color:#555;font-family:Barlow Condensed,sans-serif;letter-spacing:2px;">Henüz sipariş yok — ＋ Yeni Sipariş ile ekleyin</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="17" style="text-align:center;padding:32px;color:#555;font-family:Barlow Condensed,sans-serif;letter-spacing:2px;">Henüz sipariş yok — ＋ Yeni Sipariş ile ekleyin</td></tr>';
     return;
   }
   rows.forEach((r, i) => {
@@ -2511,7 +2513,19 @@ function renderSiparisRows() {
     const _sipNoHtml = _activeHL
       ? String(i+1) + '<span class="row-highlight-badge ' + (_activeHL === 'new' ? 'badge-new' : 'badge-edit') + '">' + (_activeHL === 'new' ? '⬆ YENİ' : '✏ DÜZENLENDİ') + '</span>'
       : String(i+1);
-    tr.appendChild(mkTd(_sipNoHtml, 'text-align:center;font-weight:700;color:#999;font-size:11px;font-family:Barlow Condensed,sans-serif;'));
+    const _sipNoWrap = document.createElement('div');
+    _sipNoWrap.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:6px;';
+    const _sipChk = document.createElement('input');
+    _sipChk.type = 'checkbox';
+    _sipChk.className = 'pdf-row-chk';
+    _sipChk.title = 'PDF için seç';
+    _sipChk.checked = !!rows[i]._pdfSel;
+    _sipChk.onchange = () => { rows[i]._pdfSel = _sipChk.checked; };
+    _sipNoWrap.appendChild(_sipChk);
+    const _sipNoNum = document.createElement('span');
+    _sipNoNum.innerHTML = _sipNoHtml;
+    _sipNoWrap.appendChild(_sipNoNum);
+    tr.appendChild(mkTdEl(_sipNoWrap, 'text-align:center;font-weight:700;color:#999;font-size:11px;font-family:Barlow Condensed,sans-serif;'));
     tr.appendChild(mkTd(r.urunKodu||'', "font-family:'Barlow Condensed',sans-serif;font-weight:600;"));
     tr.appendChild(mkTd(r.urunAdi||''));
     tr.appendChild(mkTd(r.sipAdet||'', 'text-align:center;'));
@@ -2574,6 +2588,36 @@ function renderSiparisRows() {
     tr.appendChild(mkTd(teslimUyariHtml, 'text-align:center;'));
 
     tr.appendChild(mkTd(`<span class="sp-durum ${durumClass}">${durum}</span>`));
+
+    // ── MANUEL SİPARİŞ DURUMU (malzeme sayfalarındaki gibi) ──
+    const sipDurTd = document.createElement('td');
+    const sipDurSel = document.createElement('select');
+    sipDurSel.className = 'onay-select';
+    sipDurSel.style.minWidth = '110px';
+    ['', 'Sipariş Edildi', 'Sipariş Edilmedi'].forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o; opt.textContent = o || '—';
+      if (o === (r.sipDurumu || '')) opt.selected = true;
+      sipDurSel.appendChild(opt);
+    });
+    if (window._currentRole === 'viewer') sipDurSel.disabled = true;
+    function _styleSipDur(sel, val) {
+      if (val === 'Sipariş Edildi') {
+        sel.style.background = 'rgba(146,208,80,.15)'; sel.style.color = '#92D050'; sel.style.borderColor = 'rgba(146,208,80,.3)';
+      } else if (val === 'Sipariş Edilmedi') {
+        sel.style.background = 'rgba(245,166,35,.15)'; sel.style.color = '#F5A623'; sel.style.borderColor = 'rgba(245,166,35,.3)';
+      } else {
+        sel.style.background = ''; sel.style.color = ''; sel.style.borderColor = '';
+      }
+    }
+    _styleSipDur(sipDurSel, r.sipDurumu || '');
+    sipDurSel.onchange = () => {
+      rows[i].sipDurumu = sipDurSel.value;
+      _styleSipDur(sipDurSel, sipDurSel.value);
+      saveSiparisRows();
+    };
+    sipDurTd.appendChild(sipDurSel);
+    tr.appendChild(sipDurTd);
     tr.appendChild(mkTd(r.notlar||'', 'font-size:11px;color:#333;'));
     tr.appendChild(mkTd(teslimAlan, 'font-size:11px;color:#333;'));
 
@@ -3362,6 +3406,28 @@ function yeniSatirMailGonder(si, malzemeAdi, malzemeKodu, grup) {
 }
 window.yeniSatirMailGonder = yeniSatirMailGonder;
 
+// Yeni sipariş eklenince — Site Yönetimi → Mail ayarlarındaki "Yeni Satır" kuralına göre
+// seçili yetkililere otomatik sipariş maili gönderir (malzeme sayfalarıyla aynı mantık).
+function yeniSiparisMailGonder(siparis) {
+  try {
+    const ayarlar = getMailAyarlari();
+    if (!ayarlar.yeniSatir || !ayarlar.yeniSatir.aktif) return;
+    const si = getSiparisIdx();
+    if (si < 0 || !Array.isArray(ayarlar.yeniSatir.sayfalar) || !ayarlar.yeniSatir.sayfalar.includes(si)) return;
+    if (!Array.isArray(ayarlar.yeniSatir.yetkililer) || ayarlar.yeniSatir.yetkililer.length === 0) return;
+    const yetkililer = getYetkililer();
+    ayarlar.yeniSatir.yetkililer.forEach(yi => {
+      const y = yetkililer[yi];
+      if (!y || !y.mail) return;
+      mailSiparisYeni(siparis, y.mail, y.ad).then(ok => {
+        if (ok) console.log('✅ Yeni sipariş maili gönderildi:', y.mail);
+        else console.warn('❌ Sipariş maili gönderilemedi:', y.mail);
+      });
+    });
+  } catch (e) { console.error('yeniSiparisMailGonder hatası:', e); }
+}
+window.yeniSiparisMailGonder = yeniSiparisMailGonder;
+
 function openSiparisEkle(editIdx = -1) {
   const rows = getSiparisRows();
   const r = editIdx >= 0 ? rows[editIdx] : {};
@@ -3422,7 +3488,7 @@ async function saveSiparis(editIdx) {
     yetkiliOnay: editIdx >= 0 ? (rows[editIdx].yetkiliOnay||'') : '',
     yetkiliOnayKisi: editIdx >= 0 ? (rows[editIdx].yetkiliOnayKisi||'') : '',
     gelisOnay: editIdx >= 0 ? (rows[editIdx].gelisOnay||'') : '',
-    yetkiliMailIdx: document.getElementById('sp_yetkili') ? (document.getElementById('sp_yetkili').value !== '' ? parseInt(document.getElementById('sp_yetkili').value) : undefined) : (editIdx >= 0 ? rows[editIdx].yetkiliMailIdx : undefined),
+    yetkiliMailIdx: editIdx >= 0 ? rows[editIdx].yetkiliMailIdx : undefined,
   };
   const _isYeniSiparis = editIdx < 0;
   // ── KALICI BİLDİRİM: satıra _notif alanı ekle (Firebase'e gidecek) ──
@@ -3442,16 +3508,9 @@ async function saveSiparis(editIdx) {
   renderSiparisRows();
   updateTerminBadge();
   // ── PUSH BİLDİRİMİ: Yeni sipariş eklendi ──
-  // ── OTOMATİK MAIL: Yeni sipariş ──
-  if (_isYeniSiparis && yeni.yetkiliMailIdx !== undefined) {
-    const _yetkililer = getYetkililer();
-    const _y = _yetkililer[yeni.yetkiliMailIdx];
-    if (_y) {
-      mailSiparisYeni(yeni, _y.mail, _y.ad).then(ok => {
-        if (ok) console.log('✅ Yeni sipariş maili gönderildi:', _y.mail);
-        else console.warn('❌ Mail gönderilemedi');
-      });
-    }
+  // ── OTOMATİK MAIL: Yeni sipariş (Site Yönetimi → Mail ayarlarına göre) ──
+  if (_isYeniSiparis) {
+    yeniSiparisMailGonder(yeni);
   }
   if (_isYeniSiparis && window.orimakSendPush) {
     var _kim = window._currentUser || 'Kullanıcı';
@@ -3524,6 +3583,8 @@ function siparisPDFIndir() {
   const onayliRows = allRows.filter(r => r.yetkiliOnay === 'Onaylandı');
   const onayliCount = onayliRows.length;
   const tumCount = allRows.length;
+  const seciliRows = allRows.filter(r => r._pdfSel);
+  const seciliCount = seciliRows.length;
 
   const modal = document.createElement('div');
   modal.id = 'sipPdfSecimModal';
@@ -3538,6 +3599,16 @@ function siparisPDFIndir() {
         <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#999;letter-spacing:1px;margin-bottom:6px;">SİPARİŞ FORMU</div>
         <div style="font-family:'Barlow',sans-serif;font-size:12px;color:#bbb;margin-bottom:18px;">Hangi siparişleri PDF olarak oluşturmak istiyorsunuz?</div>
         <div style="display:flex;flex-direction:column;gap:10px;">
+          <button id="sipPdfSecili" style="display:flex;align-items:center;justify-content:space-between;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;padding:14px 18px;cursor:pointer;transition:all .2s;${seciliCount === 0 ? 'opacity:.4;pointer-events:none;' : ''}">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:18px;">☑️</span>
+              <div style="text-align:left;">
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:#5bc8e8;">SADECE SEÇİLENLER</div>
+                <div style="font-family:'Barlow',sans-serif;font-size:11px;color:#888;margin-top:2px;">İşaretlediğiniz siparişler</div>
+              </div>
+            </div>
+            <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#5bc8e8;background:rgba(91,200,232,.12);padding:3px 10px;border-radius:12px;letter-spacing:1px;">${seciliCount} kayıt</span>
+          </button>
           <button id="sipPdfOnay" style="display:flex;align-items:center;justify-content:space-between;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;padding:14px 18px;cursor:pointer;transition:all .2s;${onayliCount === 0 ? 'opacity:.4;pointer-events:none;' : ''}">
             <div style="display:flex;align-items:center;gap:10px;">
               <span style="font-size:18px;">✅</span>
@@ -3563,7 +3634,7 @@ function siparisPDFIndir() {
     </div>`;
   document.body.appendChild(modal);
 
-  ['sipPdfOnay','sipPdfTum'].forEach(id => {
+  ['sipPdfSecili','sipPdfOnay','sipPdfTum'].forEach(id => {
     const btn = document.getElementById(id);
     if (!btn || btn.style.pointerEvents === 'none') return;
     btn.onmouseenter = () => { btn.style.borderColor = 'var(--orange)'; btn.style.background = '#222'; };
@@ -3573,6 +3644,13 @@ function siparisPDFIndir() {
   document.getElementById('sipPdfKapat').onclick = () => modal.remove();
   modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
 
+  const sipSecBtn = document.getElementById('sipPdfSecili');
+  if (sipSecBtn && sipSecBtn.style.pointerEvents !== 'none') {
+    sipSecBtn.onclick = () => {
+      modal.remove();
+      _siparisPDFOlustur(seciliRows, teslimRows);
+    };
+  }
   document.getElementById('sipPdfOnay').onclick = () => {
     modal.remove();
     _siparisPDFOlustur(onayliRows, teslimRows);
@@ -3607,11 +3685,11 @@ function _siparisPDFOlustur(rows, teslimRows) {
   <div class="sub">${tarih} | ${rows.length} kayıt</div>
   <table>
   <thead><tr>
-    <th style="width:3%">NO</th><th style="width:8%">ÜRÜN KODU</th><th style="width:14%">ÜRÜN ADI</th>
-    <th style="width:5%">SİP. ADET</th><th style="width:9%">OLUŞTURAN</th><th style="width:7%">YETKİLİ ONAYI</th>
+    <th style="width:3%">NO</th><th style="width:8%">ÜRÜN KODU</th><th style="width:10%">ÜRÜN ADI</th>
+    <th style="width:5%">SİP. ADET</th><th style="width:7%">OLUŞTURAN</th><th style="width:7%">YETKİLİ ONAYI</th>
     <th style="width:7%">OLUŞTURMA</th><th style="width:7%">TERMİN</th>
     <th style="width:7%">GELİŞ TARİHİ</th><th style="width:7%">GELİŞ ONAYI</th>
-    <th style="width:5%">GELEN</th><th style="width:8%">TESLİM DURUMU</th><th style="width:7%">DURUM</th><th style="width:6%">TESLİM ALAN</th>
+    <th style="width:5%">GELEN</th><th style="width:7%">TESLİM DURUMU</th><th style="width:7%">DURUM</th><th style="width:7%">SİP. DURUMU</th><th style="width:6%">TESLİM ALAN</th>
   </tr></thead><tbody>`;
 
   rows.forEach((r, i) => {
@@ -3650,6 +3728,7 @@ function _siparisPDFOlustur(rows, teslimRows) {
       <td>${gelisAdet||'—'}</td>
       <td>${teslimDurum}</td>
       <td>${durumText}</td>
+      <td>${r.sipDurumu||'—'}</td>
       <td>${teslimAlan||'—'}</td>
     </tr>`;
   });
@@ -4408,6 +4487,20 @@ async function saveRowEdit() {
 }
 window.saveRowEdit = saveRowEdit;
 
+// Gruptaki tüm satırların PDF seçimini aç/kapat
+function toggleGroupSelect(si, groupRi, checked) {
+  const rows = state[si].rows;
+  for (let i = groupRi + 1; i < rows.length; i++) {
+    if (rows[i]._group) break;
+    if (rows[i]['3'] || rows[i]['2']) {
+      rows[i]._pdfSel = checked;
+      const tr = document.getElementById('row-' + si + '-' + i);
+      if (tr) { const c = tr.querySelector('.pdf-row-chk'); if (c) c.checked = checked; }
+    }
+  }
+}
+window.toggleGroupSelect = toggleGroupSelect;
+
 function grupPDFIndir(si, groupRi, groupAd) {
   // Grup başlığından sonraki satırları topla (bir sonraki gruba kadar)
   const rows = state[si].rows;
@@ -4427,6 +4520,9 @@ function grupPDFIndir(si, groupRi, groupAd) {
   const onayliRows = allGrupRows.filter(r => (r._yetkili || r.yetkili || '') === 'Onaylandı');
   const onayliCount = onayliRows.length;
   const tumCount = allGrupRows.length;
+  // İşaretlenmiş satırlar
+  const seciliRows = allGrupRows.filter(r => r._pdfSel);
+  const seciliCount = seciliRows.length;
 
   // Seçim modalı göster
   const modal = document.createElement('div');
@@ -4442,6 +4538,16 @@ function grupPDFIndir(si, groupRi, groupAd) {
         <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#999;letter-spacing:1px;margin-bottom:6px;">${groupAd}</div>
         <div style="font-family:'Barlow',sans-serif;font-size:12px;color:#bbb;margin-bottom:18px;">Hangi satırları PDF olarak oluşturmak istiyorsunuz?</div>
         <div style="display:flex;flex-direction:column;gap:10px;">
+          <button id="pdfSecimSecili" style="display:flex;align-items:center;justify-content:space-between;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;padding:14px 18px;cursor:pointer;transition:all .2s;${seciliCount === 0 ? 'opacity:.4;pointer-events:none;' : ''}">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:18px;">☑️</span>
+              <div style="text-align:left;">
+                <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:#5bc8e8;">SADECE SEÇİLENLER</div>
+                <div style="font-family:'Barlow',sans-serif;font-size:11px;color:#888;margin-top:2px;">İşaretlediğiniz satırlar</div>
+              </div>
+            </div>
+            <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#5bc8e8;background:rgba(91,200,232,.12);padding:3px 10px;border-radius:12px;letter-spacing:1px;">${seciliCount} kayıt</span>
+          </button>
           <button id="pdfSecimOnay" style="display:flex;align-items:center;justify-content:space-between;background:#1e1e1e;border:1px solid #3a3a3a;border-radius:8px;padding:14px 18px;cursor:pointer;transition:all .2s;${onayliCount === 0 ? 'opacity:.4;pointer-events:none;' : ''}">
             <div style="display:flex;align-items:center;gap:10px;">
               <span style="font-size:18px;">✅</span>
@@ -4468,7 +4574,7 @@ function grupPDFIndir(si, groupRi, groupAd) {
   document.body.appendChild(modal);
 
   // Hover efektleri
-  ['pdfSecimOnay','pdfSecimTum'].forEach(id => {
+  ['pdfSecimSecili','pdfSecimOnay','pdfSecimTum'].forEach(id => {
     const btn = document.getElementById(id);
     if (!btn || btn.style.pointerEvents === 'none') return;
     btn.onmouseenter = () => { btn.style.borderColor = 'var(--orange)'; btn.style.background = '#222'; };
@@ -4479,6 +4585,14 @@ function grupPDFIndir(si, groupRi, groupAd) {
   document.getElementById('pdfSecimKapat').onclick = () => modal.remove();
   modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
 
+  // Sadece seçilenler
+  const secBtn = document.getElementById('pdfSecimSecili');
+  if (secBtn && secBtn.style.pointerEvents !== 'none') {
+    secBtn.onclick = () => {
+      modal.remove();
+      _grupPDFOlustur(si, groupAd, seciliRows);
+    };
+  }
   // Sadece onaylılar
   document.getElementById('pdfSecimOnay').onclick = () => {
     modal.remove();
@@ -9415,10 +9529,17 @@ function makeRow(si, ri, row) {
     td.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
     const left = document.createElement('span');
     left.style.cssText = 'display:flex;align-items:center;gap:0;flex:1;';
+    const grpChk = document.createElement('input');
+    grpChk.type = 'checkbox';
+    grpChk.className = 'pdf-grp-chk';
+    grpChk.title = 'Gruptaki tüm satırları PDF için seç';
+    grpChk.onclick = (e) => e.stopPropagation();
+    grpChk.onchange = (e) => { e.stopPropagation(); toggleGroupSelect(si, ri, grpChk.checked); };
     const toggle = document.createElement('span');
     toggle.className = 'group-toggle'; toggle.textContent = '▼';
     const nameSpan = document.createElement('span');
     nameSpan.textContent = row['2'];
+    left.appendChild(grpChk);
     left.appendChild(toggle);
     left.appendChild(nameSpan);
     // Tıklayınca aç/kapat
@@ -9646,6 +9767,32 @@ function makeRow(si, ri, row) {
         }
         div.appendChild(del);
         td.appendChild(div);
+      } else if (c.cls === 'col-no') {
+        // NO sütunu: PDF seçim kutucuğu + satır numarası
+        const noWrap = document.createElement('div');
+        noWrap.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.className = 'pdf-row-chk';
+        chk.title = 'PDF için seç';
+        chk.checked = !!state[si].rows[ri]._pdfSel;
+        chk.onclick = (e) => e.stopPropagation();
+        chk.onchange = () => { state[si].rows[ri]._pdfSel = chk.checked; };
+        noWrap.appendChild(chk);
+        const noSpan = document.createElement('span');
+        noSpan.textContent = c.val !== undefined ? c.val : '';
+        noWrap.appendChild(noSpan);
+        td.appendChild(noWrap);
+        // ── KALICI SATIR BELİRTECİ: col-no'ya badge ekle ──
+        if (row._notif && row._notif.type) {
+          var _notifTypeR = row._notif.type;
+          var _badgeR = document.createElement('span');
+          _badgeR.className = 'row-highlight-badge ' + (_notifTypeR === 'new' ? 'badge-new' : 'badge-edit');
+          _badgeR.style.marginLeft = '4px';
+          _badgeR.textContent = _notifTypeR === 'new' ? '⬆ YENİ' : '✏ DÜZ.';
+          td.appendChild(_badgeR);
+          tr.classList.add(_notifTypeR === 'new' ? 'row-highlight-active' : 'row-highlight-edit');
+        }
       } else {
         td.textContent = c.val !== undefined ? c.val : '';
         // ── KALICI SATIR BELİRTECİ: col-no'ya badge ekle ──
@@ -9806,7 +9953,7 @@ const firebaseConfig = null; // login script'te tanımlı
 async function fbSaveAll() {
   if (!window._db) return;
   try {
-    await window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'sheets'), { data: JSON.stringify(SHEETS), updatedAt: Date.now() });
+    await window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'sheets'), { data: JSON.stringify(SHEETS, (k, v) => k === '_pdfSel' ? undefined : v), updatedAt: Date.now() });
   } catch(e) { console.warn('Firebase kayıt hatası:', e); }
 }
 
