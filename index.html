@@ -1937,11 +1937,9 @@ async function saveUserEdit(uid, username) {
   const secili = [];
   checkboxes.forEach(cb => { if (cb.checked) secili.push(cb.dataset.sayfa); });
   // Tüm sayfalar seçiliyse boş bırak (tümüne erişim)
-  const tumSayfalar = [
-    ...SHEETS.map(s => s.name),
-    'SERVİS TAKİP', 'SERİ NO', 'YEDEK PARÇA', 'SAHA RAPORU'
-  ];
-  const sayfalarVal = secili.length === tumSayfalar.length ? '' : secili.join(',');
+  // Checkbox sayısını dinamik say — SHEETS yüklenip yüklenmediğinden bağımsız
+  const toplamCheckbox = checkboxes.length;
+  const sayfalarVal = (secili.length === toplamCheckbox) ? '' : secili.join(',');
 
   try {
     const r = await fetch(`${SB_URL}/rest/v1/${SB_TBL}?id=eq.${uid}`, {
