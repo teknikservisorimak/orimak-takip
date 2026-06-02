@@ -1836,7 +1836,7 @@ async function renderUserList() {
       const tumSayfalar = [
         ...SHEETS.filter(s => s.type !== 'siparis' && s.type !== 'teslim' && s.type !== 'satis').map(s => s.name),
         ...SHEETS.filter(s => s.type === 'siparis' || s.type === 'teslim' || s.type === 'satis').map(s => s.name),
-        'SERVİS TAKİP', 'SERİ NO', 'YEDEK PARÇA'
+        'SERVİS TAKİP', 'SERİ NO', 'YEDEK PARÇA', 'SAHA RAPORU'
       ];
       const erisimText = u.rol === 'admin'
         ? 'Tüm sayfalar'
@@ -1876,7 +1876,7 @@ async function renderUserList() {
             Erişebileceği Sayfalar <span style="color:#555;font-weight:400;text-transform:none;letter-spacing:0;">(boşsa tümüne erişir)</span>
           </label>
           <div class="sayfa-grid">
-            ${tumSayfalar.slice(0, -3).map(s => `
+            ${tumSayfalar.slice(0, -4).map(s => `
               <label class="sayfa-cb">
                 <input type="checkbox" data-uid="${u.id}" data-sayfa="${s}" ${sayfalar.length === 0 || sayfalar.includes(s) ? 'checked' : ''}>
                 ${s}
@@ -1891,6 +1891,15 @@ async function renderUserList() {
                 <input type="checkbox" data-uid="${u.id}" data-sayfa="${s}" ${sayfalar.length === 0 || sayfalar.includes(s) ? 'checked' : ''}>
                 🔧 ${s}
               </label>`).join('')}
+          </div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;color:#555;text-transform:uppercase;margin:10px 0 6px;">
+            Saha Raporu (Tüm Rollerde — Sadece Yetkili Görür)
+          </div>
+          <div class="sayfa-grid">
+            <label class="sayfa-cb" style="border-color:#3a2f1a;">
+              <input type="checkbox" data-uid="${u.id}" data-sayfa="SAHA RAPORU" ${sayfalar.length === 0 || sayfalar.includes('SAHA RAPORU') ? 'checked' : ''}>
+              📍 SAHA RAPORU
+            </label>
           </div>
           <div style="display:flex;gap:8px;margin-top:12px;">
             <button class="edit-save-btn" onclick="saveUserEdit(${u.id}, '${u.kullanici_adi}')">💾 Kaydet</button>
@@ -1924,7 +1933,7 @@ async function saveUserEdit(uid, username) {
   // Tüm sayfalar seçiliyse boş bırak (tümüne erişim)
   const tumSayfalar = [
     ...SHEETS.map(s => s.name),
-    'SERVİS TAKİP', 'SERİ NO', 'YEDEK PARÇA'
+    'SERVİS TAKİP', 'SERİ NO', 'YEDEK PARÇA', 'SAHA RAPORU'
   ];
   const sayfalarVal = secili.length === tumSayfalar.length ? '' : secili.join(',');
 
@@ -4961,7 +4970,7 @@ function showAdminMsg(text, type) {
         <div class="home-card-desc">Müşteri ve satış bilgilerini yönet.</div>
         <div class="home-card-arrow">GİT</div>
       </div>
-      <div class="home-card" style="border-color:rgba(245,166,35,.25);background:linear-gradient(135deg,#1a1200,#111);" onclick="window.location.href='satis_takip.html'">
+      <div class="home-card" id="homeCardSaha" style="border-color:rgba(245,166,35,.25);background:linear-gradient(135deg,#1a1200,#111);" onclick="window.location.href='satis_takip.html'">
         <div class="home-card-icon">📍</div>
         <div class="home-card-name" style="color:#F5A623;">Saha Raporu</div>
         <div class="home-card-desc">Günlük firma ziyaretleri, araç KM, sipariş ve tahsilat takibi. Gün sonu mail/PDF raporu.</div>
@@ -15630,6 +15639,74 @@ window.pfmPDFIndir = function(){
   }
 };
 
+})();
+</script>
+<script>
+// ══════════════════════════════════════════
+//  SAHA RAPORU — üst bar bağlantısı + görünürlük
+// ══════════════════════════════════════════
+(function(){
+  function canSeeSaha() {
+    var role = window._currentRole || 'viewer';
+    if (role === 'admin') return true;
+    var s = window._currentSayfalar || [];
+    if (!s || s.length === 0) return true;          // boş = tüm sayfalar
+    return s.indexOf('SAHA RAPORU') !== -1;
+  }
+  window.canSeeSaha = canSeeSaha;
+
+  function sahaGit() {
+    try { localStorage.setItem('orimak_lastPage', JSON.stringify({ type:'saha' })); } catch(e){}
+    window.location.href = 'satis_takip.html';
+  }
+  window.sahaGit = sahaGit;
+
+  function sahaAddTab() {
+    var w = document.getElementById('tabsWrap');
+    if (!w || document.getElementById('tabBtn-saha')) return;
+    var b = document.createElement('button');
+    b.className = 'tab-btn';
+    b.id = 'tabBtn-saha';
+    b.innerHTML = '📍 Saha Raporu';
+    b.onclick = sahaGit;
+    w.appendChild(b);
+  }
+  window.sahaAddTab = sahaAddTab;
+
+  function applySahaVisibility() {
+    var goster = canSeeSaha();
+    var card = document.getElementById('homeCardSaha');
+    if (card) card.style.display = goster ? '' : 'none';
+    var tab  = document.getElementById('tabBtn-saha');
+    if (tab)  tab.style.display  = goster ? '' : 'none';
+  }
+  window.applySahaVisibility = applySahaVisibility;
+
+  // buildUI sonrası: tab ekle + görünürlük uygula
+  var _oBU = window.buildUI;
+  if (typeof _oBU === 'function') {
+    window.buildUI = function() {
+      var r = _oBU.apply(this, arguments);
+      sahaAddTab();
+      applySahaVisibility();
+      return r;
+    };
+  }
+
+  // applySayfaKisitlama sonrası görünürlüğü güncelle (rol/sayfa izinleri belli olunca)
+  var _oASK = window.applySayfaKisitlama;
+  if (typeof _oASK === 'function') {
+    window.applySayfaKisitlama = function() {
+      var r = _oASK.apply(this, arguments);
+      applySahaVisibility();
+      return r;
+    };
+  }
+
+  // buildUI zaten çalıştıysa hemen uygula
+  if (document.getElementById('tabsWrap')) {
+    setTimeout(function(){ sahaAddTab(); applySahaVisibility(); }, 250);
+  }
 })();
 </script>
 <script>
