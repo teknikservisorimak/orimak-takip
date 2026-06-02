@@ -9840,7 +9840,16 @@ async function loadData() {
         });
         SHEETS = updated;
         buildState();
-        rebuildTable(activeSheet);
+        // Sadece aktif sayfayı değil, DOM'da bulunan TÜM normal sayfaların
+        // tablolarını yeniden çiz. Aksi halde başka sekmedeki grup isimleri,
+        // PDF butonları ve satırlar bayat kalıyor; ancak sayfa yenilenince
+        // (buildUI tekrar çalışınca) düzeliyordu.
+        SHEETS.forEach(function(s, i) {
+          if (s.type === 'siparis' || s.type === 'teslim' || s.type === 'satis') return;
+          if (document.getElementById('tbody-' + i)) {
+            try { rebuildTable(i); } catch(e) { console.warn('rebuildTable hata:', i, e); }
+          }
+        });
         updateStats(activeSheet);
         renderSiparisRows();
         renderTeslimRows();
@@ -10935,16 +10944,23 @@ function ypSwitchAway() {
 
 // buildUI tamamlandıktan sonra tab ekle
 var _origBuildUI = window.buildUI;
+var _ypSwitchPatched = false;
 window.buildUI = function() {
   _origBuildUI.apply(this, arguments);
   ypCreatePanel();
   ypAddTab();
-  // switchTab'ı patch et: yedek parça dışındaki sekme geçişlerinde paneli gizle
-  var _origST = window.switchTab;
-  window.switchTab = function(idx) {
-    _origST.apply(this, arguments);
-    ypSwitchAway();
-  };
+  // switchTab'ı SADECE BİR KEZ patch et. Önceden her buildUI çağrısında
+  // tekrar sarılıyordu; bu yüzden sekme geçişleri zamanla katmanlanıp
+  // yavaşlıyor/takılıyordu.
+  if (!_ypSwitchPatched) {
+    var _origST = window.switchTab;
+    window.switchTab = function(idx) {
+      var r = _origST.apply(this, arguments);
+      ypSwitchAway();
+      return r;
+    };
+    _ypSwitchPatched = true;
+  }
 };
 
 })(); // IIFE sonu
@@ -11315,16 +11331,21 @@ window.snSwitchAway = snSwitchAway;
 
 // buildUI sonrası tab ekle
 var _oBU = window.buildUI;
+var _snSwitchPatched = false;
 if (_oBU) {
   window.buildUI = function() {
     _oBU.apply(this, arguments);
     snCreatePanel();
     snAddTab();
-    var _oST = window.switchTab;
-    window.switchTab = function(idx) {
-      _oST.apply(this, arguments);
-      snSwitchAway();
-    };
+    if (!_snSwitchPatched) {
+      var _oST = window.switchTab;
+      window.switchTab = function(idx) {
+        var r = _oST.apply(this, arguments);
+        snSwitchAway();
+        return r;
+      };
+      _snSwitchPatched = true;
+    }
   };
 }
 
@@ -12681,16 +12702,21 @@ window.stSwitchAway = stSwitchAway;
 
 // buildUI sonrası tab ekle
 var _oBU = window.buildUI;
+var _stSwitchPatched = false;
 if (_oBU) {
   window.buildUI = function() {
     _oBU.apply(this, arguments);
     stCreatePanel();
     stAddTab();
-    var _oST = window.switchTab;
-    window.switchTab = function(idx) {
-      _oST.apply(this, arguments);
-      stSwitchAway();
-    };
+    if (!_stSwitchPatched) {
+      var _oST = window.switchTab;
+      window.switchTab = function(idx) {
+        var r = _oST.apply(this, arguments);
+        stSwitchAway();
+        return r;
+      };
+      _stSwitchPatched = true;
+    }
   };
 }
 
