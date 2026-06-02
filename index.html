@@ -1756,7 +1756,11 @@ function applySayfaKisitlama(sayfalar) {
     if (panels[i]) panels[i].style.display = gorunur ? '' : 'none';
     if (gorunur && ilkGorunen === -1) ilkGorunen = i;
   });
-  if (ilkGorunen >= 0) switchTab(ilkGorunen);
+  // Kullanıcıyı bulunduğu sayfadan atma: sadece ana sayfada değilsek VE
+  // aktif sayfa artık gizliyse ilk görünür sayfaya geç. Aksi halde olduğu yerde kal.
+  var _homeAktif = (function(){ var h = document.getElementById('homePanel'); return !!(h && h.classList.contains('active')); })();
+  var _aktifGorunur = (typeof activeSheet === 'number' && SHEETS[activeSheet] && sayfalar.includes(SHEETS[activeSheet].name));
+  if (!_homeAktif && !_aktifGorunur && ilkGorunen >= 0) switchTab(ilkGorunen);
 
   // Özel panel sekmeleri — Servis Takip, Seri No, Yedek Parça
   const ozelPaneller = [
@@ -10137,12 +10141,16 @@ function restoreLastPage() {
     return;
   }
   if (lastPage.type === 'sheet') {
+    var _idx = lastPage.idx || 0;
+    if (typeof SHEETS === 'undefined' || !SHEETS[_idx]) { showHomePage(); return; }
     hideHomePage();
     var tw = document.getElementById('tabsWrap');
     var burger = document.getElementById('sidebarToggle');
     if (tw) tw.classList.add('open');
     if (burger) burger.classList.add('open');
-    if (typeof switchTab === 'function') switchTab(lastPage.idx || 0);
+    if (typeof switchTab === 'function') switchTab(_idx);
+    // Grup başlıkları + grup PDF butonları güncel veriden çizilsin
+    if (typeof rebuildTable === 'function') { try { rebuildTable(_idx); } catch(e){} }
     return;
   }
   if (lastPage.type === 'special') {
@@ -15687,8 +15695,7 @@ window.pfmPDFIndir = function(){
   if (typeof _oBU === 'function') {
     window.buildUI = function() {
       var r = _oBU.apply(this, arguments);
-      sahaAddTab();
-      applySahaVisibility();
+      try { sahaAddTab(); applySahaVisibility(); } catch(e) {}
       return r;
     };
   }
@@ -15698,7 +15705,7 @@ window.pfmPDFIndir = function(){
   if (typeof _oASK === 'function') {
     window.applySayfaKisitlama = function() {
       var r = _oASK.apply(this, arguments);
-      applySahaVisibility();
+      try { applySahaVisibility(); } catch(e) {}
       return r;
     };
   }
