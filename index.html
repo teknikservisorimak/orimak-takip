@@ -9775,12 +9775,24 @@ function filterTable(q) {
     if (show) vis++;
   });
   panel.querySelectorAll('tr.group-row').forEach(grp => {
-    let next = grp.nextElementSibling; let hasVis = false;
-    while (next && next.classList.contains('data-row')) {
-      if (next.style.display !== 'none') { hasVis = true; break; }
+    // Grup altındaki kardeşleri tara — subheader-row'ları atla, bir sonraki
+    // group-row'a kadar git. (subheader-row, grup satırından hemen sonra
+    // geldiği için eski mantık görünür satır bulamadan duruyordu.)
+    let next = grp.nextElementSibling;
+    let hasVis = false;
+    const subheaders = [];
+    while (next && !next.classList.contains('group-row')) {
+      if (next.classList.contains('subheader-row')) {
+        subheaders.push(next);
+      } else if (next.classList.contains('data-row') && next.style.display !== 'none') {
+        hasVis = true;
+      }
       next = next.nextElementSibling;
     }
-    grp.style.display = hasVis ? '' : 'none';
+    // Arama boşsa grup her zaman görünür; aramada en az bir eşleşen satır varsa görünür
+    const goster = !lower || hasVis;
+    grp.style.display = goster ? '' : 'none';
+    subheaders.forEach(s => { s.style.display = goster ? '' : 'none'; });
   });
   document.getElementById('visibleCount').textContent = vis;
 }
