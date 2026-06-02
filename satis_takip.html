@@ -1,0 +1,1504 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Satış Takip — Orimak</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --dark:#1A1A1A;--orange:#F5A623;--cream:#FFF8F0;--mint:#BBE6D9;
+  --green:#92D050;--red:#C00000;--white:#fff;--border:#2e2e2e;
+  --blue:#7ab8f5;--purple:#c49ef5;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Barlow',sans-serif;background:#111;color:#eee;min-height:100vh;}
+
+/* ══ HEADER ══ */
+.page-header{
+  background:var(--dark);border-bottom:3px solid var(--orange);
+  padding:0 28px;display:flex;align-items:center;gap:18px;
+  position:sticky;top:0;z-index:100;height:64px;
+  box-shadow:0 4px 24px rgba(0,0,0,.5);
+}
+.logo-area{display:flex;align-items:center;gap:14px;}
+.logo-img{height:40px;width:auto;background:white;border-radius:6px;padding:4px 10px;}
+.header-divider{width:1px;height:32px;background:#333;}
+.header-title{font-family:'Barlow Condensed',sans-serif;font-size:19px;font-weight:900;
+  letter-spacing:3px;color:#fff;}
+.header-sub{font-size:10px;color:var(--orange);letter-spacing:3px;text-transform:uppercase;margin-top:2px;}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+.hbtn{border:none;border-radius:5px;padding:7px 14px;font-family:'Barlow Condensed',sans-serif;
+  font-weight:700;font-size:13px;letter-spacing:1px;cursor:pointer;transition:opacity .2s;}
+.hbtn:hover{opacity:.85;}
+.hbtn-orange{background:var(--orange);color:var(--dark);}
+.hbtn-dark{background:#333;color:#eee;}
+.hbtn-back{background:linear-gradient(135deg,#1a1500,#111);color:var(--orange);
+  border:1px solid rgba(245,166,35,.35)!important;}
+.hbtn-back:hover{opacity:1!important;background:linear-gradient(135deg,#2a2000,#1a1500)!important;
+  border-color:var(--orange)!important;}
+.date-chip{font-size:11px;color:#666;font-family:'Barlow Condensed',sans-serif;letter-spacing:1px;
+  background:#1a1a1a;border:1px solid #2a2a2a;border-radius:12px;padding:4px 12px;}
+
+/* ══ SEKMELER ══ */
+.tab-bar{display:flex;gap:0;background:#161616;border-bottom:2px solid #1e1e1e;
+  padding:0 28px;overflow-x:auto;}
+.tab-item{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;
+  letter-spacing:2px;text-transform:uppercase;color:#555;padding:14px 18px;
+  border:none;border-bottom:2px solid transparent;background:none;cursor:pointer;
+  transition:all .15s;white-space:nowrap;margin-bottom:-2px;}
+.tab-item:hover{color:#aaa;}
+.tab-item.active{color:var(--orange);border-bottom-color:var(--orange);}
+.tab-count{background:#2a2a2a;color:#777;border-radius:10px;padding:1px 7px;
+  font-size:10px;margin-left:6px;}
+.tab-item.active .tab-count{background:var(--orange);color:#111;}
+
+/* ══ PANEL ══ */
+.panel{display:none;padding:24px 28px 60px;}
+.panel.active{display:block;}
+
+/* ══ İSTATİSTİK BANDI ══ */
+.stats-row{display:flex;gap:0;background:#181818;border:1px solid #1e1e1e;
+  border-radius:10px;overflow:hidden;margin-bottom:22px;}
+.stat-card{flex:1;padding:14px 18px;border-right:1px solid #1e1e1e;text-align:center;min-width:100px;}
+.stat-card:last-child{border-right:none;}
+.stat-val{font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:900;color:#ddd;line-height:1;}
+.stat-lbl{font-size:9px;color:#555;letter-spacing:1.5px;text-transform:uppercase;
+  font-family:'Barlow Condensed',sans-serif;margin-top:4px;}
+.stat-val.c-orange{color:var(--orange);}
+.stat-val.c-green{color:var(--green);}
+.stat-val.c-blue{color:var(--blue);}
+.stat-val.c-red{color:#ff6666;}
+.stat-val.c-purple{color:var(--purple);}
+
+/* ══ TOOLBAR ══ */
+.toolbar{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;}
+.search-wrap{position:relative;flex:1;max-width:340px;}
+.search-input{width:100%;background:#1e1e1e;border:1px solid #2a2a2a;border-radius:6px;
+  padding:9px 12px 9px 34px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;
+  outline:none;transition:border-color .2s;}
+.search-input:focus{border-color:var(--orange);}
+.search-input::placeholder{color:#444;}
+.search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:#444;font-size:13px;}
+.date-filter{display:flex;align-items:center;gap:8px;}
+.date-filter label{font-family:'Barlow Condensed',sans-serif;font-size:11px;color:#555;letter-spacing:1px;}
+.date-input{background:#1e1e1e;border:1px solid #2a2a2a;border-radius:5px;
+  padding:8px 10px;color:#ddd;font-size:12px;font-family:'Barlow',sans-serif;
+  outline:none;color-scheme:dark;}
+.date-input:focus{border-color:var(--orange);}
+.add-btn{background:linear-gradient(135deg,#2a6e4a,#1d5236);color:#7fda9e;
+  border:1px solid #2a6e4a;border-radius:6px;padding:8px 16px;
+  font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;
+  letter-spacing:1px;cursor:pointer;display:flex;align-items:center;gap:6px;
+  transition:all .2s;white-space:nowrap;}
+.add-btn:hover{background:linear-gradient(135deg,#338a5c,#246440);}
+.pdf-btn{background:rgba(245,166,35,.1);color:var(--orange);border:1px solid rgba(245,166,35,.3);
+  border-radius:6px;padding:8px 14px;font-family:'Barlow Condensed',sans-serif;font-weight:700;
+  font-size:12px;letter-spacing:1px;cursor:pointer;transition:all .2s;white-space:nowrap;}
+.pdf-btn:hover{background:rgba(245,166,35,.2);}
+.mail-btn{background:rgba(90,160,255,.1);color:var(--blue);border:1px solid rgba(90,160,255,.3);
+  border-radius:6px;padding:8px 14px;font-family:'Barlow Condensed',sans-serif;font-weight:700;
+  font-size:12px;letter-spacing:1px;cursor:pointer;transition:all .2s;white-space:nowrap;}
+.mail-btn:hover{background:rgba(90,160,255,.2);}
+
+/* ══ TABLO ══ */
+.table-wrap{overflow-x:auto;border-radius:8px;border:1px solid #1e1e1e;}
+table{width:100%;border-collapse:collapse;min-width:600px;}
+thead th{background:#161616;color:#555;font-family:'Barlow Condensed',sans-serif;
+  font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+  padding:11px 12px;text-align:left;border-bottom:1px solid #1e1e1e;white-space:nowrap;}
+thead th.sort-asc::after{content:' ↑';}
+thead th.sort-desc::after{content:' ↓';}
+thead th[data-sort]{cursor:pointer;}
+thead th[data-sort]:hover{color:#ccc;}
+tbody tr{border-bottom:1px solid #161616;transition:background .1s;}
+tbody tr:hover{background:rgba(255,255,255,.02);}
+tbody td{padding:10px 12px;font-size:12px;color:#bbb;vertical-align:middle;}
+td.td-firma{font-weight:600;color:#ddd;}
+td.td-tutar{font-family:'Barlow Condensed',sans-serif;font-weight:700;color:var(--orange);}
+td.td-actions{white-space:nowrap;text-align:right;}
+.act-btn{border:none;border-radius:4px;padding:4px 9px;font-family:'Barlow Condensed',sans-serif;
+  font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.5px;transition:all .15s;}
+.act-edit{background:rgba(245,166,35,.1);color:#c08010;border:1px solid rgba(245,166,35,.2);}
+.act-edit:hover{background:rgba(245,166,35,.25);}
+.act-del{background:rgba(192,0,0,.1);color:#bb2222;border:1px solid rgba(192,0,0,.2);margin-left:4px;}
+.act-del:hover{background:rgba(192,0,0,.25);}
+.empty-row td{text-align:center;padding:48px 24px;color:#333;
+  font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:2px;}
+.empty-ico{font-size:32px;display:block;margin-bottom:8px;opacity:.3;}
+
+/* ══ BADGE / DURUM ══ */
+.badge{display:inline-flex;align-items:center;font-family:'Barlow Condensed',sans-serif;
+  font-size:10px;font-weight:700;letter-spacing:.8px;padding:3px 8px;border-radius:8px;white-space:nowrap;}
+.badge-pending{background:rgba(245,166,35,.1);color:#c8880a;border:1px solid rgba(245,166,35,.25);}
+.badge-done{background:rgba(146,208,80,.1);color:#5aaa20;border:1px solid rgba(146,208,80,.25);}
+.badge-partial{background:rgba(90,160,255,.1);color:#4a8fe0;border:1px solid rgba(90,160,255,.25);}
+.badge-cancelled{background:rgba(192,0,0,.1);color:#cc2222;border:1px solid rgba(192,0,0,.25);}
+
+/* ══ MODAL ══ */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9000;
+  display:none;align-items:center;justify-content:center;padding:16px;}
+.modal-overlay.open{display:flex;}
+.modal-box{background:#181818;border:1px solid #2a2a2a;border-top:3px solid var(--orange);
+  border-radius:12px;width:640px;max-width:98vw;max-height:94vh;
+  display:flex;flex-direction:column;box-shadow:0 32px 90px rgba(0,0,0,.85);}
+.modal-head{padding:16px 22px 13px;border-bottom:1px solid #252525;
+  display:flex;align-items:center;justify-content:space-between;}
+.modal-head h2{font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;
+  letter-spacing:2.5px;color:var(--orange);}
+.modal-close{background:none;border:none;color:#666;font-size:18px;cursor:pointer;
+  padding:2px 6px;border-radius:4px;}
+.modal-close:hover{color:#eee;background:#333;}
+.modal-body{padding:20px 22px;overflow-y:auto;flex:1;}
+.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;}
+.field-grid.full{grid-template-columns:1fr;}
+.field{display:flex;flex-direction:column;gap:5px;}
+.field.full{grid-column:1/-1;}
+.field label{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;
+  letter-spacing:1.2px;text-transform:uppercase;color:#555;}
+.field input,.field select,.field textarea{
+  background:#1e1e1e;border:1px solid #2e2e2e;border-radius:6px;
+  padding:9px 11px;color:#ddd;font-size:13px;font-family:'Barlow',sans-serif;
+  outline:none;transition:border-color .2s;width:100%;box-sizing:border-box;color-scheme:dark;}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--orange);}
+.field input::placeholder,.field textarea::placeholder{color:#333;}
+.field textarea{resize:vertical;min-height:72px;}
+.field select option{background:#1a1a1a;color:#ddd;}
+.modal-foot{padding:13px 22px;border-top:1px solid #252525;display:flex;justify-content:flex-end;gap:10px;}
+.modal-save{background:var(--orange);color:#1a1a1a;border:none;border-radius:7px;
+  padding:9px 22px;font-family:'Barlow Condensed',sans-serif;font-weight:700;
+  font-size:14px;letter-spacing:1px;cursor:pointer;transition:opacity .2s;}
+.modal-save:hover{opacity:.85;}
+.modal-cancel{background:#252525;color:#888;border:1px solid #2e2e2e;border-radius:7px;
+  padding:9px 16px;font-family:'Barlow Condensed',sans-serif;font-weight:700;
+  font-size:13px;letter-spacing:1px;cursor:pointer;}
+.modal-cancel:hover{background:#333;color:#ccc;}
+.section-divider{border-top:1px solid #222;margin:6px 0 14px;padding-top:14px;}
+.section-title{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;
+  letter-spacing:2px;text-transform:uppercase;color:#555;margin-bottom:12px;}
+
+/* ══ MAIL MODAL ══ */
+.mail-modal-box{width:700px;}
+.mail-preview{background:#0e0e0e;border:1px solid #2a2a2a;border-radius:7px;
+  padding:18px;margin-top:14px;font-size:12px;color:#ccc;line-height:1.8;
+  white-space:pre-wrap;font-family:'Barlow',sans-serif;max-height:320px;overflow-y:auto;}
+.mail-field{margin-bottom:12px;}
+.mail-field label{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;
+  letter-spacing:1.2px;color:#555;text-transform:uppercase;display:block;margin-bottom:5px;}
+.mail-field input,.mail-field textarea{
+  width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;
+  padding:9px 11px;color:#ddd;font-size:13px;font-family:'Barlow',sans-serif;
+  outline:none;transition:border-color .2s;box-sizing:border-box;}
+.mail-field input:focus,.mail-field textarea:focus{border-color:var(--orange);}
+.mail-field textarea{min-height:100px;resize:vertical;}
+.mail-send-btn{background:var(--blue);color:#111;border:none;border-radius:7px;
+  padding:9px 22px;font-family:'Barlow Condensed',sans-serif;font-weight:700;
+  font-size:14px;letter-spacing:1px;cursor:pointer;}
+.mail-send-btn:hover{opacity:.85;}
+.mail-note{font-size:11px;color:#555;font-family:'Barlow Condensed',sans-serif;
+  letter-spacing:.5px;margin-top:8px;}
+
+/* ══ KM KART ══ */
+.km-card{background:#181818;border:1px solid #1e1e1e;border-radius:10px;padding:18px 20px;
+  display:flex;align-items:center;gap:18px;margin-bottom:10px;transition:border-color .2s;}
+.km-card:hover{border-color:#2e2e2e;}
+.km-date-badge{background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.2);
+  border-radius:8px;padding:10px 14px;text-align:center;min-width:80px;}
+.km-date-badge .km-day{font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900;
+  color:var(--orange);line-height:1;}
+.km-date-badge .km-month{font-family:'Barlow Condensed',sans-serif;font-size:10px;
+  color:#777;letter-spacing:1px;text-transform:uppercase;}
+.km-info{flex:1;}
+.km-title{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;
+  color:#ddd;letter-spacing:1px;}
+.km-detail{font-size:11px;color:#555;margin-top:4px;line-height:1.6;}
+.km-value{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900;
+  color:var(--green);}
+.km-unit{font-size:11px;color:#555;font-family:'Barlow Condensed',sans-serif;}
+.km-actions{display:flex;gap:6px;}
+
+/* ══ TAHSİLAT KART ══ */
+.tah-kart{background:#181818;border:1px solid #1e1e1e;border-left:3px solid var(--green);
+  border-radius:8px;padding:14px 18px;margin-bottom:10px;
+  display:flex;align-items:center;gap:16px;transition:border-color .2s;}
+.tah-kart:hover{border-color:#2a2a2a;}
+.tah-kart.kart-bekle{border-left-color:var(--orange);}
+.tah-kart.kart-kismi{border-left-color:var(--blue);}
+.tah-firma{flex:1;}
+.tah-firma-adi{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;color:#ddd;}
+.tah-aciklama{font-size:11px;color:#555;margin-top:3px;}
+.tah-tutar-blok{text-align:right;}
+.tah-tutar{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900;color:var(--green);}
+.tah-kart.kart-bekle .tah-tutar{color:var(--orange);}
+.tah-kart.kart-kismi .tah-tutar{color:var(--blue);}
+.tah-tutar-lbl{font-size:10px;color:#444;letter-spacing:1px;font-family:'Barlow Condensed',sans-serif;}
+.tah-badge-wrap{min-width:80px;text-align:center;}
+.tah-actions{display:flex;gap:6px;}
+
+/* ══ FİRMA ZİYARET KART ══ */
+.ziyaret-kart{background:#181818;border:1px solid #1e1e1e;border-radius:8px;
+  padding:14px 18px;margin-bottom:10px;display:flex;align-items:flex-start;
+  gap:14px;transition:border-color .2s;}
+.ziyaret-kart:hover{border-color:#2e2e2e;}
+.ziyaret-sira{background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.15);
+  border-radius:6px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;
+  font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:var(--orange);
+  flex-shrink:0;}
+.ziyaret-info{flex:1;}
+.ziyaret-firma{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;color:#ddd;}
+.ziyaret-kisi{font-size:11px;color:#666;margin-top:2px;}
+.ziyaret-not{font-size:11px;color:#555;margin-top:6px;line-height:1.6;font-style:italic;}
+.ziyaret-saat{font-family:'Barlow Condensed',sans-serif;font-size:11px;color:#444;
+  letter-spacing:.5px;white-space:nowrap;}
+.ziyaret-actions{display:flex;gap:6px;align-items:flex-start;}
+
+/* ══ METİN / UYARI ══ */
+.msg{font-size:12px;padding:10px 14px;border-radius:6px;margin-bottom:14px;
+  font-family:'Barlow Condensed',sans-serif;letter-spacing:.5px;display:none;}
+.msg.ok{display:block;background:rgba(146,208,80,.12);color:#7fda9e;border:1px solid rgba(146,208,80,.3);}
+.msg.err{display:block;background:rgba(192,0,0,.12);color:#ff7777;border:1px solid rgba(192,0,0,.3);}
+
+/* ══ SİPARİŞ TABLO SATIRI ══ */
+.siparis-row-urun{font-size:11px;color:#888;margin-top:3px;}
+
+/* ══ RESPONSIVE ══ */
+@media(max-width:768px){
+  .field-grid{grid-template-columns:1fr;}
+  .stats-row{flex-wrap:wrap;}
+  .stat-card{flex:1 1 120px;}
+  .toolbar{gap:8px;}
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════ HEADER ══════════ -->
+<header class="page-header">
+  <div class="logo-area">
+    <img class="logo-img" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAtEAAADUCAYAAABam3+dAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABhaVRYdFNuaXBNZXRhZGF0YQAAAAAAeyJjbGlwUG9pbnRzIjpbeyJ4IjowLCJ5IjowfSx7IngiOjcyMSwieSI6MH0seyJ4Ijo3MjEsInkiOjIxMn0seyJ4IjowLCJ5IjoyMTJ9XX0y3pnMAAAYcUlEQVR4Xu3dPYwd13kG4Luy/KMl7LgI1RgICSONySIOIDpAgIAyEKSwiwSCacEVqcKFaBUpRCpNQLEJIFFACklUZ4tFCkeCk8ZsTbemCje0kSpU4UZsEkeSASc2s+/ujLmkyN07d868Pw+w8B1SXs6dO3fmnW++c2br7o4VAACwtseq/wUAANYkRAMAQENCNAAANCREAwBAQ0I0AAA0JEQDAEBDQjQAADQkRAMAQENCNAAANCREAwBAQ0I0AAA0JEQDAEBDQjQAADQkRAMAQENCNAAANCREAwBAQ0I0AAA0JEQDAEBDQjQAADQkRAMAQENCNAAANCREAwBAQ0I0AAA0JEQDAEBDQjQAADQkRAMAQENCNAAANCREAwBAQ0I0AAA0tHV3R/UaDvX7X99e3f2f29XSsmx95ourx45+tVoCAJZMiGZtv7/z89VvfvT06u5v/7v6k2X51JdOr5545ka1BAAsmXYO1rL0AA0AsJ8QzaEEaACA+wnRHEiABgD4JCGaRxKgAQAeTojmoQRoAIBHE6L5BAEaAOBgQjT3EaABAA4nRPMHAjQAwHqEaHYJ0AAA6xOiEaABABoSohdOgAYAaE6IXjABGgBgM0L0QgnQAACbE6IXSIAGAGhHiF4YARoAoD0hekEEaACA8RGiR0yABgAYJyF6pARoAIDxEqJHSIAGABi3rbs7qteMgAA9Xp/60unVE8/cqJaW4c6dOzs/H1RLq9WtW7+oXuXvPtj9+6NHj+78PFn96Wp18uSJ6tVqtb19ZHX8+PFqCQDmQ4gekdu3b6/+7z/+ZfUnX/zf6k+W5bc/u1y9GqclhOhf/OLWblDOvpjXH3/8cfU3m9ve3l6dOHFyN0wnYOf1mNy4cWP3YmCMss2OHNmullaDbbvf/3rn2PTLt6ul5h7/yrnVY19Y/2Kq1Gdy6tSp0V/E5bt28+bNamlzuZh9+umnq6Vx+Oijj1bXr1+vljZz5syZ6tU4ZL/M/rmpfEb5rPp0/fqPdz6L9sfy2tg+kyEJ0SORA+nlyy+vLly4MLqQ0ZcPX9+qXo3TOEN0gnJO4Huh+V6VuWsnTpzYDTcJOUPv7/ne9fne28oJ+NixvQuSbMM+tt/vfnVj9Zsffb1aau6JZ36y8/1ZP+CV+kyyrd54481qaZxeeOF7RS4Y8p26dOnlamkc3nnnndW7775TLW3m+efPj+riIMfMy5c3L/hcunSp12Pe1atvrn76059WS+2N7fMYmp7oEagDdImqH6wjlZSLFy/sngxSKeo7RObfy7+bfz/r0aayszQJXO+9d3N17dq13e977NihE+W6p9v82TqiVkdMKXUGWzPHvnz7N9w1i4KbPbGO1FU/+u4RLR3dqN5r7qlV4XkVJRS9wK2zjcK4jUVDwdN4N+aytHKpLn6r25h2zQlQiJ+RLfgG9f5RWc5mFNHBimknS4t2qYpWWC/iE3gx9oqQXhSZGG/a+vw6lLy4MK9iDvkJQXcQLDEGmKMqo0kAAAAASUVORK5CYII=" alt="Orimak Logo">
+    <div class="header-divider"></div>
+    <div>
+      <div class="header-title">SATIŞ TAKİP</div>
+      <div class="header-sub">Orimak · Günlük Saha Raporu</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="date-chip" id="headerDate">—</span>
+    <button class="hbtn mail-btn" onclick="openMailModal()">📧 Rapor Gönder</button>
+    <button class="hbtn pdf-btn" onclick="tumRaporPDF()">📥 PDF</button>
+    <button class="hbtn hbtn-back" onclick="anaSayfayaDon()">← Ana Sayfa</button>
+  </div>
+</header>
+
+<!-- ══════════ SEKMELER ══════════ -->
+<div class="tab-bar">
+  <button class="tab-item active" onclick="switchMainTab('ziyaret',this)" id="tabZiyaret">
+    🏢 Firma Ziyaretleri <span class="tab-count" id="cntZiyaret">0</span>
+  </button>
+  <button class="tab-item" onclick="switchMainTab('km',this)" id="tabKm">
+    🚗 Araç KM <span class="tab-count" id="cntKm">0</span>
+  </button>
+  <button class="tab-item" onclick="switchMainTab('siparis',this)" id="tabSiparis">
+    📦 Siparişler <span class="tab-count" id="cntSiparis">0</span>
+  </button>
+  <button class="tab-item" onclick="switchMainTab('tahsilat',this)" id="tabTahsilat">
+    💰 Tahsilatlar <span class="tab-count" id="cntTahsilat">0</span>
+  </button>
+</div>
+
+<!-- ══════════ PANEL: FİRMA ZİYARETLERİ ══════════ -->
+<div class="panel active" id="panelZiyaret">
+  <div class="stats-row" id="statsZiyaret">
+    <div class="stat-card"><div class="stat-val c-orange" id="szTotal">0</div><div class="stat-lbl">Toplam Ziyaret</div></div>
+    <div class="stat-card"><div class="stat-val c-green" id="szBugün">0</div><div class="stat-lbl">Bugün</div></div>
+    <div class="stat-card"><div class="stat-val c-blue" id="szFirma">0</div><div class="stat-lbl">Farklı Firma</div></div>
+    <div class="stat-card"><div class="stat-val" id="szHafta">0</div><div class="stat-lbl">Bu Hafta</div></div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" type="text" id="searchZiyaret" placeholder="Firma, kişi ara..." oninput="renderZiyaret()">
+    </div>
+    <div class="date-filter">
+      <label>Tarih:</label>
+      <input class="date-input" type="date" id="filterZiyaretTarih" onchange="renderZiyaret()">
+    </div>
+    <button class="add-btn" onclick="openZiyaretModal()">＋ Ziyaret Ekle</button>
+  </div>
+
+  <div id="ziyaretListesi"></div>
+</div>
+
+<!-- ══════════ PANEL: ARAÇ KM ══════════ -->
+<div class="panel" id="panelKm">
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-val c-orange" id="skTotal">0</div><div class="stat-lbl">Toplam KM</div></div>
+    <div class="stat-card"><div class="stat-val c-green" id="skBugün">0</div><div class="stat-lbl">Bugün KM</div></div>
+    <div class="stat-card"><div class="stat-val c-blue" id="skHafta">0</div><div class="stat-lbl">Bu Hafta KM</div></div>
+    <div class="stat-card"><div class="stat-val" id="skKayit">0</div><div class="stat-lbl">Kayıt Sayısı</div></div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" type="text" id="searchKm" placeholder="Rota, not ara..." oninput="renderKm()">
+    </div>
+    <div class="date-filter">
+      <label>Tarih:</label>
+      <input class="date-input" type="date" id="filterKmTarih" onchange="renderKm()">
+    </div>
+    <button class="add-btn" onclick="openKmModal()">＋ KM Ekle</button>
+  </div>
+
+  <div id="kmListesi"></div>
+</div>
+
+<!-- ══════════ PANEL: SİPARİŞLER ══════════ -->
+<div class="panel" id="panelSiparis">
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-val c-orange" id="ssSipTotal">0</div><div class="stat-lbl">Toplam Sipariş</div></div>
+    <div class="stat-card"><div class="stat-val c-green" id="ssTamamlanan">0</div><div class="stat-lbl">Tamamlanan</div></div>
+    <div class="stat-card"><div class="stat-val c-blue" id="ssOnayBekle">0</div><div class="stat-lbl">Onay Bekleyen</div></div>
+    <div class="stat-card"><div class="stat-val c-purple" id="ssTutar">0 ₺</div><div class="stat-lbl">Toplam Tutar</div></div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" type="text" id="searchSiparis" placeholder="Firma, ürün ara..." oninput="renderSiparis()">
+    </div>
+    <div class="date-filter">
+      <label>Tarih:</label>
+      <input class="date-input" type="date" id="filterSiparisTarih" onchange="renderSiparis()">
+    </div>
+    <button class="add-btn" onclick="openSiparisModal()">＋ Sipariş Ekle</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:130px" data-sort="tarih" onclick="sortTable('siparis','tarih',this)">Tarih</th>
+          <th data-sort="firma" onclick="sortTable('siparis','firma',this)">Firma</th>
+          <th>Ürün / Açıklama</th>
+          <th style="width:80px;text-align:right">Miktar</th>
+          <th style="width:120px;text-align:right">Tutar</th>
+          <th style="width:100px;text-align:center">Durum</th>
+          <th style="width:80px"></th>
+        </tr>
+      </thead>
+      <tbody id="siparisBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════ PANEL: TAHSİLATLAR ══════════ -->
+<div class="panel" id="panelTahsilat">
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-val c-green" id="stTahsilTotal">0 ₺</div><div class="stat-lbl">Toplam Tahsilat</div></div>
+    <div class="stat-card"><div class="stat-val c-orange" id="stBekleyenTutar">0 ₺</div><div class="stat-lbl">Bekleyen</div></div>
+    <div class="stat-card"><div class="stat-val c-blue" id="stKayitSayisi">0</div><div class="stat-lbl">Kayıt</div></div>
+    <div class="stat-card"><div class="stat-val" id="stBugünTahsilat">0 ₺</div><div class="stat-lbl">Bugün</div></div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" type="text" id="searchTahsilat" placeholder="Firma ara..." oninput="renderTahsilat()">
+    </div>
+    <div class="date-filter">
+      <label>Tarih:</label>
+      <input class="date-input" type="date" id="filterTahsilatTarih" onchange="renderTahsilat()">
+    </div>
+    <button class="add-btn" onclick="openTahsilatModal()">＋ Tahsilat Ekle</button>
+  </div>
+
+  <div id="tahsilatListesi"></div>
+</div>
+
+<!-- ══════════ MODAL: ZİYARET ══════════ -->
+<div class="modal-overlay" id="ziyaretModal" onclick="if(event.target===this)closeZiyaretModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="ziyaretModalBaslik">🏢 YENİ ZİYARET</h2>
+      <button class="modal-close" onclick="closeZiyaretModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-grid">
+        <div class="field full">
+          <label>Ziyaret Tarihi</label>
+          <input type="date" id="zTarih">
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Firma Adı *</label>
+          <input type="text" id="zFirma" placeholder="Firma adı" autocomplete="off">
+        </div>
+        <div class="field">
+          <label>İletişim Kişisi</label>
+          <input type="text" id="zKisi" placeholder="Ad Soyad" autocomplete="off">
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Ziyaret Saati</label>
+          <input type="time" id="zSaat">
+        </div>
+        <div class="field">
+          <label>Telefon</label>
+          <input type="text" id="zTelefon" placeholder="0xxx xxx xx xx" autocomplete="off">
+        </div>
+      </div>
+      <div class="field-grid full">
+        <div class="field full">
+          <label>Ziyaret Notu / Görüşme Özeti</label>
+          <textarea id="zNot" placeholder="Görüşme içeriği, alınan kararlar..."></textarea>
+        </div>
+        <div class="field full">
+          <label>Takip Gerektiriyor mu?</label>
+          <select id="zTakip">
+            <option value="">— Seç —</option>
+            <option value="Evet — Acil">Evet — Acil</option>
+            <option value="Evet — Normal">Evet — Normal</option>
+            <option value="Hayır">Hayır</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="modal-cancel" onclick="closeZiyaretModal()">İptal</button>
+      <button class="modal-save" onclick="saveZiyaret()">💾 Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL: KM ══════════ -->
+<div class="modal-overlay" id="kmModal" onclick="if(event.target===this)closeKmModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="kmModalBaslik">🚗 ARAÇ KM KAYDI</h2>
+      <button class="modal-close" onclick="closeKmModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-grid">
+        <div class="field">
+          <label>Tarih *</label>
+          <input type="date" id="kmTarih">
+        </div>
+        <div class="field">
+          <label>Plaka</label>
+          <input type="text" id="kmPlaka" placeholder="34 ABC 123" autocomplete="off">
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Başlangıç KM *</label>
+          <input type="number" id="kmBaslangic" placeholder="0" min="0" oninput="kmHesapla()">
+        </div>
+        <div class="field">
+          <label>Bitiş KM *</label>
+          <input type="number" id="kmBitis" placeholder="0" min="0" oninput="kmHesapla()">
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Günlük KM (Otomatik)</label>
+          <input type="number" id="kmGunluk" placeholder="0" readonly style="color:var(--green);font-weight:700;">
+        </div>
+        <div class="field">
+          <label>Şoför / Kullanıcı</label>
+          <input type="text" id="kmSofor" placeholder="Ad Soyad" autocomplete="off">
+        </div>
+      </div>
+      <div class="field-grid full">
+        <div class="field full">
+          <label>Rota / Gidilen Yerler</label>
+          <input type="text" id="kmRota" placeholder="İstanbul → Bursa → İzmir" autocomplete="off">
+        </div>
+        <div class="field full">
+          <label>Not</label>
+          <textarea id="kmNot" placeholder="Ek açıklama..."></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="modal-cancel" onclick="closeKmModal()">İptal</button>
+      <button class="modal-save" onclick="saveKm()">💾 Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL: SİPARİŞ ══════════ -->
+<div class="modal-overlay" id="siparisModal" onclick="if(event.target===this)closeSiparisModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="siparisModalBaslik">📦 YENİ SİPARİŞ</h2>
+      <button class="modal-close" onclick="closeSiparisModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-grid">
+        <div class="field">
+          <label>Sipariş Tarihi *</label>
+          <input type="date" id="spTarih">
+        </div>
+        <div class="field">
+          <label>Sipariş Veren Firma *</label>
+          <input type="text" id="spFirma" placeholder="Firma adı" autocomplete="off">
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>İletişim Kişisi</label>
+          <input type="text" id="spKisi" placeholder="Ad Soyad" autocomplete="off">
+        </div>
+        <div class="field">
+          <label>Telefon</label>
+          <input type="text" id="spTelefon" placeholder="0xxx xxx xx xx" autocomplete="off">
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field full">
+          <label>Ürün Adı / Açıklama *</label>
+          <input type="text" id="spUrun" placeholder="Ürün adı, model, kodu..." autocomplete="off">
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Miktar</label>
+          <input type="text" id="spMiktar" placeholder="1 adet, 5 kg..." autocomplete="off">
+        </div>
+        <div class="field">
+          <label>Birim Fiyat (₺)</label>
+          <input type="number" id="spBirimFiyat" placeholder="0.00" min="0" step="0.01" oninput="spHesapla()">
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Adet</label>
+          <input type="number" id="spAdet" placeholder="1" min="1" oninput="spHesapla()">
+        </div>
+        <div class="field">
+          <label>Toplam Tutar (₺)</label>
+          <input type="number" id="spToplam" placeholder="0.00" readonly style="color:var(--orange);font-weight:700;">
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Durum</label>
+          <select id="spDurum">
+            <option value="Onay Bekliyor">Onay Bekliyor</option>
+            <option value="Onaylandı">Onaylandı</option>
+            <option value="Hazırlanıyor">Hazırlanıyor</option>
+            <option value="Teslim Edildi">Teslim Edildi</option>
+            <option value="İptal">İptal</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Tahmini Teslimat</label>
+          <input type="date" id="spTeslimat">
+        </div>
+      </div>
+      <div class="field-grid full">
+        <div class="field full">
+          <label>Notlar</label>
+          <textarea id="spNot" placeholder="Özel talepler, teslimat adresi..."></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="modal-cancel" onclick="closeSiparisModal()">İptal</button>
+      <button class="modal-save" onclick="saveSiparis()">💾 Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL: TAHSİLAT ══════════ -->
+<div class="modal-overlay" id="tahsilatModal" onclick="if(event.target===this)closeTahsilatModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2 id="tahsilatModalBaslik">💰 YENİ TAHSİLAT</h2>
+      <button class="modal-close" onclick="closeTahsilatModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-grid">
+        <div class="field">
+          <label>Tahsilat Tarihi *</label>
+          <input type="date" id="thTarih">
+        </div>
+        <div class="field">
+          <label>Firma Adı *</label>
+          <input type="text" id="thFirma" placeholder="Firma adı" autocomplete="off">
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Tahsilat Tutarı (₺) *</label>
+          <input type="number" id="thTutar" placeholder="0.00" min="0" step="0.01">
+        </div>
+        <div class="field">
+          <label>Ödeme Yöntemi</label>
+          <select id="thOdeme">
+            <option value="Nakit">Nakit</option>
+            <option value="Havale / EFT">Havale / EFT</option>
+            <option value="Çek">Çek</option>
+            <option value="Kredi Kartı">Kredi Kartı</option>
+            <option value="Diğer">Diğer</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-grid">
+        <div class="field">
+          <label>Durum</label>
+          <select id="thDurum">
+            <option value="Tahsil Edildi">Tahsil Edildi</option>
+            <option value="Kısmi Ödeme">Kısmi Ödeme</option>
+            <option value="Beklemede">Beklemede</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Fatura / Referans No</label>
+          <input type="text" id="thRef" placeholder="FTR-2025-001" autocomplete="off">
+        </div>
+      </div>
+      <div class="field-grid full">
+        <div class="field full">
+          <label>Açıklama</label>
+          <textarea id="thAciklama" placeholder="Tahsilat detayları..."></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="modal-cancel" onclick="closeTahsilatModal()">İptal</button>
+      <button class="modal-save" onclick="saveTahsilat()">💾 Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL: MAIL ══════════ -->
+<div class="modal-overlay" id="mailModal" onclick="if(event.target===this)closeMailModal()">
+  <div class="modal-box mail-modal-box">
+    <div class="modal-head">
+      <h2>📧 GÜN SONU RAPORU GÖNDER</h2>
+      <button class="modal-close" onclick="closeMailModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="mail-field">
+        <label>Alıcı E-posta *</label>
+        <input type="email" id="mailAlanici" placeholder="ornek@orimak.com">
+      </div>
+      <div class="mail-field">
+        <label>CC (İsteğe bağlı)</label>
+        <input type="email" id="mailCC" placeholder="cc@orimak.com">
+      </div>
+      <div class="mail-field">
+        <label>Konu</label>
+        <input type="text" id="mailKonu" placeholder="Günlük Satış Takip Raporu">
+      </div>
+      <div class="mail-field">
+        <label>Rapor Tarihi</label>
+        <input type="date" id="mailTarih">
+      </div>
+      <div style="margin-bottom:12px;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;
+          letter-spacing:1.2px;color:#555;text-transform:uppercase;margin-bottom:8px;">
+          Rapor Önizleme
+        </div>
+        <div id="mailOnizleme" class="mail-preview">— Önizleme oluşturulacak —</div>
+      </div>
+      <div class="mail-note">
+        ℹ️ "Mail Oluştur" butonu, mailto: bağlantısını açar. Kurumsal mail istemcinizde gönderebilirsiniz.
+        Ek olarak PDF rapor için sol üstteki "📥 PDF" butonunu kullanabilirsiniz.
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="modal-cancel" onclick="closeMailModal()">İptal</button>
+      <button class="modal-save" style="background:#2563eb;" onclick="onizlemeOlustur()">👁 Önizle</button>
+      <button class="mail-send-btn" onclick="mailGonder()">📤 Mail Oluştur</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ SCRIPT ══════════ -->
+<script>
+'use strict';
+
+// ── VERİ YAPISI (localStorage) ──
+var STORAGE_KEY = 'orimak_satis_takip_v1';
+
+var DATA = {
+  ziyaretler: [],
+  km: [],
+  siparisler: [],
+  tahsilatlar: []
+};
+
+var editMode = { type: null, index: -1 };
+var sortState = { siparis: { key: 'tarih', dir: 'desc' } };
+
+// ── YÜKLE / KAYDET ──
+function yukle() {
+  try {
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      var parsed = JSON.parse(raw);
+      DATA = Object.assign({ ziyaretler:[], km:[], siparisler:[], tahsilatlar:[] }, parsed);
+    }
+  } catch(e) {}
+}
+
+function kaydet() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(DATA)); } catch(e) {}
+  sayaclariGuncelle();
+}
+
+// ── SEKME GEÇİŞ ──
+function switchMainTab(name, btn) {
+  document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
+  document.querySelectorAll('.tab-item').forEach(function(b){ b.classList.remove('active'); });
+  document.getElementById('panel' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+  btn.classList.add('active');
+}
+window.switchMainTab = switchMainTab;
+
+// ── TARIH YARDIMCILARI ──
+function bugun() {
+  return new Date().toISOString().slice(0,10);
+}
+function haftaBasi() {
+  var d = new Date();
+  var day = d.getDay() || 7;
+  d.setDate(d.getDate() - day + 1);
+  return d.toISOString().slice(0,10);
+}
+function formatTarih(str) {
+  if (!str) return '—';
+  var parts = str.split('-');
+  if (parts.length !== 3) return str;
+  return parts[2] + '.' + parts[1] + '.' + parts[0];
+}
+function turkceAy(str) {
+  if (!str) return '';
+  var ay = ['','Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+  var m = parseInt(str.split('-')[1]) || 0;
+  return ay[m] || '';
+}
+function formatPara(n) {
+  if (!n && n !== 0) return '—';
+  return Number(n).toLocaleString('tr-TR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ₺';
+}
+
+// ── SAYAÇLAR ──
+function sayaclariGuncelle() {
+  document.getElementById('cntZiyaret').textContent = DATA.ziyaretler.length;
+  document.getElementById('cntKm').textContent = DATA.km.length;
+  document.getElementById('cntSiparis').textContent = DATA.siparisler.length;
+  document.getElementById('cntTahsilat').textContent = DATA.tahsilatlar.length;
+  updateStatsZiyaret();
+  updateStatsKm();
+  updateStatsSiparis();
+  updateStatsTahsilat();
+}
+
+function updateStatsZiyaret() {
+  var today = bugun();
+  var hafta = haftaBasi();
+  var bugünSayisi = DATA.ziyaretler.filter(function(z){ return z.tarih === today; }).length;
+  var haftaSayisi = DATA.ziyaretler.filter(function(z){ return z.tarih >= hafta; }).length;
+  var firmalar = {};
+  DATA.ziyaretler.forEach(function(z){ if(z.firma) firmalar[z.firma.toLowerCase()] = 1; });
+  el('szTotal').textContent = DATA.ziyaretler.length;
+  el('szBugün').textContent = bugünSayisi;
+  el('szFirma').textContent = Object.keys(firmalar).length;
+  el('szHafta').textContent = haftaSayisi;
+}
+
+function updateStatsKm() {
+  var today = bugun();
+  var hafta = haftaBasi();
+  var toplamKm = DATA.km.reduce(function(s,k){ return s + (parseFloat(k.gunlukKm)||0); }, 0);
+  var bugünKm = DATA.km.filter(function(k){ return k.tarih === today; }).reduce(function(s,k){ return s + (parseFloat(k.gunlukKm)||0); }, 0);
+  var haftaKm = DATA.km.filter(function(k){ return k.tarih >= hafta; }).reduce(function(s,k){ return s + (parseFloat(k.gunlukKm)||0); }, 0);
+  el('skTotal').textContent = toplamKm.toLocaleString('tr-TR');
+  el('skBugün').textContent = bugünKm.toLocaleString('tr-TR');
+  el('skHafta').textContent = haftaKm.toLocaleString('tr-TR');
+  el('skKayit').textContent = DATA.km.length;
+}
+
+function updateStatsSiparis() {
+  var tamam = DATA.siparisler.filter(function(s){ return s.durum === 'Teslim Edildi'; }).length;
+  var bekle = DATA.siparisler.filter(function(s){ return s.durum === 'Onay Bekliyor'; }).length;
+  var toplam = DATA.siparisler.reduce(function(s,sp){ return s + (parseFloat(sp.toplam)||0); }, 0);
+  el('ssSipTotal').textContent = DATA.siparisler.length;
+  el('ssTamamlanan').textContent = tamam;
+  el('ssOnayBekle').textContent = bekle;
+  el('ssTutar').textContent = toplam > 0 ? toplam.toLocaleString('tr-TR', {maximumFractionDigits:0}) + ' ₺' : '0 ₺';
+}
+
+function updateStatsTahsilat() {
+  var today = bugun();
+  var tahsilEdilen = DATA.tahsilatlar.filter(function(t){ return t.durum === 'Tahsil Edildi'; }).reduce(function(s,t){ return s + (parseFloat(t.tutar)||0); }, 0);
+  var bekleyen = DATA.tahsilatlar.filter(function(t){ return t.durum === 'Beklemede'; }).reduce(function(s,t){ return s + (parseFloat(t.tutar)||0); }, 0);
+  var bugün = DATA.tahsilatlar.filter(function(t){ return t.tarih === today && t.durum !== 'Beklemede'; }).reduce(function(s,t){ return s + (parseFloat(t.tutar)||0); }, 0);
+  el('stTahsilTotal').textContent = tahsilEdilen > 0 ? tahsilEdilen.toLocaleString('tr-TR', {maximumFractionDigits:0}) + ' ₺' : '0 ₺';
+  el('stBekleyenTutar').textContent = bekleyen > 0 ? bekleyen.toLocaleString('tr-TR', {maximumFractionDigits:0}) + ' ₺' : '0 ₺';
+  el('stKayitSayisi').textContent = DATA.tahsilatlar.length;
+  el('stBugünTahsilat').textContent = bugün > 0 ? bugün.toLocaleString('tr-TR', {maximumFractionDigits:0}) + ' ₺' : '0 ₺';
+}
+
+// ── YARDIMCI ──
+function el(id){ return document.getElementById(id); }
+
+function durumuBadge(durum) {
+  var map = {
+    'Onay Bekliyor':   'badge-pending',
+    'Onaylandı':       'badge-done',
+    'Hazırlanıyor':    'badge-partial',
+    'Teslim Edildi':   'badge-done',
+    'İptal':           'badge-cancelled',
+    'Tahsil Edildi':   'badge-done',
+    'Kısmi Ödeme':     'badge-partial',
+    'Beklemede':       'badge-pending'
+  };
+  return '<span class="badge ' + (map[durum] || 'badge-pending') + '">' + (durum||'—') + '</span>';
+}
+
+// ══════════════════════════════════════════
+// ZİYARET
+// ══════════════════════════════════════════
+function openZiyaretModal(idx) {
+  editMode = { type: 'ziyaret', index: idx !== undefined ? idx : -1 };
+  var isEdit = idx !== undefined;
+  el('ziyaretModalBaslik').textContent = isEdit ? '✏️ ZİYARET DÜZENLE' : '🏢 YENİ ZİYARET';
+  var d = isEdit ? DATA.ziyaretler[idx] : {};
+  el('zTarih').value   = d.tarih || bugun();
+  el('zFirma').value   = d.firma || '';
+  el('zKisi').value    = d.kisi || '';
+  el('zSaat').value    = d.saat || '';
+  el('zTelefon').value = d.telefon || '';
+  el('zNot').value     = d.not || '';
+  el('zTakip').value   = d.takip || '';
+  el('ziyaretModal').classList.add('open');
+  setTimeout(function(){ el('zFirma').focus(); }, 80);
+}
+window.openZiyaretModal = openZiyaretModal;
+
+function closeZiyaretModal() {
+  el('ziyaretModal').classList.remove('open');
+}
+window.closeZiyaretModal = closeZiyaretModal;
+
+function saveZiyaret() {
+  var firma = el('zFirma').value.trim();
+  if (!firma) { el('zFirma').focus(); return; }
+  var kayit = {
+    id: Date.now(),
+    tarih:   el('zTarih').value,
+    firma:   firma,
+    kisi:    el('zKisi').value.trim(),
+    saat:    el('zSaat').value,
+    telefon: el('zTelefon').value.trim(),
+    not:     el('zNot').value.trim(),
+    takip:   el('zTakip').value
+  };
+  if (editMode.index >= 0) {
+    kayit.id = DATA.ziyaretler[editMode.index].id;
+    DATA.ziyaretler[editMode.index] = kayit;
+  } else {
+    DATA.ziyaretler.unshift(kayit);
+  }
+  kaydet();
+  closeZiyaretModal();
+  renderZiyaret();
+}
+window.saveZiyaret = saveZiyaret;
+
+function deleteZiyaret(idx) {
+  if (!confirm('Bu ziyareti silmek istiyor musunuz?')) return;
+  DATA.ziyaretler.splice(idx, 1);
+  kaydet();
+  renderZiyaret();
+}
+window.deleteZiyaret = deleteZiyaret;
+
+function renderZiyaret() {
+  var q = (el('searchZiyaret').value || '').toLowerCase();
+  var tf = el('filterZiyaretTarih').value;
+  var list = DATA.ziyaretler.filter(function(z, i) {
+    z._idx = i;
+    if (tf && z.tarih !== tf) return false;
+    if (q && !(z.firma||'').toLowerCase().includes(q) && !(z.kisi||'').toLowerCase().includes(q) && !(z.not||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+  // Filtrelenmiş için orijinal index'i koru
+  var filtreli = DATA.ziyaretler.map(function(z,i){ return {z:z, i:i}; }).filter(function(obj) {
+    var z = obj.z;
+    if (tf && z.tarih !== tf) return false;
+    if (q && !(z.firma||'').toLowerCase().includes(q) && !(z.kisi||'').toLowerCase().includes(q) && !(z.not||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  var html = '';
+  if (filtreli.length === 0) {
+    html = '<div class="ziyaret-kart" style="border-left-color:#333;"><div class="ziyaret-info"><span style="color:#444;font-family:\'Barlow Condensed\',sans-serif;letter-spacing:2px;">Kayıt bulunamadı</span></div></div>';
+  } else {
+    filtreli.forEach(function(obj, displayIdx) {
+      var z = obj.z, origIdx = obj.i;
+      var takipRenk = z.takip === 'Evet — Acil' ? 'color:#ff6666;' : z.takip === 'Evet — Normal' ? 'color:var(--orange);' : '';
+      html += '<div class="ziyaret-kart">' +
+        '<div class="ziyaret-sira">' + (displayIdx + 1) + '</div>' +
+        '<div class="ziyaret-info">' +
+          '<div class="ziyaret-firma">' + esc(z.firma) + '</div>' +
+          (z.kisi ? '<div class="ziyaret-kisi">👤 ' + esc(z.kisi) + (z.telefon ? ' · 📞 ' + esc(z.telefon) : '') + '</div>' : '') +
+          (z.not ? '<div class="ziyaret-not">' + esc(z.not) + '</div>' : '') +
+          (z.takip ? '<div style="margin-top:6px;font-size:11px;font-family:\'Barlow Condensed\',sans-serif;letter-spacing:.5px;' + takipRenk + '">⚑ Takip: ' + esc(z.takip) + '</div>' : '') +
+        '</div>' +
+        '<div style="text-align:right;flex-shrink:0;">' +
+          '<div class="ziyaret-saat" style="font-size:12px;color:#666;">' + formatTarih(z.tarih) + (z.saat ? ' · ' + z.saat : '') + '</div>' +
+          '<div class="ziyaret-actions" style="margin-top:8px;">' +
+            '<button class="act-btn act-edit" onclick="openZiyaretModal(' + origIdx + ')">✏️ Düzenle</button>' +
+            '<button class="act-btn act-del" onclick="deleteZiyaret(' + origIdx + ')">✕ Sil</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    });
+  }
+  el('ziyaretListesi').innerHTML = html;
+}
+window.renderZiyaret = renderZiyaret;
+
+// ══════════════════════════════════════════
+// KM
+// ══════════════════════════════════════════
+function kmHesapla() {
+  var bas = parseFloat(el('kmBaslangic').value) || 0;
+  var bit = parseFloat(el('kmBitis').value) || 0;
+  var gun = bit > bas ? bit - bas : 0;
+  el('kmGunluk').value = gun || '';
+}
+window.kmHesapla = kmHesapla;
+
+function openKmModal(idx) {
+  editMode = { type: 'km', index: idx !== undefined ? idx : -1 };
+  var isEdit = idx !== undefined;
+  el('kmModalBaslik').textContent = isEdit ? '✏️ KM KAYDINI DÜZENLE' : '🚗 ARAÇ KM KAYDI';
+  var d = isEdit ? DATA.km[idx] : {};
+  el('kmTarih').value     = d.tarih || bugun();
+  el('kmPlaka').value     = d.plaka || '';
+  el('kmBaslangic').value = d.baslangic || '';
+  el('kmBitis').value     = d.bitis || '';
+  el('kmGunluk').value    = d.gunlukKm || '';
+  el('kmSofor').value     = d.sofor || '';
+  el('kmRota').value      = d.rota || '';
+  el('kmNot').value       = d.not || '';
+  el('kmModal').classList.add('open');
+}
+window.openKmModal = openKmModal;
+
+function closeKmModal() {
+  el('kmModal').classList.remove('open');
+}
+window.closeKmModal = closeKmModal;
+
+function saveKm() {
+  var tarih = el('kmTarih').value;
+  if (!tarih) { el('kmTarih').focus(); return; }
+  var bas = parseFloat(el('kmBaslangic').value) || 0;
+  var bit = parseFloat(el('kmBitis').value) || 0;
+  var kayit = {
+    id:        editMode.index >= 0 ? DATA.km[editMode.index].id : Date.now(),
+    tarih:     tarih,
+    plaka:     el('kmPlaka').value.trim(),
+    baslangic: bas,
+    bitis:     bit,
+    gunlukKm:  bit > bas ? bit - bas : (parseFloat(el('kmGunluk').value)||0),
+    sofor:     el('kmSofor').value.trim(),
+    rota:      el('kmRota').value.trim(),
+    not:       el('kmNot').value.trim()
+  };
+  if (editMode.index >= 0) {
+    DATA.km[editMode.index] = kayit;
+  } else {
+    DATA.km.unshift(kayit);
+  }
+  kaydet();
+  closeKmModal();
+  renderKm();
+}
+window.saveKm = saveKm;
+
+function deleteKm(idx) {
+  if (!confirm('Bu KM kaydını silmek istiyor musunuz?')) return;
+  DATA.km.splice(idx, 1);
+  kaydet();
+  renderKm();
+}
+window.deleteKm = deleteKm;
+
+function renderKm() {
+  var q = (el('searchKm').value || '').toLowerCase();
+  var tf = el('filterKmTarih').value;
+  var filtreli = DATA.km.map(function(k,i){ return {k:k, i:i}; }).filter(function(obj) {
+    var k = obj.k;
+    if (tf && k.tarih !== tf) return false;
+    if (q && !(k.rota||'').toLowerCase().includes(q) && !(k.not||'').toLowerCase().includes(q) && !(k.plaka||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  var html = '';
+  if (filtreli.length === 0) {
+    html = '<div class="km-card"><div class="km-info"><span style="color:#444;font-family:\'Barlow Condensed\',sans-serif;letter-spacing:2px;">Kayıt bulunamadı</span></div></div>';
+  } else {
+    filtreli.forEach(function(obj) {
+      var k = obj.k, origIdx = obj.i;
+      html += '<div class="km-card">' +
+        '<div class="km-date-badge">' +
+          '<div class="km-day">' + (k.tarih ? k.tarih.split('-')[2] : '—') + '</div>' +
+          '<div class="km-month">' + turkceAy(k.tarih) + '</div>' +
+        '</div>' +
+        '<div class="km-info">' +
+          '<div class="km-title">' + (k.rota ? esc(k.rota) : (k.plaka ? esc(k.plaka) : '—')) + '</div>' +
+          '<div class="km-detail">' +
+            (k.plaka ? '🚗 ' + esc(k.plaka) + ' &nbsp; ' : '') +
+            (k.sofor ? '👤 ' + esc(k.sofor) + ' &nbsp; ' : '') +
+            (k.baslangic ? '📍 Başlangıç: ' + k.baslangic.toLocaleString('tr-TR') + ' km &nbsp; Bitiş: ' + (k.bitis||0).toLocaleString('tr-TR') + ' km' : '') +
+            (k.not ? '<br>' + esc(k.not) : '') +
+          '</div>' +
+        '</div>' +
+        '<div style="text-align:right;">' +
+          '<div class="km-value">' + (parseFloat(k.gunlukKm)||0).toLocaleString('tr-TR') + '</div>' +
+          '<div class="km-unit">km</div>' +
+        '</div>' +
+        '<div class="km-actions">' +
+          '<button class="act-btn act-edit" onclick="openKmModal(' + origIdx + ')">✏️</button>' +
+          '<button class="act-btn act-del" onclick="deleteKm(' + origIdx + ')">✕</button>' +
+        '</div>' +
+      '</div>';
+    });
+  }
+  el('kmListesi').innerHTML = html;
+}
+window.renderKm = renderKm;
+
+// ══════════════════════════════════════════
+// SİPARİŞ
+// ══════════════════════════════════════════
+function spHesapla() {
+  var bf = parseFloat(el('spBirimFiyat').value) || 0;
+  var ad = parseFloat(el('spAdet').value) || 1;
+  el('spToplam').value = (bf * ad).toFixed(2);
+}
+window.spHesapla = spHesapla;
+
+function openSiparisModal(idx) {
+  editMode = { type: 'siparis', index: idx !== undefined ? idx : -1 };
+  var isEdit = idx !== undefined;
+  el('siparisModalBaslik').textContent = isEdit ? '✏️ SİPARİŞ DÜZENLE' : '📦 YENİ SİPARİŞ';
+  var d = isEdit ? DATA.siparisler[idx] : {};
+  el('spTarih').value      = d.tarih || bugun();
+  el('spFirma').value      = d.firma || '';
+  el('spKisi').value       = d.kisi || '';
+  el('spTelefon').value    = d.telefon || '';
+  el('spUrun').value       = d.urun || '';
+  el('spMiktar').value     = d.miktar || '';
+  el('spBirimFiyat').value = d.birimFiyat || '';
+  el('spAdet').value       = d.adet || '';
+  el('spToplam').value     = d.toplam || '';
+  el('spDurum').value      = d.durum || 'Onay Bekliyor';
+  el('spTeslimat').value   = d.teslimat || '';
+  el('spNot').value        = d.not || '';
+  el('siparisModal').classList.add('open');
+  setTimeout(function(){ el('spFirma').focus(); }, 80);
+}
+window.openSiparisModal = openSiparisModal;
+
+function closeSiparisModal() {
+  el('siparisModal').classList.remove('open');
+}
+window.closeSiparisModal = closeSiparisModal;
+
+function saveSiparis() {
+  var firma = el('spFirma').value.trim();
+  var urun  = el('spUrun').value.trim();
+  if (!firma) { el('spFirma').focus(); return; }
+  if (!urun)  { el('spUrun').focus(); return; }
+  var kayit = {
+    id:          editMode.index >= 0 ? DATA.siparisler[editMode.index].id : Date.now(),
+    tarih:       el('spTarih').value,
+    firma:       firma,
+    kisi:        el('spKisi').value.trim(),
+    telefon:     el('spTelefon').value.trim(),
+    urun:        urun,
+    miktar:      el('spMiktar').value.trim(),
+    birimFiyat:  parseFloat(el('spBirimFiyat').value) || 0,
+    adet:        parseFloat(el('spAdet').value) || 0,
+    toplam:      parseFloat(el('spToplam').value) || 0,
+    durum:       el('spDurum').value,
+    teslimat:    el('spTeslimat').value,
+    not:         el('spNot').value.trim()
+  };
+  if (editMode.index >= 0) {
+    DATA.siparisler[editMode.index] = kayit;
+  } else {
+    DATA.siparisler.unshift(kayit);
+  }
+  kaydet();
+  closeSiparisModal();
+  renderSiparis();
+}
+window.saveSiparis = saveSiparis;
+
+function deleteSiparis(idx) {
+  if (!confirm('Bu siparişi silmek istiyor musunuz?')) return;
+  DATA.siparisler.splice(idx, 1);
+  kaydet();
+  renderSiparis();
+}
+window.deleteSiparis = deleteSiparis;
+
+function sortTable(type, key, th) {
+  var s = sortState[type];
+  if (s.key === key) {
+    s.dir = s.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    s.key = key;
+    s.dir = 'desc';
+  }
+  document.querySelectorAll('#panelSiparis thead th').forEach(function(h) {
+    h.classList.remove('sort-asc','sort-desc');
+  });
+  th.classList.add(s.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+  renderSiparis();
+}
+window.sortTable = sortTable;
+
+function renderSiparis() {
+  var q = (el('searchSiparis').value || '').toLowerCase();
+  var tf = el('filterSiparisTarih').value;
+  var filtreli = DATA.siparisler.map(function(s,i){ return {s:s, i:i}; }).filter(function(obj) {
+    var s = obj.s;
+    if (tf && s.tarih !== tf) return false;
+    if (q && !(s.firma||'').toLowerCase().includes(q) && !(s.urun||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+  // Sıralama
+  var ss = sortState.siparis;
+  filtreli.sort(function(a, b) {
+    var va = a.s[ss.key] || '';
+    var vb = b.s[ss.key] || '';
+    var cmp = va < vb ? -1 : va > vb ? 1 : 0;
+    return ss.dir === 'asc' ? cmp : -cmp;
+  });
+
+  var tbody = el('siparisBody');
+  if (filtreli.length === 0) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7"><span class="empty-ico">📦</span>Kayıt bulunamadı</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtreli.map(function(obj) {
+    var s = obj.s, origIdx = obj.i;
+    return '<tr>' +
+      '<td>' + formatTarih(s.tarih) + '</td>' +
+      '<td class="td-firma">' + esc(s.firma) + (s.kisi ? '<div style="font-size:10px;color:#555;margin-top:2px;">👤 ' + esc(s.kisi) + '</div>' : '') + '</td>' +
+      '<td>' + esc(s.urun) + (s.not ? '<div class="siparis-row-urun">' + esc(s.not) + '</div>' : '') + '</td>' +
+      '<td style="text-align:right;">' + esc(s.miktar||'—') + '</td>' +
+      '<td class="td-tutar" style="text-align:right;">' + (s.toplam ? formatPara(s.toplam) : '—') + '</td>' +
+      '<td style="text-align:center;">' + durumuBadge(s.durum) + '</td>' +
+      '<td class="td-actions">' +
+        '<button class="act-btn act-edit" onclick="openSiparisModal(' + origIdx + ')">✏️</button>' +
+        '<button class="act-btn act-del" onclick="deleteSiparis(' + origIdx + ')">✕</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+}
+window.renderSiparis = renderSiparis;
+
+// ══════════════════════════════════════════
+// TAHSİLAT
+// ══════════════════════════════════════════
+function openTahsilatModal(idx) {
+  editMode = { type: 'tahsilat', index: idx !== undefined ? idx : -1 };
+  var isEdit = idx !== undefined;
+  el('tahsilatModalBaslik').textContent = isEdit ? '✏️ TAHSİLAT DÜZENLE' : '💰 YENİ TAHSİLAT';
+  var d = isEdit ? DATA.tahsilatlar[idx] : {};
+  el('thTarih').value    = d.tarih || bugun();
+  el('thFirma').value    = d.firma || '';
+  el('thTutar').value    = d.tutar || '';
+  el('thOdeme').value    = d.odeme || 'Nakit';
+  el('thDurum').value    = d.durum || 'Tahsil Edildi';
+  el('thRef').value      = d.ref || '';
+  el('thAciklama').value = d.aciklama || '';
+  el('tahsilatModal').classList.add('open');
+  setTimeout(function(){ el('thFirma').focus(); }, 80);
+}
+window.openTahsilatModal = openTahsilatModal;
+
+function closeTahsilatModal() {
+  el('tahsilatModal').classList.remove('open');
+}
+window.closeTahsilatModal = closeTahsilatModal;
+
+function saveTahsilat() {
+  var firma = el('thFirma').value.trim();
+  var tutar = parseFloat(el('thTutar').value);
+  if (!firma) { el('thFirma').focus(); return; }
+  if (!tutar) { el('thTutar').focus(); return; }
+  var kayit = {
+    id:       editMode.index >= 0 ? DATA.tahsilatlar[editMode.index].id : Date.now(),
+    tarih:    el('thTarih').value,
+    firma:    firma,
+    tutar:    tutar,
+    odeme:    el('thOdeme').value,
+    durum:    el('thDurum').value,
+    ref:      el('thRef').value.trim(),
+    aciklama: el('thAciklama').value.trim()
+  };
+  if (editMode.index >= 0) {
+    DATA.tahsilatlar[editMode.index] = kayit;
+  } else {
+    DATA.tahsilatlar.unshift(kayit);
+  }
+  kaydet();
+  closeTahsilatModal();
+  renderTahsilat();
+}
+window.saveTahsilat = saveTahsilat;
+
+function deleteTahsilat(idx) {
+  if (!confirm('Bu tahsilat kaydını silmek istiyor musunuz?')) return;
+  DATA.tahsilatlar.splice(idx, 1);
+  kaydet();
+  renderTahsilat();
+}
+window.deleteTahsilat = deleteTahsilat;
+
+function renderTahsilat() {
+  var q = (el('searchTahsilat').value || '').toLowerCase();
+  var tf = el('filterTahsilatTarih').value;
+  var filtreli = DATA.tahsilatlar.map(function(t,i){ return {t:t, i:i}; }).filter(function(obj) {
+    var t = obj.t;
+    if (tf && t.tarih !== tf) return false;
+    if (q && !(t.firma||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  var html = '';
+  if (filtreli.length === 0) {
+    html = '<div class="tah-kart"><div class="tah-firma"><span style="color:#444;font-family:\'Barlow Condensed\',sans-serif;letter-spacing:2px;">Kayıt bulunamadı</span></div></div>';
+  } else {
+    filtreli.forEach(function(obj) {
+      var t = obj.t, origIdx = obj.i;
+      var kartClass = t.durum === 'Beklemede' ? 'kart-bekle' : t.durum === 'Kısmi Ödeme' ? 'kart-kismi' : '';
+      html += '<div class="tah-kart ' + kartClass + '">' +
+        '<div class="tah-firma">' +
+          '<div class="tah-firma-adi">' + esc(t.firma) + '</div>' +
+          '<div class="tah-aciklama">' +
+            formatTarih(t.tarih) + ' &nbsp;·&nbsp; ' +
+            esc(t.odeme || '—') +
+            (t.ref ? ' &nbsp;·&nbsp; Ref: ' + esc(t.ref) : '') +
+            (t.aciklama ? '<br>' + esc(t.aciklama) : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="tah-badge-wrap">' + durumuBadge(t.durum) + '</div>' +
+        '<div class="tah-tutar-blok">' +
+          '<div class="tah-tutar">' + formatPara(t.tutar) + '</div>' +
+          '<div class="tah-tutar-lbl">Tahsilat</div>' +
+        '</div>' +
+        '<div class="tah-actions">' +
+          '<button class="act-btn act-edit" onclick="openTahsilatModal(' + origIdx + ')">✏️</button>' +
+          '<button class="act-btn act-del" onclick="deleteTahsilat(' + origIdx + ')">✕</button>' +
+        '</div>' +
+      '</div>';
+    });
+  }
+  el('tahsilatListesi').innerHTML = html;
+}
+window.renderTahsilat = renderTahsilat;
+
+// ══════════════════════════════════════════
+// MAIL
+// ══════════════════════════════════════════
+function openMailModal() {
+  el('mailTarih').value = bugun();
+  el('mailKonu').value = 'Orimak Günlük Satış Takip Raporu — ' + formatTarih(bugun());
+  el('mailModal').classList.add('open');
+  onizlemeOlustur();
+}
+window.openMailModal = openMailModal;
+
+function closeMailModal() {
+  el('mailModal').classList.remove('open');
+}
+window.closeMailModal = closeMailModal;
+
+function onizlemeOlustur() {
+  var tarih = el('mailTarih').value || bugun();
+  var metin = raporMetniOlustur(tarih);
+  el('mailOnizleme').textContent = metin;
+}
+window.onizlemeOlustur = onizlemeOlustur;
+
+function raporMetniOlustur(tarih) {
+  var satir = '─────────────────────────────────────────';
+  var bugünZiyaretler = DATA.ziyaretler.filter(function(z){ return z.tarih === tarih; });
+  var bugünKm        = DATA.km.filter(function(k){ return k.tarih === tarih; });
+  var bugünSiparisler= DATA.siparisler.filter(function(s){ return s.tarih === tarih; });
+  var bugünTahsilatlar=DATA.tahsilatlar.filter(function(t){ return t.tarih === tarih; });
+
+  var toplamKm = bugünKm.reduce(function(s,k){ return s + (parseFloat(k.gunlukKm)||0); }, 0);
+  var toplamSiparis = bugünSiparisler.reduce(function(s,sp){ return s + (parseFloat(sp.toplam)||0); }, 0);
+  var toplamTahsilat = bugünTahsilatlar.reduce(function(s,t){ return s + (parseFloat(t.tutar)||0); }, 0);
+
+  var metin = 'ORİMAK MAKİNA — GÜNLÜK SATIŞ TAKİP RAPORU\n';
+  metin += 'Tarih: ' + formatTarih(tarih) + '\n';
+  metin += satir + '\n\n';
+
+  metin += '🏢 FİRMA ZİYARETLERİ (' + bugünZiyaretler.length + ' ziyaret)\n';
+  metin += satir + '\n';
+  if (bugünZiyaretler.length === 0) {
+    metin += '  Ziyaret kaydı bulunmuyor.\n';
+  } else {
+    bugünZiyaretler.forEach(function(z, i) {
+      metin += (i+1) + '. ' + (z.firma||'—') + (z.kisi ? ' — ' + z.kisi : '') + (z.saat ? ' (' + z.saat + ')' : '') + '\n';
+      if (z.not) metin += '   Not: ' + z.not + '\n';
+      if (z.takip && z.takip !== 'Hayır') metin += '   ⚑ Takip: ' + z.takip + '\n';
+    });
+  }
+  metin += '\n';
+
+  metin += '🚗 ARAÇ KM BİLGİSİ (Toplam: ' + toplamKm.toLocaleString('tr-TR') + ' km)\n';
+  metin += satir + '\n';
+  if (bugünKm.length === 0) {
+    metin += '  KM kaydı bulunmuyor.\n';
+  } else {
+    bugünKm.forEach(function(k) {
+      metin += '  ' + (k.plaka||'—') + (k.rota ? ' → ' + k.rota : '') + ' = ' + (parseFloat(k.gunlukKm)||0).toLocaleString('tr-TR') + ' km\n';
+    });
+  }
+  metin += '\n';
+
+  metin += '📦 SİPARİŞLER (' + bugünSiparisler.length + ' sipariş · Toplam: ' + formatPara(toplamSiparis) + ')\n';
+  metin += satir + '\n';
+  if (bugünSiparisler.length === 0) {
+    metin += '  Sipariş kaydı bulunmuyor.\n';
+  } else {
+    bugünSiparisler.forEach(function(s, i) {
+      metin += (i+1) + '. ' + (s.firma||'—') + ' — ' + (s.urun||'—') + '\n';
+      metin += '   Miktar: ' + (s.miktar||'—') + ' · Tutar: ' + formatPara(s.toplam) + ' · Durum: ' + (s.durum||'—') + '\n';
+    });
+  }
+  metin += '\n';
+
+  metin += '💰 TAHSİLATLAR (' + bugünTahsilatlar.length + ' kayıt · Toplam: ' + formatPara(toplamTahsilat) + ')\n';
+  metin += satir + '\n';
+  if (bugünTahsilatlar.length === 0) {
+    metin += '  Tahsilat kaydı bulunmuyor.\n';
+  } else {
+    bugünTahsilatlar.forEach(function(t, i) {
+      metin += (i+1) + '. ' + (t.firma||'—') + ' — ' + formatPara(t.tutar) + ' (' + (t.odeme||'—') + ') — ' + (t.durum||'—') + '\n';
+    });
+  }
+  metin += '\n' + satir + '\n';
+  metin += 'Orimak Makina San. Tic. Ltd. Şti.\n';
+  metin += 'www.orimak.com · servis@orimak.com\n';
+  return metin;
+}
+
+function mailGonder() {
+  var alici = el('mailAlanici').value.trim();
+  if (!alici) { el('mailAlanici').focus(); return; }
+  var konu   = encodeURIComponent(el('mailKonu').value || 'Orimak Günlük Rapor');
+  var tarih  = el('mailTarih').value || bugun();
+  var body   = encodeURIComponent(raporMetniOlustur(tarih));
+  var cc     = el('mailCC').value.trim();
+  var mailto = 'mailto:' + encodeURIComponent(alici) + '?subject=' + konu + '&body=' + body;
+  if (cc) mailto += '&cc=' + encodeURIComponent(cc);
+  window.open(mailto);
+}
+window.mailGonder = mailGonder;
+
+// ══════════════════════════════════════════
+// PDF RAPOR (window.print tabanlı)
+// ══════════════════════════════════════════
+function tumRaporPDF() {
+  var tarih = bugun();
+  var metin = raporMetniOlustur(tarih);
+  var w = window.open('', '_blank', 'width=850,height=700');
+  if (!w) return;
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orimak Satış Takip Raporu</title>' +
+    '<style>body{font-family:Arial,sans-serif;font-size:12px;color:#111;padding:20mm 18mm;margin:0;}' +
+    'pre{white-space:pre-wrap;font-family:monospace;font-size:11px;line-height:1.7;}' +
+    'h1{font-size:16px;margin-bottom:4px;}' +
+    '@page{size:A4;margin:10mm;}' +
+    '@media print{body{-webkit-print-color-adjust:exact;}}</style></head><body>' +
+    '<h1>Orimak Makina — Satış Takip Raporu</h1>' +
+    '<p style="color:#888;font-size:11px;">Oluşturulma: ' + new Date().toLocaleString('tr-TR') + '</p>' +
+    '<hr><pre>' + escHtml(metin) + '</pre>' +
+    '</body></html>');
+  w.document.close();
+  setTimeout(function(){ w.focus(); w.print(); }, 500);
+}
+window.tumRaporPDF = tumRaporPDF;
+
+// ══════════════════════════════════════════
+// ANA SAYFAYA DÖN (index.html)
+// ══════════════════════════════════════════
+function anaSayfayaDon() {
+  // index.html ile haberleşme: localStorage'a mesaj bırak
+  try { localStorage.setItem('orimak_lastPage', JSON.stringify({ type: 'home' })); } catch(e) {}
+  window.location.href = 'index.html';
+}
+window.anaSayfayaDon = anaSayfayaDon;
+
+// ══════════════════════════════════════════
+// YARDIMCILAR
+// ══════════════════════════════════════════
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ══════════════════════════════════════════
+// BAŞLATMA
+// ══════════════════════════════════════════
+(function init() {
+  // Header tarihi
+  var d = new Date();
+  var gunler = ['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+  var aylar  = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+  el('headerDate').textContent = gunler[d.getDay()] + ', ' + d.getDate() + ' ' + aylar[d.getMonth()] + ' ' + d.getFullYear();
+
+  // Veri yükle
+  yukle();
+
+  // İlk render
+  renderZiyaret();
+  renderKm();
+  renderSiparis();
+  renderTahsilat();
+
+  // Sayaçlar
+  sayaclariGuncelle();
+
+  // index.html'e bildirim: bu sayfa açıldı
+  try {
+    var mesaj = { page: 'satis_takip', ts: Date.now() };
+    localStorage.setItem('orimak_active_page', JSON.stringify(mesaj));
+  } catch(e) {}
+
+  // index.html'den gelen oturum bilgisini oku (kimlik kontrolü)
+  try {
+    var sess = localStorage.getItem('orimak_auth');
+    if (!sess) {
+      // Oturum yoksa index'e yönlendir
+      // Geliştirme ortamında bu satırı kapatabilirsiniz:
+      // window.location.href = 'index.html';
+    }
+  } catch(e) {}
+})();
+</script>
+</body>
+</html>
