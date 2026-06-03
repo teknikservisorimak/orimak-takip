@@ -3622,11 +3622,27 @@ function openSiparisEkle(editIdx = -1) {
 window.openSiparisEkle = openSiparisEkle;
 
 function siparisField(label, id, val, cls='') {
+  const extraAttr = id === 'sp_kod' ? ' oninput="autoFillSiparisAdi(this.value)"' : '';
   return `<div style="${cls==='full'?'grid-column:1/-1;':''}">
     <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:5px;font-family:'Barlow Condensed',sans-serif;">${label}</label>
-    <input id="${id}" type="text" value="${(val||'').replace(/"/g,'&quot;')}" style="width:100%;background:#222 !important;border:1px solid #3a3a3a;border-radius:5px;padding:8px 10px;color:#eee !important;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--orange)'" onblur="this.style.borderColor='#3a3a3a'"/>
+    <input id="${id}" type="text" value="${(val||'').replace(/"/g,'&quot;')}" style="width:100%;background:#222 !important;border:1px solid #3a3a3a;border-radius:5px;padding:8px 10px;color:#eee !important;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--orange)'" onblur="this.style.borderColor='#3a3a3a'"${extraAttr}/>
   </div>`;
 }
+
+function autoFillSiparisAdi(kodVal) {
+  const adEl = document.getElementById('sp_ad');
+  if (!adEl) return;
+  // Sadece ad alanı boşsa otomatik doldur (kullanıcı kendi yazdıysa dokunma)
+  if (adEl.value.trim()) return;
+  const siparisRows = getSiparisRows();
+  const eslesme = siparisRows.find(s => s.urunKodu && s.urunKodu.toLowerCase() === (kodVal||'').trim().toLowerCase());
+  if (eslesme && eslesme.urunAdi) {
+    adEl.value = eslesme.urunAdi;
+    adEl.style.borderColor = '#92d050';
+    setTimeout(function(){ adEl.style.borderColor = '#3a3a3a'; }, 1500);
+  }
+}
+window.autoFillSiparisAdi = autoFillSiparisAdi;
 
 async function saveSiparis(editIdx) {
   const si = getSiparisIdx();
@@ -3966,6 +3982,7 @@ function openTeslimEkle(editIdx = -1) {
             <option value="">— Manuel giriş —</option>
             ${options}
           </select>
+          <div id="tk_adi_preview" style="display:none;margin-top:6px;padding:6px 10px;background:rgba(146,208,80,.1);border:1px solid rgba(146,208,80,.3);border-radius:5px;font-size:12px;color:#92d050;font-family:'Barlow',sans-serif;"></div>
         </div>
         ${siparisField('Ürün Kodu (Manuel)','tk_kod_m',r.urunKodu||'')}
         ${siparisField('Geliş Adedi','tk_adet',r.gelisAdet||'')}
@@ -3983,7 +4000,17 @@ window.openTeslimEkle = openTeslimEkle;
 
 function autoFillTeslimAdi() {
   const sel = document.getElementById('tk_kod');
-  if (sel && sel.value) document.getElementById('tk_kod_m').value = sel.value;
+  if (!sel || !sel.value) return;
+  // Seçilen ürün kodunu manuel alana doldur
+  document.getElementById('tk_kod_m').value = sel.value;
+  // Seçilen siparişin urunAdi'sini bul ve bilgi olarak göster
+  const siparisRows = getSiparisRows();
+  const siparis = siparisRows.find(s => s.urunKodu === sel.value);
+  const adiPreview = document.getElementById('tk_adi_preview');
+  if (adiPreview) {
+    adiPreview.textContent = siparis && siparis.urunAdi ? '📦 ' + siparis.urunAdi : '';
+    adiPreview.style.display = (siparis && siparis.urunAdi) ? '' : 'none';
+  }
 }
 window.autoFillTeslimAdi = autoFillTeslimAdi;
 
@@ -4001,10 +4028,15 @@ async function saveTeslim(editIdx) {
     return;
   }
   const siparisRows = getSiparisRows();
+  // Dropdown'dan seçilen veya manuel girilen koda göre sipariş bul
   const siparis = siparisRows.find(s => s.urunKodu === kod);
+  // urunAdi: siparişte varsa al, yoksa kodu kullan (manuel girişte)
+  const urunAdiVal = (siparis && siparis.urunAdi && siparis.urunAdi.trim())
+    ? siparis.urunAdi.trim()
+    : (siparis ? (siparis.urunKodu || kod) : kod);
   const yeni = {
     urunKodu: kod,
-    urunAdi: siparis ? siparis.urunAdi : kod,
+    urunAdi: urunAdiVal,
     gelisAdet: document.getElementById('tk_adet').value.trim(),
     gelisTarihi: document.getElementById('tk_tarih').value.trim(),
     teslimAlan: _teslimAlanVal,
