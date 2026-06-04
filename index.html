@@ -2415,6 +2415,18 @@ function getTeslimIdx() { return SHEETS.findIndex(s => s.type === 'teslim'); }
 function getSiparisRows() { const si = getSiparisIdx(); return SHEETS[si] ? (SHEETS[si].rows || []) : []; }
 function getTeslimRows() { const si = getTeslimIdx(); return SHEETS[si] ? (SHEETS[si].rows || []) : []; }
 
+// Bir sipariş satırı (r, index i) için teslim kaydını bul
+// Önce _sid bazlı (kalıcı), sonra siparisIdx (eski), sonra urunKodu (geriye dönük)
+function findTeslimForSiparis(teslimRows, r, i) {
+  return teslimRows.find(t =>
+    t._siparisId && r._sid
+      ? t._siparisId === r._sid
+      : t.siparisIdx !== undefined && t.siparisIdx !== null
+        ? t.siparisIdx === i
+        : t.urunKodu === r.urunKodu
+  );
+}
+window.findTeslimForSiparis = findTeslimForSiparis;
 function buildSiparisPanel(si) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'padding:16px;';
@@ -2454,13 +2466,8 @@ function renderSiparisRows() {
   }
   rows.forEach((r, i) => {
     // Teslim kayıttan geliş bilgisini çek
-    // siparisIdx varsa index ile eşleştir (kesin), yoksa urunKodu ile geriye dönük uyumluluk
     const teslimRows = getTeslimRows();
-    const teslim = teslimRows.find(t =>
-      t.siparisIdx !== undefined && t.siparisIdx !== null
-        ? t.siparisIdx === i
-        : t.urunKodu === r.urunKodu
-    );
+    const teslim = findTeslimForSiparis(teslimRows, r, i);
     const gelisAdet = teslim ? teslim.gelisAdet : '';
     const gelisTarihi = teslim ? teslim.gelisTarihi : '';
     const teslimAlan = teslim ? teslim.teslimAlan : '';
@@ -3233,11 +3240,7 @@ window.openSiparisTopluMail = openSiparisTopluMail;
 function siparisTopluMailTabloHtml(rows) {
   const teslimRows = (typeof getTeslimRows === 'function') ? getTeslimRows() : [];
   const satirlar = rows.map((r, i) => {
-    const teslim = teslimRows.find(t =>
-      t.siparisIdx !== undefined && t.siparisIdx !== null
-        ? t.siparisIdx === i
-        : t.urunKodu === r.urunKodu
-    );
+    const teslim = findTeslimForSiparis(teslimRows, r, i);
     const gelen = teslim ? (teslim.gelisAdet || '—') : '—';
     const yColor = r.yetkiliOnay === 'Onaylandı' ? '#2a7a2a' : r.yetkiliOnay === 'Beklemede' ? '#b07000' : '#888';
     const sipColor = r.sipDurumu === 'Sipariş Edildi' ? '#2a7a2a' : r.sipDurumu === 'Sipariş Edilmedi' ? '#b07000' : '#888';
@@ -3675,6 +3678,8 @@ async function saveSiparis(editIdx) {
     yetkiliOnayKisi: editIdx >= 0 ? (rows[editIdx].yetkiliOnayKisi||'') : '',
     gelisOnay: editIdx >= 0 ? (rows[editIdx].gelisOnay||'') : '',
     yetkiliMailIdx: editIdx >= 0 ? rows[editIdx].yetkiliMailIdx : undefined,
+    // Benzersiz sipariş kimliği — teslim kayıtlarında eşleşme için kullanılır
+    _sid: editIdx >= 0 && rows[editIdx]._sid ? rows[editIdx]._sid : ('s' + Date.now() + Math.random().toString(36).slice(2,6)),
   };
   const _isYeniSiparis = editIdx < 0;
   // ── KALICI BİLDİRİM: satıra _notif alanı ekle (Firebase'e gidecek) ──
@@ -3879,11 +3884,7 @@ function _siparisPDFOlustur(rows, teslimRows) {
   </tr></thead><tbody>`;
 
   rows.forEach((r, i) => {
-    const teslim = teslimRows.find(t =>
-      t.siparisIdx !== undefined && t.siparisIdx !== null
-        ? t.siparisIdx === i
-        : t.urunKodu === r.urunKodu
-    );
+    const teslim = findTeslimForSiparis(teslimRows, r, i);
     const gelisAdet = teslim ? teslim.gelisAdet : '';
     const gelisTarihi = teslim ? teslim.gelisTarihi : '';
     const teslimAlan = teslim ? teslim.teslimAlan : '';
@@ -3976,12 +3977,15 @@ function openTeslimEkle(editIdx = -1) {
   const r = editIdx >= 0 ? rows[editIdx] : {};
   const siparisRows = getSiparisRows();
   const bugun = new Date().toLocaleDateString('tr-TR');
-  // Dropdown value = sipariş index (benzersiz tanımlayıcı), böylece aynı kodlu farklı siparişler karışmaz
+  // Dropdown value = sipariş _sid (benzersiz sabit kimlik), index değişse de eşleşme bozulmaz
   const options = siparisRows.map((s, si) => {
-    const isSelected = (r.siparisIdx !== undefined && r.siparisIdx !== null)
-      ? (r.siparisIdx === si)
-      : (r.urunKodu && r.urunKodu === s.urunKodu); // geriye dönük uyumluluk
-    return `<option value="${si}" ${isSelected?'selected':''}>${s.urunKodu} — ${s.urunAdi}</option>`;
+    const sid = s._sid || String(si); // _sid yoksa geriye dönük index
+    const isSelected = r._siparisId
+      ? (r._siparisId === sid)
+      : (r.siparisIdx !== undefined && r.siparisIdx !== null)
+        ? (r.siparisIdx === si) // eski kayıtlar için geriye dönük uyumluluk
+        : (r.urunKodu && r.urunKodu === s.urunKodu);
+    return `<option value="${sid}" ${isSelected?'selected':''}>Satır ${si+1}: ${s.urunKodu} — ${s.urunAdi}</option>`;
   }).join('');
 
   const overlay = document.createElement('div');
@@ -4013,22 +4017,31 @@ function openTeslimEkle(editIdx = -1) {
       </div>
     </div>`;
   document.body.appendChild(overlay);
+  // Modal açıldığında mevcut seçili sipariş varsa önizlemeyi hemen göster
+  setTimeout(() => { autoFillTeslimAdi(); }, 0);
 }
 window.openTeslimEkle = openTeslimEkle;
 
 function autoFillTeslimAdi() {
   const sel = document.getElementById('tk_kod');
-  if (!sel || sel.value === '') return;
-  const si = parseInt(sel.value);
+  const adiPreview = document.getElementById('tk_adi_preview');
+  if (!sel) return;
+  if (sel.value === '') {
+    // Manuel giriş seçildi: önizlemeyi temizle, manuel kodu sıfırlama
+    if (adiPreview) { adiPreview.textContent = ''; adiPreview.style.display = 'none'; }
+    return;
+  }
+  const sid = sel.value;
   const siparisRows = getSiparisRows();
-  const siparis = siparisRows[si];
+  // _sid ile bul, yoksa index olarak dene (geriye dönük uyumluluk)
+  let siparis = siparisRows.find(s => s._sid === sid);
+  if (!siparis) { const idx = parseInt(sid); if (!isNaN(idx)) siparis = siparisRows[idx]; }
   if (!siparis) return;
   // Seçilen ürün kodunu manuel alana doldur
   document.getElementById('tk_kod_m').value = siparis.urunKodu || '';
   // Ürün adı önizlemesini göster
-  const adiPreview = document.getElementById('tk_adi_preview');
   if (adiPreview) {
-    adiPreview.textContent = siparis.urunAdi ? '📦 ' + siparis.urunAdi : '';
+    adiPreview.textContent = siparis.urunAdi ? '📦 ' + siparis.urunAdi + (siparis.sipAdet ? '  ·  ' + siparis.sipAdet + ' adet' : '') : '';
     adiPreview.style.display = siparis.urunAdi ? '' : 'none';
   }
 }
@@ -4046,8 +4059,17 @@ async function saveTeslim(editIdx) {
   }
   const siparisRows = getSiparisRows();
   const kodSelVal = document.getElementById('tk_kod').value;
-  const siparisIdx = (kodSelVal !== '') ? parseInt(kodSelVal) : -1;
-  const siparis = siparisIdx >= 0 ? siparisRows[siparisIdx] : null;
+  // _sid ile siparişi bul, yoksa index ile geriye dönük uyumluluk
+  let siparis = null;
+  let siparisIdx = -1;
+  let _siparisId = '';
+  if (kodSelVal !== '') {
+    siparis = siparisRows.find((s, i) => { if (s._sid === kodSelVal) { siparisIdx = i; _siparisId = s._sid; return true; } return false; });
+    if (!siparis) { // geriye dönük: sayısal index
+      const numIdx = parseInt(kodSelVal);
+      if (!isNaN(numIdx) && siparisRows[numIdx]) { siparis = siparisRows[numIdx]; siparisIdx = numIdx; _siparisId = siparis._sid || ''; }
+    }
+  }
 
   // Kodu: dropdown seçildiyse siparişten al, yoksa manuel alanı kullan
   const kodM = document.getElementById('tk_kod_m').value.trim();
@@ -4059,7 +4081,8 @@ async function saveTeslim(editIdx) {
   const yeni = {
     urunKodu: kod,
     urunAdi: urunAdiVal,
-    siparisIdx: siparisIdx >= 0 ? siparisIdx : undefined, // eşleşme için index sakla
+    _siparisId: _siparisId || undefined, // _sid bazlı eşleşme (kalıcı)
+    siparisIdx: siparisIdx >= 0 ? siparisIdx : undefined, // geriye dönük uyumluluk
     gelisAdet: document.getElementById('tk_adet').value.trim(),
     gelisTarihi: document.getElementById('tk_tarih').value.trim(),
     teslimAlan: _teslimAlanVal,
@@ -4460,11 +4483,7 @@ function getTerminUrunler(gunSinir = 7) {
         if (!termin) return;
         // Teslim alındıysa atla
         const teslimRows = getTeslimRows ? getTeslimRows() : [];
-        const teslim = teslimRows.find(t =>
-          t.siparisIdx !== undefined && t.siparisIdx !== null
-            ? t.siparisIdx === ri
-            : t.urunKodu === r.urunKodu
-        );
+        const teslim = findTeslimForSiparis ? findTeslimForSiparis(teslimRows, r, ri) : teslimRows.find(t => t.urunKodu === r.urunKodu);
         if (teslim) return;
         if (r.gelisOnay === 'Onaylandı') return;
         if (termin >= bugun && termin <= sinir) {
