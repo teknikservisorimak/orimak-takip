@@ -2413,6 +2413,22 @@ window.getTeslimRows = () => { const si = getTeslimIdx(); return SHEETS[si] ? (S
 function getSiparisIdx() { return SHEETS.findIndex(s => s.type === 'siparis'); }
 function getTeslimIdx() { return SHEETS.findIndex(s => s.type === 'teslim'); }
 function getSiparisRows() { const si = getSiparisIdx(); return SHEETS[si] ? (SHEETS[si].rows || []) : []; }
+
+// Her sipariş satırına benzersiz kalıcı kimlik (_sid) garantiler.
+// Eski (kimliksiz) satırlar için tek seferlik atama yapar; değişiklik olduysa true döner.
+function ensureSiparisSids() {
+  const si = getSiparisIdx();
+  if (si < 0 || !SHEETS[si] || !Array.isArray(SHEETS[si].rows)) return false;
+  let changed = false;
+  SHEETS[si].rows.forEach(function (r) {
+    if (r && !r._sid) {
+      r._sid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      changed = true;
+    }
+  });
+  return changed;
+}
+window.ensureSiparisSids = ensureSiparisSids;
 function getTeslimRows() { const si = getTeslimIdx(); return SHEETS[si] ? (SHEETS[si].rows || []) : []; }
 
 // Bir sipariş satırı (r, index i) için teslim kaydını bul
@@ -2420,27 +2436,21 @@ function getTeslimRows() { const si = getTeslimIdx(); return SHEETS[si] ? (SHEET
 function findTeslimForSiparis(teslimRows, r, i) {
   if (!teslimRows || !teslimRows.length) return undefined;
 
-  // 1) KESİN EŞLEŞME: kalıcı _sid kimliği (en güvenilir, index/silme'den etkilenmez)
+  // 1) KESİN EŞLEŞME: her siparişin kendine ait benzersiz kimliği (_sid).
+  //    Aynı ürün kodlu farklı siparişler bile burada birbirine karışmaz.
   if (r._sid) {
     var byId = teslimRows.find(function (t) { return t._siparisId && t._siparisId === r._sid; });
     if (byId) return byId;
-    // r._sid var: _siparisId TAŞIYAN teslim kayıtları BAŞKA bir siparişe aittir.
-    // Bunları index/koda göre EŞLEŞTİRME — yoksa silinen/taşınan kayıtlar yanlış
-    // siparişe yapışır ("isim karışıklığı" / "silince kayıtlı kalıyor" sorunu).
-    // Yalnızca hiç kimliği olmayan (gerçekten eski) kayıtlar için geriye dönük dene:
-    return teslimRows.find(function (t) {
-      if (t._siparisId) return false;
-      if (t.siparisIdx !== undefined && t.siparisIdx !== null) return t.siparisIdx === i;
-      return t.urunKodu && r.urunKodu && t.urunKodu === r.urunKodu;
-    });
   }
 
-  // 2) Sipariş eski (r._sid yok) → kimliği olmayan teslim kayıtlarında index/kod eşleşmesi.
-  // _siparisId taşıyan bir teslim, _sid'i olmayan bir siparişe ait olamaz.
+  // 2) GERİYE DÖNÜK: yalnızca hiç kimliği OLMAYAN (gerçekten eski) kayıtlar için,
+  //    1'e 1 satır index eşleşmesi. ÜRÜN KODUYLA EŞLEŞTİRME YAPILMAZ — çünkü kod
+  //    benzersiz değildir ve aynı kodlu tüm siparişleri tek kayda yapıştırır.
+  //    _siparisId taşıyan kayıt sadece _sid ile eşleşir; siparişsiz/manuel teslim
+  //    (kimliği yok) hiçbir sipariş satırına bağlanmaz.
   return teslimRows.find(function (t) {
     if (t._siparisId) return false;
-    if (t.siparisIdx !== undefined && t.siparisIdx !== null) return t.siparisIdx === i;
-    return t.urunKodu && r.urunKodu && t.urunKodu === r.urunKodu;
+    return (t.siparisIdx !== undefined && t.siparisIdx !== null) && t.siparisIdx === i;
   });
 }
 window.findTeslimForSiparis = findTeslimForSiparis;
@@ -10272,6 +10282,8 @@ async function loadData() {
       });
       SHEETS = freshSheets;
       isOnline = true;
+      // Eski siparişlere benzersiz kimlik ver; eklendiyse bir kez kalıcılaştır
+      if (ensureSiparisSids()) { try { await fbSaveAll(); } catch (e) { console.warn('_sid backfill kaydı atlandı:', e); } }
       buildUI();
       reapplySession();
       restoreLastPage();
@@ -10306,6 +10318,7 @@ async function loadData() {
           }
         });
         SHEETS = updated;
+        ensureSiparisSids(); // gelen veride eksik kimlik varsa bu oturum için tamamla
         buildState();
         // Sadece aktif sayfayı değil, DOM'da bulunan TÜM normal sayfaların
         // tablolarını yeniden çiz. Aksi halde başka sekmedeki grup isimleri,
