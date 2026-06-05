@@ -2418,13 +2418,30 @@ function getTeslimRows() { const si = getTeslimIdx(); return SHEETS[si] ? (SHEET
 // Bir sipariş satırı (r, index i) için teslim kaydını bul
 // Önce _sid bazlı (kalıcı), sonra siparisIdx (eski), sonra urunKodu (geriye dönük)
 function findTeslimForSiparis(teslimRows, r, i) {
-  return teslimRows.find(t =>
-    t._siparisId && r._sid
-      ? t._siparisId === r._sid
-      : t.siparisIdx !== undefined && t.siparisIdx !== null
-        ? t.siparisIdx === i
-        : t.urunKodu === r.urunKodu
-  );
+  if (!teslimRows || !teslimRows.length) return undefined;
+
+  // 1) KESİN EŞLEŞME: kalıcı _sid kimliği (en güvenilir, index/silme'den etkilenmez)
+  if (r._sid) {
+    var byId = teslimRows.find(function (t) { return t._siparisId && t._siparisId === r._sid; });
+    if (byId) return byId;
+    // r._sid var: _siparisId TAŞIYAN teslim kayıtları BAŞKA bir siparişe aittir.
+    // Bunları index/koda göre EŞLEŞTİRME — yoksa silinen/taşınan kayıtlar yanlış
+    // siparişe yapışır ("isim karışıklığı" / "silince kayıtlı kalıyor" sorunu).
+    // Yalnızca hiç kimliği olmayan (gerçekten eski) kayıtlar için geriye dönük dene:
+    return teslimRows.find(function (t) {
+      if (t._siparisId) return false;
+      if (t.siparisIdx !== undefined && t.siparisIdx !== null) return t.siparisIdx === i;
+      return t.urunKodu && r.urunKodu && t.urunKodu === r.urunKodu;
+    });
+  }
+
+  // 2) Sipariş eski (r._sid yok) → kimliği olmayan teslim kayıtlarında index/kod eşleşmesi.
+  // _siparisId taşıyan bir teslim, _sid'i olmayan bir siparişe ait olamaz.
+  return teslimRows.find(function (t) {
+    if (t._siparisId) return false;
+    if (t.siparisIdx !== undefined && t.siparisIdx !== null) return t.siparisIdx === i;
+    return t.urunKodu && r.urunKodu && t.urunKodu === r.urunKodu;
+  });
 }
 window.findTeslimForSiparis = findTeslimForSiparis;
 function buildSiparisPanel(si) {
@@ -3746,7 +3763,7 @@ function buildTeslimPanel(si) {
   wrap.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
       <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#666;letter-spacing:1px;">ORİMAK MAKİNE — TESLİM KAYIT FORMU</div>
-      ${window._currentRole !== 'viewer' ? `<button onclick="openTeslimEkle()" class="add-row-btn">＋ Yeni Kayıt</button>` : ''}
+      ${(window._currentRole === 'admin' || window._currentRole === 'manager' || window._currentRole === 'operator') ? `<button onclick="openTeslimEkle()" class="add-row-btn">＋ Yeni Kayıt</button>` : ''}
     </div>
     <div class="table-wrap">
       <table id="teslimTable">
@@ -3964,7 +3981,7 @@ function renderTeslimRows() {
       <td>${r.teslimAlan||''}</td>
       <td>
         <div class="row-actions">
-          ${window._currentRole !== 'viewer' ? `<button class="btn-edit-row" onclick="editTeslim(${i})" title="Düzenle">✏️</button>` : ''}
+          ${(window._currentRole === 'admin' || window._currentRole === 'manager' || window._currentRole === 'operator') ? `<button class="btn-edit-row" onclick="editTeslim(${i})" title="Düzenle">✏️</button>` : ''}
           ${(window._currentRole === 'admin' || window._currentRole === 'manager') ? `<button class="btn-del" onclick="deleteTeslim(${i})">✕</button>` : ''}
         </div>
       </td>`;
@@ -3978,13 +3995,18 @@ function openTeslimEkle(editIdx = -1) {
   const siparisRows = getSiparisRows();
   const bugun = new Date().toLocaleDateString('tr-TR');
   // Dropdown value = sipariş _sid (benzersiz sabit kimlik), index değişse de eşleşme bozulmaz
+  // Düzenlenen kayıt bir siparişe mi bağlı, yoksa siparişsiz/manuel mi?
+  const _isManualRecord = editIdx >= 0 && !r._siparisId && (r.siparisIdx === undefined || r.siparisIdx === null);
+  const _placeholderSelected = editIdx < 0; // yeni kayıtta seçim zorunlu
   const options = siparisRows.map((s, si) => {
     const sid = s._sid || String(si); // _sid yoksa geriye dönük index
+    // Ön-seçim YALNIZCA kalıcı kimlik (_siparisId) veya eski index ile yapılır;
+    // ürün koduyla otomatik seçim YOK → yanlış siparişe bağlanma riski kalkar
     const isSelected = r._siparisId
       ? (r._siparisId === sid)
       : (r.siparisIdx !== undefined && r.siparisIdx !== null)
-        ? (r.siparisIdx === si) // eski kayıtlar için geriye dönük uyumluluk
-        : (r.urunKodu && r.urunKodu === s.urunKodu);
+        ? (r.siparisIdx === si)
+        : false;
     return `<option value="${sid}" ${isSelected?'selected':''}>Satır ${si+1}: ${s.urunKodu} — ${s.urunAdi}</option>`;
   }).join('');
 
@@ -3999,14 +4021,18 @@ function openTeslimEkle(editIdx = -1) {
       </div>
       <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px;">
         <div>
-          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:5px;font-family:'Barlow Condensed',sans-serif;">Ürün Kodu (Siparişten Seç)</label>
+          <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:5px;font-family:'Barlow Condensed',sans-serif;">Ürün (Siparişten Seç)</label>
           <select id="tk_kod" style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:9px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;" onchange="autoFillTeslimAdi()">
-            <option value="">— Manuel giriş —</option>
+            <option value="" disabled ${_placeholderSelected?'selected':''}>— Sipariş seçin —</option>
             ${options}
+            <option value="__manual__" ${_isManualRecord?'selected':''}>✎ Siparişsiz / manuel giriş</option>
           </select>
           <div id="tk_adi_preview" style="display:none;margin-top:6px;padding:6px 10px;background:rgba(146,208,80,.1);border:1px solid rgba(146,208,80,.3);border-radius:5px;font-size:12px;color:#92d050;font-family:'Barlow',sans-serif;"></div>
         </div>
-        ${siparisField('Ürün Kodu (Manuel)','tk_kod_m',r.urunKodu||'')}
+        <div id="tk_manuel_wrap" style="display:none;flex-direction:column;gap:12px;">
+          ${siparisField('Ürün Kodu (Manuel)','tk_kod_m',r.urunKodu||'')}
+          ${siparisField('Ürün Adı (Manuel)','tk_ad_m',r.urunAdi||'')}
+        </div>
         ${siparisField('Geliş Adedi','tk_adet',r.gelisAdet||'')}
         ${siparisField('Geliş Tarihi','tk_tarih',r.gelisTarihi||bugun)}
         ${siparisField('Teslim Alan','tk_alan',r.teslimAlan||'')}
@@ -4025,24 +4051,32 @@ window.openTeslimEkle = openTeslimEkle;
 function autoFillTeslimAdi() {
   const sel = document.getElementById('tk_kod');
   const adiPreview = document.getElementById('tk_adi_preview');
+  const manuelWrap = document.getElementById('tk_manuel_wrap');
   if (!sel) return;
-  if (sel.value === '') {
-    // Manuel giriş seçildi: önizlemeyi temizle, manuel kodu sıfırlama
-    if (adiPreview) { adiPreview.textContent = ''; adiPreview.style.display = 'none'; }
+  const hidePreview = () => { if (adiPreview) { adiPreview.textContent = ''; adiPreview.style.display = 'none'; } };
+
+  // Manuel giriş seçildi → manuel kod+ad alanlarını göster, önizlemeyi gizle
+  if (sel.value === '__manual__') {
+    if (manuelWrap) manuelWrap.style.display = 'flex';
+    hidePreview();
     return;
   }
+  // Henüz seçim yapılmadı (placeholder) → her ikisini de gizle
+  if (sel.value === '') {
+    if (manuelWrap) manuelWrap.style.display = 'none';
+    hidePreview();
+    return;
+  }
+  // Bir sipariş seçildi → manuel alanları gizle, ürün önizlemesini göster
+  if (manuelWrap) manuelWrap.style.display = 'none';
   const sid = sel.value;
   const siparisRows = getSiparisRows();
-  // _sid ile bul, yoksa index olarak dene (geriye dönük uyumluluk)
   let siparis = siparisRows.find(s => s._sid === sid);
   if (!siparis) { const idx = parseInt(sid); if (!isNaN(idx)) siparis = siparisRows[idx]; }
-  if (!siparis) return;
-  // Seçilen ürün kodunu manuel alana doldur
-  document.getElementById('tk_kod_m').value = siparis.urunKodu || '';
-  // Ürün adı önizlemesini göster
+  if (!siparis) { hidePreview(); return; }
   if (adiPreview) {
-    adiPreview.textContent = siparis.urunAdi ? '📦 ' + siparis.urunAdi + (siparis.sipAdet ? '  ·  ' + siparis.sipAdet + ' adet' : '') : '';
-    adiPreview.style.display = siparis.urunAdi ? '' : 'none';
+    adiPreview.textContent = '📦 ' + (siparis.urunKodu || '') + (siparis.urunAdi ? ' — ' + siparis.urunAdi : '') + (siparis.sipAdet ? '  ·  ' + siparis.sipAdet + ' adet' : '');
+    adiPreview.style.display = '';
   }
 }
 window.autoFillTeslimAdi = autoFillTeslimAdi;
@@ -4059,11 +4093,19 @@ async function saveTeslim(editIdx) {
   }
   const siparisRows = getSiparisRows();
   const kodSelVal = document.getElementById('tk_kod').value;
-  // _sid ile siparişi bul, yoksa index ile geriye dönük uyumluluk
+
+  // Seçim zorunlu: ne sipariş seçilmiş ne de manuel işaretlenmişse engelle
+  if (kodSelVal === '') {
+    alert('⚠️ Lütfen listeden bir sipariş seçin ya da "Siparişsiz / manuel giriş"i seçin.');
+    return;
+  }
+  const _isManual = (kodSelVal === '__manual__');
+
+  // Siparişi bul (manuel değilse): _sid ile, yoksa index ile geriye dönük uyumluluk
   let siparis = null;
   let siparisIdx = -1;
   let _siparisId = '';
-  if (kodSelVal !== '') {
+  if (!_isManual) {
     siparis = siparisRows.find((s, i) => { if (s._sid === kodSelVal) { siparisIdx = i; _siparisId = s._sid; return true; } return false; });
     if (!siparis) { // geriye dönük: sayısal index
       const numIdx = parseInt(kodSelVal);
@@ -4071,13 +4113,21 @@ async function saveTeslim(editIdx) {
     }
   }
 
-  // Kodu: dropdown seçildiyse siparişten al, yoksa manuel alanı kullan
-  const kodM = document.getElementById('tk_kod_m').value.trim();
-  const kod = siparis ? siparis.urunKodu : kodM;
-  // urunAdi: siparişten kesin al, yoksa kodu kullan
-  const urunAdiVal = (siparis && siparis.urunAdi && siparis.urunAdi.trim())
-    ? siparis.urunAdi.trim()
-    : kod;
+  // Kod ve ad: sipariş seçildiyse siparişten (elle yazılmaz), manuelde kullanıcıdan
+  let kod, urunAdiVal;
+  if (_isManual) {
+    kod = document.getElementById('tk_kod_m').value.trim();
+    const adM = document.getElementById('tk_ad_m').value.trim();
+    if (!kod) {
+      alert('⚠️ Manuel girişte "Ürün Kodu" boş bırakılamaz!');
+      document.getElementById('tk_kod_m').focus();
+      return;
+    }
+    urunAdiVal = adM || kod;
+  } else {
+    kod = siparis ? siparis.urunKodu : '';
+    urunAdiVal = (siparis && siparis.urunAdi && siparis.urunAdi.trim()) ? siparis.urunAdi.trim() : kod;
+  }
   const yeni = {
     urunKodu: kod,
     urunAdi: urunAdiVal,
