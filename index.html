@@ -9316,6 +9316,10 @@ const OFFLINE_DATA = [
 const HEADERS = ['NO','MALZEME KODU','MALZEME ADI','ÖLÇÜLER','ADET','MAKİNE SAYISI','GEREKEN ADET','YETKİLİ ONAYI','SİPARİŞ TARİHİ','TERMİN TARİHİ','TESLİM TARİHİ','GELEN ADET','GELİŞ ONAYI','TESLİMAT DURUMU','SİPARİŞ DURUMU','İŞLEMLER'];
 
 var SHEETS = [];
+// En son UYGULANAN 'sheets' belgesinin updatedAt'i. Canli dinleyicide eski
+// (stale) bir snapshot'in guncel veriyi ezmesini onler — iki ekran arasinda
+// renk/veri tutarsizligini azaltir.
+var _sheetsAppliedTime = 0;
 var state = {};
 var activeSheet = 0;
 var isOnline = false;
@@ -10266,6 +10270,7 @@ async function loadData() {
         }
       });
       SHEETS = freshSheets;
+      _sheetsAppliedTime = (snap.data().updatedAt) || 0;
       isOnline = true;
       // Eski siparişlere benzersiz kimlik ver; eklendiyse bir kez kalıcılaştır
       if (ensureSiparisSids()) { try { await fbSaveAll(); } catch (e) { console.warn('_sid backfill kaydı atlandı:', e); } }
@@ -10278,6 +10283,7 @@ async function loadData() {
       SHEETS = JSON.parse(JSON.stringify(OFFLINE_DATA));
       isOnline = true;
       await fbSaveAll();
+      _sheetsAppliedTime = Date.now();
       buildUI();
       reapplySession();
       restoreLastPage();
@@ -10288,6 +10294,7 @@ async function loadData() {
     const origFbSaveAll = fbSaveAll;
     window.fbSaveAll = async function() {
       isLocalUpdate = true;
+      _sheetsAppliedTime = Date.now();
       await origFbSaveAll();
       setTimeout(() => { isLocalUpdate = false; }, 2000);
     };
@@ -10295,6 +10302,10 @@ async function loadData() {
       // Kendi güncellemelerimizi atla — dış güncellemeleri her zaman uygula
       if (isLocalUpdate) return;
       if (d.exists() && d.data().data) {
+        var _ct = d.data().updatedAt || 0;
+        // Gelen snapshot elimizdekinden ESKI ise yok say — bayat veri renkleri/satirlari bozmasin
+        if (_ct < (_sheetsAppliedTime || 0)) return;
+        _sheetsAppliedTime = _ct;
         const updated = JSON.parse(d.data().data);
         ['siparis','teslim','satis'].forEach(tip => {
           if (!updated.find(s => s.type === tip)) {
@@ -12878,6 +12889,9 @@ function stBadge(msg) {
 
 var stSaveTimer = null;
 var ST_LS_KEY = 'orimak_servis_takip_data';
+// Sayfa basina UYGULANAN son updatedAt. Canli dinleyicide eski (stale) bir
+// snapshot'in, henuz buluta gitmemis yeni yerel veriyi ezmesini onler.
+var _stAppliedTime = {};
 
 function stLocalSave() {
   try {
@@ -13047,8 +13061,16 @@ function _stFireLoadAll(cb) {
       // Ya da yerelde bu sayfa hiç yoksa → yine al (veri kaybetme)
       if (best[k].time >= lsTime || !ST_DATA[k]) {
         ST_DATA[k] = best[k].value;
+        _stAppliedTime[k] = best[k].time;                       // uygulanan bulut zamani
         changed = true;
+      } else {
+        // Yerel daha yeni: bu sayfayi en az yerel blogu kadar guncel say
+        _stAppliedTime[k] = Math.max(_stAppliedTime[k] || 0, lsTime);
       }
+    });
+    // Bulutta hic olmayan ama yerelde olan sayfalari da guncel isaretle
+    Object.keys(ST_DATA).forEach(function(k) {
+      if (_stAppliedTime[k] == null) _stAppliedTime[k] = lsTime;
     });
     if (changed) stLocalSave();
 
@@ -13093,6 +13115,8 @@ function _stStartRealtimeListener() {
   var _origStFireSave = stFireSave;
   window.stFireSave = stFireSave = function() {
     _stIsLocalUpdate = true;
+    var _t = Date.now();
+    Object.keys(ST_DATA).forEach(function(k) { _stAppliedTime[k] = _t; });
     _origStFireSave();
     setTimeout(function() { _stIsLocalUpdate = false; }, 2500);
   };
@@ -13103,9 +13127,13 @@ function _stStartRealtimeListener() {
       if (_stIsLocalUpdate) return;
       if (snap && snap.exists() && snap.data().data) {
         try {
+          var ct = snap.data().updatedAt || 0;
+          // Gelen snapshot elimizdekinden ESKI ise yok say — yeni eklenenleri ezmesin
+          if (ct < (_stAppliedTime[k] || 0)) return;
           var v = JSON.parse(snap.data().data);
           if (v) {
             ST_DATA[k] = v;
+            _stAppliedTime[k] = ct;
             stLocalSave();
             var pn = document.getElementById('stPanel');
             if (pn && pn.style.display !== 'none') { stAutoOnayAll(); stRender(); }
