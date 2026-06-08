@@ -11922,24 +11922,35 @@ function stSortByDate(rows, dateColIdx) {
 }
 
 function stAutoOnayAll() {
-  var fname = 'Servis Plan.html';
-  var info = ST_DATA[fname];
-  if (!info) return;
-  var headers = info.headers || [];
-  if (headers.indexOf('ONAY') < 0) { headers.push('ONAY'); }
-  var onayIdx = headers.indexOf('ONAY');
-  var rows = info.data || [];
-  // Son 6 hariç hepsini ONAYLANDI yap
-  var limit = Math.max(0, rows.length - 6);
-  var changed = false;
-  rows.forEach(function(r, i) {
-    if (r.length < headers.length) { while(r.length < headers.length) r.push(''); }
-    if (i < limit && r[onayIdx] !== 'ONAYLANDI') {
-      r[onayIdx] = 'ONAYLANDI';
-      changed = true;
-    }
+  // Otomatik onaylama DEVRE DISI birakildi.
+  // Eskiden "son 6 hariç hepsini ONAYLANDI yap" mantigi vardi; bu mantik
+  // her render/sekme degisimi/veri yuklemesi/canli senkronizasyonda calistigi
+  // icin elle yapilan ONAY degisikliklerini eziyordu. ONAY artik tamamen
+  // manuel: yalnizca kullanici dropdown'dan secince degisir (stOnayChange).
+  // ONAY sutununun varligi ve satir hizalamasi stRenderContent icinde saglaniyor.
+  return;
+}
+
+// Servis Plan: istenmeyen sutunlari (TEKNISYEN / MAKINE / SERI NO) hem
+// headers'tan hem de tum veri satirlarindan kalici olarak kaldirir.
+// Idempotent: sutun yoksa hicbir sey yapmaz. Degisiklik olursa true doner.
+function _spColKey(h) {
+  // Turkce duyarli buyuk harf + noktali I'yi I'ye indir + bosluklari at
+  return String(h || '').toLocaleUpperCase('tr-TR').replace(/İ/g, 'I').replace(/\s+/g, '');
+}
+function stStripServisPlanCols() {
+  var info = ST_DATA['Servis Plan.html'];
+  if (!info || !info.headers) return false;
+  var drop = { 'TEKNISYEN': 1, 'MAKINE': 1, 'SERINO': 1 };
+  var removeIdx = [];
+  info.headers.forEach(function(h, i) { if (drop[_spColKey(h)]) removeIdx.push(i); });
+  if (!removeIdx.length) return false;
+  removeIdx.sort(function(a, b) { return b - a; }); // buyukten kucuge: splice guvenli
+  removeIdx.forEach(function(idx) {
+    info.headers.splice(idx, 1);
+    (info.data || []).forEach(function(r) { if (idx < r.length) r.splice(idx, 1); });
   });
-  if (changed) { stFireSave(); stBadge('✓ Otomatik onay tamamlandi'); }
+  return true;
 }
 
 function stGetRowColor(pg, r) {
@@ -12042,6 +12053,10 @@ function stRenderContent() {
 
   // Servis Plan: ONAY sütunu yoksa ekle + ACIKLAMA sütunu yoksa ekle (ONAY'dan önce)
   if (fname === 'Servis Plan.html') {
+    // Istenmeyen sutunlari kaldir (TEKNISYEN / MAKINE / SERI NO); degisirse buluta yaz
+    if (typeof stStripServisPlanCols === 'function' && stStripServisPlanCols()) {
+      if (typeof stFireSave === 'function') stFireSave();
+    }
     if (headers.indexOf('ACIKLAMA') < 0) {
       headers.push('ACIKLAMA');
       rows.forEach(function(r){ if(r.length < headers.length) r.push(''); });
