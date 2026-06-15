@@ -11856,6 +11856,16 @@ var ST_DATA = {};
 var ST_PAGES = [["Servis Plan.html", "📋 Servis Plan"], ["Faturalar.html", "🧾 Faturalar"], ["FaturaDetaylari.html", "📄 Fatura Detayları"], ["Genel Rapor.html", "📈 Genel Rapor"], ["Raporlar.html", "📊 Raporlar"], ["FiyatListesi.html", "💲 Fiyat Listesi"]];
 var stActiveIdx = 0;
 var stSearchQuery = '';
+// Arşivlenmiş (dondurulmuş) Genel Rapor aylık özeti — { "YYYY-MM": {malzeme,servis,yol,kdv,genel,faturaCount} }
+// Fatura Detayları arşivlenince o ayların toplamları burada KALICI kalır; Genel Rapor
+// canlı veriden DEĞİL, canlı + bu donmuş özetten hesaplanır. Böylece eski aylar kaybolmaz.
+var _stFrozenGR = {};
+var _STFGR_LS = 'orimak_st_frozen_gr';
+try { var _fgr = JSON.parse(localStorage.getItem(_STFGR_LS) || 'null'); if (_fgr) _stFrozenGR = _fgr; } catch(e) {}
+// Sayfa başına "arşivi göster" bayrağı
+var _stShowArchive = {};
+// Hangi sayfalar arşivlenebilir
+var _stArchivable = { 'Servis Plan.html': true, 'Faturalar.html': true, 'FaturaDetaylari.html': true };
 
 function stEsc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -12119,6 +12129,22 @@ function stRenderContent() {
       monthly[ay].kdv += kdv;
       monthly[ay].genel += gen;
       if (fNo) monthly[ay].faturaSayisi[fNo] = true;
+    });
+
+    // ── Dondurulmuş (arşivlenmiş) ayları ekle ──
+    // Bu aylar Fatura Detayları'ndan çıkarılmış olabilir ama toplamları burada durur.
+    Object.keys(_stFrozenGR || {}).forEach(function(ay) {
+      var f = _stFrozenGR[ay];
+      if (!f) return;
+      if (!monthly[ay]) monthly[ay] = {malzeme:0, servis:0, yol:0, kdv:0, genel:0, faturaSayisi:{}};
+      monthly[ay].malzeme += (+f.malzeme || 0);
+      monthly[ay].servis  += (+f.servis  || 0);
+      monthly[ay].yol     += (+f.yol     || 0);
+      monthly[ay].kdv     += (+f.kdv     || 0);
+      monthly[ay].genel   += (+f.genel   || 0);
+      // Donmuş fatura sayısını koru (gerçek no'lar yok, sentetik anahtar üret)
+      var fc = +f.faturaCount || 0;
+      for (var _i = 0; _i < fc; _i++) monthly[ay].faturaSayisi['__frz_' + ay + '_' + _i] = true;
     });
 
     var aylar = Object.keys(monthly).sort();
@@ -12466,11 +12492,17 @@ function stRenderContent() {
     '<span style="font-family:Barlow Condensed,sans-serif;font-size:13px;color:#888;letter-spacing:1px;">'+filtered.length+(q?' / '+rows.length:'')+' kayit</span>'+
     '<input id="stSearch" type="text" placeholder="Ara..." value="'+stEsc(stSearchQuery)+'" oninput="stFilter()" style="background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:7px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;width:240px;"/>'+
     '<button onclick="stExport()" style="background:#1e1e1e;border:1px solid #333;color:#888;border-radius:5px;padding:7px 12px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">📥 EXCELE AKTAR</button>'+
-    ''+ // Son 6 Hariç Onayla butonu kaldırıldı
+    (_stArchivable[fname] ?
+      '<button onclick="stArchiveOpen(\''+fname.replace(/'/g,"\\'")+'\')" style="background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.35);color:var(--orange);border-radius:5px;padding:7px 12px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">📦 ARŞİVLE</button>'+
+      '<button onclick="stArchiveToggle(\''+fname.replace(/'/g,"\\'")+'\')" style="background:rgba(90,160,255,.1);border:1px solid rgba(90,160,255,.3);color:#7ab8f5;border-radius:5px;padding:7px 12px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">'+(_stShowArchive[fname]?'🙈 ARŞİVİ GİZLE':'👁 ARŞİVİ GÖSTER')+'</button>'
+      : '')+
     '</div>'+
     '<div style="overflow:auto;border-radius:8px;border:1px solid #1e1e1e;max-height:520px;">'+
       '<table style="width:100%;border-collapse:collapse;font-size:'+(isFaturaDetay?'10.5':'12')+'px;'+(isFaturaDetay?'table-layout:fixed;':'')+'"><thead><tr>'+th+'</tr></thead><tbody>'+body+'</tbody></table>'+
-    '</div>';
+    '</div>'+
+    (_stArchivable[fname] ? '<div id="stArchiveView" style="margin-top:16px;"></div>' : '');
+
+  if (_stArchivable[fname] && _stShowArchive[fname]) stArchiveRenderView(fname);
 }
 
 window.stOnayChange = function(rowIdx, colIdx, sel) {
@@ -13243,6 +13275,243 @@ if (document.getElementById('tabsWrap')) {
 // Firebase hazır olunca yükle
 window.addEventListener('firebaseReady', function() {
   setTimeout(stLoad, 1800);
+// ════════════════════════════════════════════════════════════════
+// ARŞİV + GENEL RAPOR DONDURMA SİSTEMİ
+// Güvenlik ilkesi: ÖNCE buluta (arşiv + dondurulmuş özet) yazılır,
+// HEPSİ başarılı olduğu teyit edilince canlı listeden çıkarılır.
+// Herhangi bir adım başarısız olursa hiçbir kayıt silinmez.
+// ════════════════════════════════════════════════════════════════
+
+// Satırın ayını (YYYY-MM) bul; bulunamazsa '' (güvenlik için arşivlenmez)
+function _stRowMonth(fname, headers, row) {
+  var ayI = headers.indexOf('Ay');
+  if (ayI >= 0) {
+    var a = String(row[ayI] || '').trim();
+    if (/^\d{4}-\d{2}$/.test(a)) return a;
+  }
+  var di = stGetDateColIdx(fname, headers);
+  if (di >= 0) {
+    var t = stParseDate(row[di]);
+    if (t) { var d = new Date(t); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+  }
+  return '';
+}
+
+// Fatura Detayları arşivlenirken o ayların toplamlarını _stFrozenGR'ye EKLE
+function _stComputeFreeze(headers, archRows) {
+  var ayI = headers.indexOf('Ay'), katI = headers.indexOf('Kategori');
+  var araI = headers.indexOf('Ara Toplam (TL)'), kdvI = headers.indexOf('KDV (TL)'), genI = headers.indexOf('Genel Toplam (TL)');
+  function num(s) { var str = String(s || '0').trim().replace(/[^0-9,.-]/g, '').replace(/\.(?=\d{3})/g, '').replace(',', '.'); return parseFloat(str) || 0; }
+  var run = {};
+  archRows.forEach(function(r) {
+    var ay = String(r[ayI] || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(ay)) return;
+    if (!run[ay]) run[ay] = { malzeme: 0, servis: 0, yol: 0, kdv: 0, genel: 0, fSet: {} };
+    var kat = String(r[katI] || '').trim();
+    if (kat === 'MALZEME') run[ay].malzeme += num(r[araI]);
+    else if (kat === 'SERVİS BEDELİ') run[ay].servis += num(r[araI]);
+    else if (kat === 'YOL') run[ay].yol += num(r[araI]);
+    run[ay].kdv += num(r[kdvI]); run[ay].genel += num(r[genI]);
+    var fNo = String(r[0] || '').trim(); if (fNo) run[ay].fSet[fNo] = true;
+  });
+  Object.keys(run).forEach(function(ay) {
+    var x = run[ay];
+    if (!_stFrozenGR[ay]) _stFrozenGR[ay] = { malzeme: 0, servis: 0, yol: 0, kdv: 0, genel: 0, faturaCount: 0 };
+    _stFrozenGR[ay].malzeme += x.malzeme; _stFrozenGR[ay].servis += x.servis; _stFrozenGR[ay].yol += x.yol;
+    _stFrozenGR[ay].kdv += x.kdv; _stFrozenGR[ay].genel += x.genel; _stFrozenGR[ay].faturaCount += Object.keys(x.fSet).length;
+  });
+}
+
+function _stFrozenSave() {
+  try { localStorage.setItem(_STFGR_LS, JSON.stringify(_stFrozenGR)); } catch(e) {}
+  if (!window._db || !window._fsSetDoc || !window._fsDoc) return Promise.resolve();
+  return window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'servis_gr_frozen'), { data: JSON.stringify(_stFrozenGR), updatedAt: Date.now() });
+}
+function _stFrozenLoad() {
+  if (!window._db || !window._fsGetDoc || !window._fsDoc) return Promise.resolve();
+  return window._fsGetDoc(window._fsDoc(window._db, 'malzeme', 'servis_gr_frozen')).then(function(snap) {
+    if (snap && snap.exists() && snap.data().data) { try { _stFrozenGR = JSON.parse(snap.data().data) || {}; localStorage.setItem(_STFGR_LS, JSON.stringify(_stFrozenGR)); } catch(e) {} }
+  }).catch(function(){});
+}
+
+// Satırları ~700 KB'lik parçalara böl (Firestore 1 MiB sınırı altında kalmak için)
+function _stPackRows(rows, maxBytes) {
+  var chunks = [], cur = [], curB = 2;
+  rows.forEach(function(r) {
+    var rb = _stByteLen(JSON.stringify(r)) + 1;
+    if (cur.length && curB + rb > maxBytes) { chunks.push(cur); cur = []; curB = 2; }
+    cur.push(r); curB += rb;
+  });
+  if (cur.length) chunks.push(cur);
+  if (!chunks.length) chunks.push([]);
+  return chunks;
+}
+
+// Arşive yeni satır ekle (bulut, parçalı). Promise döner.
+function _stArchiveAppend(fname, headers, newRows) {
+  var base = _stDocId(fname) + '__arsiv';
+  var idxRef = window._fsDoc(window._db, 'malzeme', base + '__idx');
+  var MAXB = 700000;
+  return window._fsGetDoc(idxRef).then(function(snap) {
+    var nChunks = 0, hdr = headers;
+    if (snap && snap.exists()) { var d = snap.data() || {}; nChunks = d.chunks || 0; if (d.headers && d.headers.length) hdr = d.headers; }
+    var startIdx = nChunks > 0 ? nChunks - 1 : 0;
+    var readLast = nChunks > 0
+      ? window._fsGetDoc(window._fsDoc(window._db, 'malzeme', base + '__c' + startIdx)).then(function(s) { return (s && s.exists() && s.data().data) ? s.data().data : []; })
+      : Promise.resolve([]);
+    return readLast.then(function(lastRows) {
+      var combined = (lastRows || []).concat(newRows);
+      var packed = _stPackRows(combined, MAXB);
+      var writes = [];
+      packed.forEach(function(chunkRows, i) {
+        writes.push(window._fsSetDoc(window._fsDoc(window._db, 'malzeme', base + '__c' + (startIdx + i)), { data: chunkRows }));
+      });
+      var newChunkCount = startIdx + packed.length;
+      return Promise.all(writes).then(function() {
+        return window._fsSetDoc(idxRef, { chunks: newChunkCount, headers: hdr, updatedAt: Date.now() });
+      });
+    });
+  });
+}
+
+// Arşivi oku (tüm parçaları birleştir, kopyaları temizle)
+function _stArchiveLoad(fname) {
+  var base = _stDocId(fname) + '__arsiv';
+  return window._fsGetDoc(window._fsDoc(window._db, 'malzeme', base + '__idx')).then(function(snap) {
+    if (!snap || !snap.exists()) return { headers: [], rows: [] };
+    var d = snap.data() || {}, n = d.chunks || 0, hdr = d.headers || [];
+    var jobs = [];
+    for (var i = 0; i < n; i++) {
+      (function(i) { jobs.push(window._fsGetDoc(window._fsDoc(window._db, 'malzeme', base + '__c' + i)).then(function(s) { return (s && s.exists() && s.data().data) ? s.data().data : []; }).catch(function(){ return []; })); })(i);
+    }
+    return Promise.all(jobs).then(function(parts) {
+      var rows = []; parts.forEach(function(p) { rows = rows.concat(p); });
+      var seen = {}, uniq = [];
+      rows.forEach(function(r) { var k = JSON.stringify(r); if (!seen[k]) { seen[k] = 1; uniq.push(r); } });
+      return { headers: hdr, rows: uniq };
+    });
+  });
+}
+
+function _stDownloadJSON(fname, headers, rows, cutoff) {
+  var obj = { page: fname, cutoff: cutoff, archivedAt: new Date().toISOString(), headers: headers, data: rows };
+  var blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a'); a.href = url;
+  a.download = 'ARSIV_' + fname.replace('.html', '') + '_' + cutoff + '_oncesi.json';
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ── Ana arşivleme işlemi ──
+window.stArchiveOpen = function(fname) {
+  var info = ST_DATA[fname];
+  if (!info || !info.data || !info.data.length) { alert('Bu sayfada arşivlenecek kayıt yok.'); return; }
+  if (!window._db || !window._fsSetDoc || !window._fsDoc || !window._fsGetDoc) {
+    alert('Bulut bağlantısı yok — güvenlik için arşivleme şu an YAPILAMAZ.\nİnternet / Firebase bağlantısını kontrol edip tekrar deneyin.');
+    return;
+  }
+  var headers = info.headers || [];
+  var now = new Date();
+  var dC = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+  var def = dC.getFullYear() + '-' + String(dC.getMonth() + 1).padStart(2, '0');
+  var cutoff = prompt('Hangi AYDAN ÖNCESİ arşivlensin? (YYYY-AA)\n\nÖrn: ' + def + ' yazarsan → ' + def + ' ve SONRASI canlı kalır, ÖNCESİ arşive gider.\n\nNot: Tarihi olmayan/anlaşılamayan satırlar güvenlik için canlı kalır.', def);
+  if (cutoff == null) return;
+  cutoff = String(cutoff).trim();
+  if (!/^\d{4}-\d{2}$/.test(cutoff)) { alert('Geçersiz format. YYYY-AA şeklinde yazın (örn 2026-04).'); return; }
+
+  var keep = [], toArch = [];
+  info.data.forEach(function(r) {
+    var m = _stRowMonth(fname, headers, r);
+    if (m && m < cutoff) toArch.push(r); else keep.push(r);
+  });
+  if (!toArch.length) { alert(cutoff + ' öncesinde arşivlenecek (tarihli) kayıt bulunamadı.'); return; }
+
+  var isFD = (fname === 'FaturaDetaylari.html');
+  if (!confirm(toArch.length + ' kayıt arşivlenecek (' + cutoff + ' öncesi).\n\n• Önce buluttaki arşive + JSON yedeğe yazılır\n' + (isFD ? '• Genel Rapor için o ayların toplamları DONDURULUR (kaybolmaz)\n' : '') + '• Hepsi başarılı olunca canlı listeden çıkarılır\n\nHerhangi bir hata olursa hiçbir şey silinmez.\n\nDevam edilsin mi?')) return;
+
+  stBadge('⏳ Arşivleniyor, lütfen bekleyin...');
+  var prevFrozen = JSON.parse(JSON.stringify(_stFrozenGR || {}));
+  if (isFD) _stComputeFreeze(headers, toArch);
+
+  _stArchiveAppend(fname, headers, toArch)
+    .then(function() { return isFD ? _stFrozenSave() : Promise.resolve(); })
+    .then(function() {
+      var shrunk = { headers: headers, data: keep };
+      Object.keys(info).forEach(function(k) { if (k !== 'headers' && k !== 'data') shrunk[k] = info[k]; });
+      var ts = Date.now();
+      var payload = JSON.stringify(shrunk);
+      return window._fsSetDoc(window._fsDoc(window._db, 'malzeme', _stDocId(fname)), { page: fname, data: payload, updatedAt: ts })
+        .then(function() {
+          ST_DATA[fname] = shrunk;
+          if (typeof _stAppliedTime !== 'undefined') _stAppliedTime[fname] = ts;
+          stLocalSave();
+          _stDownloadJSON(fname, headers, toArch, cutoff);
+          stRenderContent();
+          if (typeof stRender === 'function') stRender();
+          stBadge('✓ ' + toArch.length + ' kayıt arşivlendi');
+          alert('✓ Arşivleme tamamlandı.\n\n• ' + toArch.length + ' kayıt buluttaki arşive ve JSON yedeğe yazıldı\n• Canlı liste küçüldü' + (isFD ? '\n• Genel Rapor ayları donduruldu — eski aylar görünmeye devam edecek' : ''));
+        });
+    })
+    .catch(function(e) {
+      console.error('Arşiv hatası:', e);
+      _stFrozenGR = prevFrozen;
+      try { localStorage.setItem(_STFGR_LS, JSON.stringify(_stFrozenGR)); } catch(_e) {}
+      if (isFD) _stFrozenSave().catch(function(){});
+      alert('⚠️ Arşivleme BAŞARISIZ oldu.\n\nGÜVENLİK: Hiçbir kayıt silinmedi, her şey yerinde duruyor.\nİnternet bağlantını kontrol edip tekrar dene.\n\nHata: ' + (e && e.message ? e.message : e));
+      stBadge('⚠️ Arşiv başarısız — veri yerinde duruyor');
+    });
+};
+
+window.stArchiveToggle = function(fname) {
+  _stShowArchive[fname] = !_stShowArchive[fname];
+  stRenderContent();
+};
+
+window.stArchiveRenderView = function(fname) {
+  var el = document.getElementById('stArchiveView');
+  if (!el) return;
+  el.innerHTML = '<div style="padding:14px;color:#888;font-family:Barlow Condensed,sans-serif;letter-spacing:1px;">📦 Arşiv yükleniyor...</div>';
+  _stArchiveLoad(fname).then(function(res) {
+    if (!res.rows.length) { el.innerHTML = '<div style="padding:14px;color:#666;font-family:Barlow Condensed,sans-serif;letter-spacing:1px;">Bu sayfa için arşivde kayıt yok.</div>'; return; }
+    var hdr = res.headers || [];
+    var thS = 'background:#0e0e0e;color:#666;font-family:Barlow Condensed,sans-serif;font-size:10px;font-weight:700;letter-spacing:1px;padding:6px 8px;text-align:left;white-space:nowrap;position:sticky;top:0;';
+    var th = '<th style="' + thS + '">#</th>' + hdr.map(function(h) { return '<th style="' + thS + '">' + stEsc(h) + '</th>'; }).join('');
+    var body = res.rows.map(function(r, i) {
+      return '<tr style="background:' + (i % 2 ? 'rgba(255,255,255,.012)' : 'transparent') + ';"><td style="padding:5px 8px;border-bottom:1px solid #161616;color:#555;font-size:10px;">' + (i + 1) + '</td>' +
+        hdr.map(function(h, ci) { return '<td style="padding:5px 8px;border-bottom:1px solid #161616;color:#999;font-size:10.5px;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;" title="' + stEsc(r[ci] || '') + '">' + stEsc(r[ci] || '') + '</td>'; }).join('') + '</tr>';
+    }).join('');
+    el.innerHTML = '<div style="border:1px dashed rgba(90,160,255,.4);border-radius:8px;padding:12px;background:rgba(90,160,255,.03);">' +
+      '<div style="font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:700;letter-spacing:1.5px;color:#7ab8f5;margin-bottom:10px;">📦 ARŞİV — ' + res.rows.length + ' kayıt (salt okunur)</div>' +
+      '<div style="overflow:auto;max-height:420px;border-radius:6px;border:1px solid #161616;"><table style="width:100%;border-collapse:collapse;"><thead><tr>' + th + '</tr></thead><tbody>' + body + '</tbody></table></div></div>';
+  }).catch(function(e) { el.innerHTML = '<div style="padding:14px;color:#ff6666;font-family:Barlow Condensed,sans-serif;">Arşiv yüklenemedi: ' + (e && e.message ? e.message : e) + '</div>'; });
+};
+
+// Dondurulmuş Genel Rapor özetini yükle + canlı dinle (diğer ekranlar da güncel kalsın)
+(function() {
+  function _grInit() {
+    _stFrozenLoad().then(function() {
+      var pn = document.getElementById('stPanel');
+      if (pn && pn.style.display !== 'none') stRenderContent();
+    });
+    if (window._fsOnSnapshot) {
+      try {
+        window._fsOnSnapshot(window._fsDoc(window._db, 'malzeme', 'servis_gr_frozen'), function(snap) {
+          if (snap && snap.exists() && snap.data().data) {
+            try {
+              _stFrozenGR = JSON.parse(snap.data().data) || {};
+              localStorage.setItem(_STFGR_LS, JSON.stringify(_stFrozenGR));
+              var pn = document.getElementById('stPanel');
+              if (pn && pn.style.display !== 'none' && ST_PAGES[stActiveIdx] && ST_PAGES[stActiveIdx][0] === 'Genel Rapor.html') stRenderContent();
+            } catch(e) {}
+          }
+        });
+      } catch(e) {}
+    }
+  }
+  if (window._db) _grInit();
+  else window.addEventListener('firebaseReady', _grInit, { once: true });
+})();
+
 }, { once: true });
 if (window._db) setTimeout(stLoad, 1800);
 
