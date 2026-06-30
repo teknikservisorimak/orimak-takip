@@ -13089,9 +13089,14 @@ function _stFireLoadAll(cb) {
     var changed = false;
     Object.keys(best).forEach(function(k) {
       if (!best[k].value) return;
-      // Bulut bu sayfa için yerelden yeni ya da eşitse → al
-      // Ya da yerelde bu sayfa hiç yoksa → yine al (veri kaybetme)
-      if (best[k].time >= lsTime || !ST_DATA[k]) {
+      // Satır sayıları: boş bir yerel kopyanın dolu bulutu ezmesini önlemek için
+      var cloudRows = ((best[k].value || {}).data || []).length;
+      var localRows = ((ST_DATA[k] || {}).data || []).length;
+      // Bulutu al eğer:
+      //  - bulut zaman olarak yeni/eşitse, VEYA
+      //  - yerelde bu sayfa hiç yoksa, VEYA
+      //  - yerel BOŞ ama bulutta veri varsa (boş yerel dolu bulutu EZEMEZ)
+      if (best[k].time >= lsTime || !ST_DATA[k] || (localRows === 0 && cloudRows > 0)) {
         ST_DATA[k] = best[k].value;
         _stAppliedTime[k] = best[k].time;                       // uygulanan bulut zamani
         changed = true;
