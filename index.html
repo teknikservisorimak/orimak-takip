@@ -11908,6 +11908,8 @@ function stRender() {
       '<button class="st-form-btn st-form-btn-teklif" onclick="window.openParcaTeklifFormu()">💰 Parça Teklif Formu</button>'+
       '<button class="st-form-btn" onclick="window.openPartsQuoteForm()" style="background:rgba(90,160,255,.12);color:#5aa0ff;border:1px solid rgba(90,160,255,.3);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">💰 Parts Quote Form</button>'+
       '<button onclick="window.openInvoiceModal()" style="background:rgba(127,218,158,.1);color:#7fda9e;border:1px solid rgba(127,218,158,.35);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">📄 Invoice / Packing</button>'+
+      '<button onclick="window.stExportJSON()" title="Tüm Servis Takip verisini (tüm sayfalar) JSON dosyası olarak bilgisayara indir" style="background:rgba(245,166,35,.1);color:var(--orange);border:1px solid rgba(245,166,35,.35);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">💾 Yedek Al</button>'+
+      '<button onclick="window.stImportJSON()" title="Daha önce indirdiğin JSON yedeğini geri yükle" style="background:rgba(150,150,150,.1);color:#aaa;border:1px solid rgba(150,150,150,.3);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">📂 Geri Yükle</button>'+
       '<span id="stBadge" style="font-size:11px;color:#666;font-family:Barlow Condensed,sans-serif;letter-spacing:1px;"></span>'+
     '</div>'+
   '</div>'+
@@ -13475,6 +13477,110 @@ window.stArchiveOpen = function(fname) {
       stBadge('⚠️ Arşiv başarısız — veri yerinde duruyor');
     });
 };
+
+// ── JSON YEDEK AL / GERİ YÜKLE ─────────────────────────────────
+// Tüm Servis Takip verisini (tüm sayfalar + dondurulmuş Genel Rapor özeti)
+// tek bir JSON dosyasına yazar. Bilgisayarda saklanabilir, geri yüklenebilir.
+window.stExportJSON = function() {
+  try {
+    var paket = {
+      _tip: 'orimak_servis_takip_yedek',
+      surum: 1,
+      tarih: new Date().toISOString(),
+      sayfalar: ST_DATA,
+      frozenGR: (typeof _stFrozenGR !== 'undefined' ? _stFrozenGR : {})
+    };
+    var ozet = ST_PAGES.map(function(pg) {
+      return pg[1] + ': ' + (((ST_DATA[pg[0]]||{}).data)||[]).length + ' satır';
+    }).join('  •  ');
+
+    var blob = new Blob([JSON.stringify(paket, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    var d = new Date();
+    var ad = 'orimak_servis_takip_yedek_' +
+      d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' +
+      String(d.getDate()).padStart(2,'0') + '_' +
+      String(d.getHours()).padStart(2,'0') + String(d.getMinutes()).padStart(2,'0') + '.json';
+    a.href = URL.createObjectURL(blob);
+    a.download = ad;
+    a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
+    if (typeof stBadge === 'function') stBadge('✓ Yedek indirildi');
+    alert('✓ Yedek indirildi: ' + ad + '\n\n' + ozet);
+  } catch(e) {
+    alert('⚠️ Yedek alınamadı: ' + (e && e.message ? e.message : e));
+  }
+};
+
+// Gizli dosya seçici (geri yükleme için)
+window.stImportJSON = function() {
+  var inp = document.getElementById('stImportFile');
+  if (!inp) {
+    inp = document.createElement('input');
+    inp.type = 'file';
+    inp.id = 'stImportFile';
+    inp.accept = '.json,application/json';
+    inp.style.display = 'none';
+    inp.addEventListener('change', _stHandleImportFile);
+    document.body.appendChild(inp);
+  }
+  inp.value = '';
+  inp.click();
+};
+
+function _stHandleImportFile(ev) {
+  var file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var paket;
+    try { paket = JSON.parse(e.target.result); }
+    catch(err) { alert('⚠️ Dosya okunamadı — geçerli bir JSON değil.'); return; }
+
+    if (!paket || paket._tip !== 'orimak_servis_takip_yedek' || !paket.sayfalar) {
+      alert('⚠️ Bu dosya bir Servis Takip yedeği değil. (Yanlış dosya seçmiş olabilirsin.)');
+      return;
+    }
+
+    // Yedekteki sayfaları özetle
+    var satirlar = [];
+    Object.keys(paket.sayfalar).forEach(function(k) {
+      var n = ((paket.sayfalar[k]||{}).data||[]).length;
+      satirlar.push('• ' + k + ': ' + n + ' satır');
+    });
+
+    if (!confirm(
+      'GERİ YÜKLEME\n\n' +
+      'Yedek tarihi: ' + (paket.tarih ? new Date(paket.tarih).toLocaleString('tr-TR') : 'bilinmiyor') + '\n\n' +
+      satirlar.join('\n') + '\n\n' +
+      'Bu veriler MEVCUT verinin ÜZERİNE yazılacak ve buluta gönderilecek.\n' +
+      'Devam edilsin mi?'
+    )) return;
+
+    // Sayfaları uygula
+    Object.keys(paket.sayfalar).forEach(function(k) {
+      if (paket.sayfalar[k]) ST_DATA[k] = paket.sayfalar[k];
+    });
+    // Dondurulmuş Genel Rapor özeti
+    if (paket.frozenGR && typeof _stFrozenGR !== 'undefined') {
+      _stFrozenGR = paket.frozenGR;
+      try { localStorage.setItem(_STFGR_LS, JSON.stringify(_stFrozenGR)); } catch(_e) {}
+      if (typeof _stFrozenSave === 'function') { try { _stFrozenSave(); } catch(_e) {} }
+    }
+
+    // Yerel + buluta kaydet
+    if (typeof stLocalSave === 'function') stLocalSave();
+    if (typeof stFireSave === 'function') stFireSave();
+
+    // Ekranı tazele
+    if (typeof stRender === 'function') stRender();
+
+    if (typeof stBadge === 'function') stBadge('✓ Geri yüklendi, buluta gönderiliyor...');
+    alert('✓ Geri yükleme tamamlandı.\n\nVeriler ekrana getirildi ve buluta kaydediliyor. "Buluta kaydedildi" yazısını bekle.');
+  };
+  reader.onerror = function() { alert('⚠️ Dosya okunurken hata oluştu.'); };
+  reader.readAsText(file);
+}
 
 window.stArchiveToggle = function(fname) {
   _stShowArchive[fname] = !_stShowArchive[fname];
