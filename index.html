@@ -12110,6 +12110,7 @@ function stRenderContent() {
     var kdvIdx2 = dh2.indexOf('KDV (TL)');
     var genelIdx2 = dh2.indexOf('Genel Toplam (TL)');
     var monthly = {};
+    var liveMonths = {}; // çift sayım kontrolü için: canlı listede satırı olan aylar
     function parseTRY2(s){
       var str = String(s||'0').trim();
       // "10.500,00 TRY" formatını sayıya çevir
@@ -12120,6 +12121,7 @@ function stRenderContent() {
       var ay = String(r[ayIdx2]||'').trim();
       if (!ay || ay === '#N/A' || ay.indexOf('1899') >= 0 || ay === '') return;
       if (!ay.match(/^\d{4}-\d{2}$/)) return;
+      liveMonths[ay] = true;
       if (!monthly[ay]) monthly[ay] = {malzeme:0, servis:0, yol:0, kdv:0, genel:0, faturaSayisi:{}};
       var kat = String(r[katIdx2]||'').trim();
       var ara = parseTRY2(r[araIdx2]);
@@ -12158,6 +12160,24 @@ function stRenderContent() {
     aylar.forEach(function(ay){ var m=monthly[ay]; toplamMal+=m.malzeme; toplamSer+=m.servis; toplamYol+=m.yol; toplamKdv+=m.kdv; toplamGenel+=m.genel; });
 
     var grHtml = '<div style="font-family:Barlow Condensed,sans-serif;">';
+
+    // ── ÇİFT SAYIM KONTROLÜ ──
+    // Bir ay hem dondurulmuş (arşiv) özette hem de canlı Fatura Detayları
+    // listesinde satır içeriyorsa, o ay büyük ihtimalle iki kez toplanıyordur.
+    var _grOverlap = [];
+    Object.keys(_stFrozenGR || {}).forEach(function(ay) {
+      if (liveMonths[ay]) _grOverlap.push(ay);
+    });
+    _grOverlap.sort();
+    if (_grOverlap.length) {
+      grHtml += '<div style="background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.35);border-radius:10px;padding:12px 16px;margin-bottom:14px;">'+
+        '<div style="font-size:12px;font-weight:900;color:#ff8080;letter-spacing:1.5px;margin-bottom:5px;">\u26a0\ufe0f OLASI \u00c7\u0130FT SAYIM</div>'+
+        '<div style="font-size:12.5px;color:#ccc;line-height:1.55;">\u015eu aylar hem dondurulmu\u015f (ar\u015fiv) \u00f6zette hem de canl\u0131 Fatura Detaylar\u0131 listesinde kay\u0131t i\u00e7eriyor: <b style="color:#ffb0b0;">' + _grOverlap.join(', ') + '</b>. Bu aylar\u0131n tutarlar\u0131 Genel Rapor\u2019da iki kez toplan\u0131yor olabilir. Sa\u011fdaki <b>\u00d6ZET\u0130 ONAR</b> butonu buluttaki ger\u00e7ek ar\u015fivden yeniden hesaplar ve canl\u0131 listede zaten bulunan sat\u0131rlar\u0131 \u00f6zetten \u00e7\u0131kar\u0131r (hi\u00e7bir fatura sat\u0131r\u0131 silinmez).</div>'+
+      '</div>';
+    }
+    grHtml += '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">'+
+      '<button onclick="stGRFixFrozen()" style="background:rgba(90,184,245,.08);border:1px solid rgba(90,184,245,.3);color:#5ab8f5;border-radius:6px;padding:6px 12px;font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;cursor:pointer;">\ud83d\udee0\ufe0f \u00d6ZET\u0130 ONAR \u2014 ar\u015fivden yeniden hesapla</button>'+
+    '</div>';
 
     // Özet kartlar
     grHtml += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px;">';
@@ -13450,6 +13470,90 @@ function _stFrozenLoad() {
   }).catch(function(){});
 }
 
+// ── DONDURULMUŞ ÖZETİ ONAR ─────────────────────────────────────
+// Sorun: arşivleme tekrarlanırsa ya da arşivlenen satırlar canlı listeye
+// geri dönerse (eski merge hatası / yedek geri yükleme), Genel Rapor'da
+// aynı aylar İKİ KEZ toplanır. Bu fonksiyon:
+//   1) Buluttaki GERÇEK arşivi okur (parçalar birleşir, birebir kopyalar zaten temizlenir)
+//   2) Canlı Fatura Detayları'nda birebir aynısı bulunan arşiv satırlarını
+//      özet dışı bırakır (o satırlar zaten canlıdan sayılıyor → tek sayım)
+//   3) Dondurulmuş özeti SIFIRDAN yeniden hesaplar (ekleme değil, değiştirme)
+//   4) Eski/yeni tutarları ay ay gösterip ONAY ister, sonra buluta yazar.
+// Hiçbir fatura satırı silinmez; sadece özet düzeltilir.
+window.stGRFixFrozen = function() {
+  if (!window._db || !window._fsGetDoc || !window._fsDoc || !window._fsSetDoc) {
+    alert('Bulut ba\u011flant\u0131s\u0131 yok \u2014 onar\u0131m i\u00e7in internet / Firebase gerekli.');
+    return;
+  }
+  stBadge('\u23f3 Bulut ar\u015fivi okunuyor...');
+  _stArchiveLoad('FaturaDetaylari.html').then(function(arch) {
+    var hdr = (arch && arch.headers) || [];
+    var rows = (arch && arch.rows) || [];
+    var hasFrozen = Object.keys(_stFrozenGR || {}).length > 0;
+    if (!hdr.length && !rows.length) {
+      if (hasFrozen && confirm('Bulutta Fatura Detaylar\u0131 AR\u015e\u0130V\u0130 bulunamad\u0131, ama dondurulmu\u015f \u00f6zet dolu.\n\nBu, t\u00fcm faturalar canl\u0131 listedeyken \u00f6zetin yanl\u0131\u015fl\u0131kla dolu kald\u0131\u011f\u0131 anlam\u0131na gelebilir (\u00e7ift say\u0131m).\n\nDondurulmu\u015f \u00f6zet TAMAMEN s\u0131f\u0131rlans\u0131n m\u0131? (Fatura sat\u0131rlar\u0131na dokunulmaz)')) {
+        _stFrozenGR = {};
+        _stFrozenSave().then(function(){ stRenderContent(); stBadge('\u2713 \u00d6zet s\u0131f\u0131rland\u0131'); })
+          .catch(function(e){ alert('Buluta yaz\u0131lamad\u0131: ' + (e && e.message ? e.message : e)); });
+      } else if (!hasFrozen) {
+        alert('Ar\u015fiv de dondurulmu\u015f \u00f6zet de bo\u015f \u2014 onar\u0131lacak bir \u015fey yok.');
+        stBadge('');
+      }
+      return;
+    }
+    // Canlı listede birebir aynısı olan arşiv satırlarını tespit et
+    var liveInfo = ST_DATA['FaturaDetaylari.html'] || { headers: [], data: [] };
+    var liveSet = {};
+    (liveInfo.data || []).forEach(function(r) { liveSet[JSON.stringify(r)] = true; });
+    var use = [], skipped = 0;
+    rows.forEach(function(r) { if (liveSet[JSON.stringify(r)]) skipped++; else use.push(r); });
+
+    // Özeti sıfırdan yeniden hesapla (mevcut _stFrozenGR'ye dokunmadan)
+    var old = _stFrozenGR;
+    _stFrozenGR = {};
+    _stComputeFreeze(hdr, use);
+    var fresh = _stFrozenGR;
+    _stFrozenGR = old; // onay gelene kadar eskisi geçerli
+
+    // Ay ay karşılaştırma metni
+    var fmt = function(n) { return (+n || 0).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+    var allMonths = {};
+    Object.keys(old || {}).forEach(function(a) { allMonths[a] = 1; });
+    Object.keys(fresh).forEach(function(a) { allMonths[a] = 1; });
+    var months = Object.keys(allMonths).sort();
+    var lines = [], changed = false;
+    months.forEach(function(a) {
+      var o = (old && old[a] && +old[a].genel) || 0;
+      var n = (fresh[a] && +fresh[a].genel) || 0;
+      if (Math.abs(o - n) > 0.005) changed = true;
+      lines.push(a + ':  ' + fmt(o) + ' \u20ba  \u2192  ' + fmt(n) + ' \u20ba' + (Math.abs(o - n) > 0.005 ? '  \u26a0\ufe0f' : ''));
+    });
+    if (!changed && !skipped) {
+      alert('\u2713 Kontrol tamamland\u0131: dondurulmu\u015f \u00f6zet buluttaki ar\u015fivle zaten tutarl\u0131.\n\nE\u011fer rakamlar hala fazla g\u00f6r\u00fcn\u00fcyorsa sorun canl\u0131 Fatura Detaylar\u0131 listesinde m\u00fckerrer sat\u0131r olabilir \u2014 o listeyi kontrol edin.');
+      stBadge('');
+      return;
+    }
+    var msg = 'D\u00f6nen \u00f6zet kar\u015f\u0131la\u015ft\u0131rmas\u0131 (Ciro, KDV dahil):\n\n' + lines.join('\n') +
+      (skipped ? '\n\nNot: Ar\u015fivdeki ' + skipped + ' sat\u0131r canl\u0131 listede birebir mevcut oldu\u011fu i\u00e7in \u00f6zete DAH\u0130L ED\u0130LMED\u0130 (\u00e7ift say\u0131m \u00f6nlendi).' : '') +
+      '\n\nYeni de\u011ferler buluta yaz\u0131ls\u0131n m\u0131?';
+    if (!confirm(msg)) { stBadge(''); return; }
+    _stFrozenGR = fresh;
+    _stFrozenSave().then(function() {
+      stRenderContent();
+      stBadge('\u2713 Dondurulmu\u015f \u00f6zet onar\u0131ld\u0131');
+      alert('\u2713 Dondurulmu\u015f \u00f6zet ar\u015fivden yeniden hesapland\u0131 ve buluta yaz\u0131ld\u0131.');
+    }).catch(function(e) {
+      _stFrozenGR = old;
+      try { localStorage.setItem(_STFGR_LS, JSON.stringify(_stFrozenGR)); } catch(_e) {}
+      alert('\u26a0\ufe0f Buluta yaz\u0131lamad\u0131, eski \u00f6zet geri y\u00fcklendi.\nHata: ' + (e && e.message ? e.message : e));
+      stBadge('\u26a0\ufe0f Onar\u0131m ba\u015far\u0131s\u0131z');
+    });
+  }).catch(function(e) {
+    alert('Ar\u015fiv okunamad\u0131: ' + (e && e.message ? e.message : e));
+    stBadge('\u26a0\ufe0f Ar\u015fiv okunamad\u0131');
+  });
+};
+
 // Satırları ~700 KB'lik parçalara böl (Firestore 1 MiB sınırı altında kalmak için)
 function _stPackRows(rows, maxBytes) {
   var chunks = [], cur = [], curB = 2;
@@ -13556,9 +13660,16 @@ window.stArchiveOpen = function(fname) {
 
   stBadge('⏳ Arşivleniyor, lütfen bekleyin...');
   var prevFrozen = JSON.parse(JSON.stringify(_stFrozenGR || {}));
-  if (isFD) _stComputeFreeze(headers, toArch);
 
-  _stArchiveAppend(fname, headers, toArch)
+  // ÇİFT SAYIM KORUMASI: buluttaki arşivde zaten birebir bulunan satırlar
+  // ne arşive tekrar eklenir ne de özete tekrar dondurulur.
+  _stArchiveLoad(fname).then(function(existing) {
+    var exSet = {};
+    ((existing && existing.rows) || []).forEach(function(r) { exSet[JSON.stringify(r)] = true; });
+    var freshRows = toArch.filter(function(r) { return !exSet[JSON.stringify(r)]; });
+    if (isFD && freshRows.length) _stComputeFreeze(headers, freshRows);
+    return freshRows.length ? _stArchiveAppend(fname, headers, freshRows) : Promise.resolve();
+  })
     .then(function() { return isFD ? _stFrozenSave() : Promise.resolve(); })
     .then(function() {
       var shrunk = { headers: headers, data: keep };
