@@ -11910,6 +11910,7 @@ function stRender() {
       '<button onclick="window.openInvoiceModal()" style="background:rgba(127,218,158,.1);color:#7fda9e;border:1px solid rgba(127,218,158,.35);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">📄 Invoice / Packing</button>'+
       '<button onclick="window.stExportJSON()" title="Tüm Servis Takip verisini (tüm sayfalar) JSON dosyası olarak bilgisayara indir" style="background:rgba(245,166,35,.1);color:var(--orange);border:1px solid rgba(245,166,35,.35);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">💾 Yedek Al</button>'+
       '<button onclick="window.stImportJSON()" title="Daha önce indirdiğin JSON yedeğini geri yükle" style="background:rgba(150,150,150,.1);color:#aaa;border:1px solid rgba(150,150,150,.3);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">📂 Geri Yükle</button>'+
+      '<button onclick="window.stForceCloudLoad()" title="Firebase\'deki güncel veriyi zorla bu cihaza yükle (yereldeki gönderilmemiş değişiklikleri ezer)" style="background:rgba(90,160,255,.1);color:#5aa0ff;border:1px solid rgba(90,160,255,.3);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">☁️ Buluttan Yükle</button>'+
       '<span id="stBadge" style="font-size:11px;color:#666;font-family:Barlow Condensed,sans-serif;letter-spacing:1px;"></span>'+
     '</div>'+
   '</div>'+
@@ -12926,10 +12927,20 @@ var ST_LS_KEY = 'orimak_servis_takip_data';
 // Sayfa basina UYGULANAN son updatedAt. Canli dinleyicide eski (stale) bir
 // snapshot'in, henuz buluta gitmemis yeni yerel veriyi ezmesini onler.
 var _stAppliedTime = {};
+// Sayfa basina bulutla en son senkron olan icerigin ozeti (hash).
+// Degismeyen sayfalar buluta YENIDEN yazilmaz — boylece tek sayfada
+// yapilan degisiklik, diger sayfalarin (muhtemelen bayat) kopyalarini
+// yeni timestamp ile bulutta ezmez.
+var _stCloudHash = {};
+function _stHash(s) {
+  var h = 0, i;
+  for (i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
+  return h + '_' + s.length;
+}
 
 function stLocalSave() {
   try {
-    localStorage.setItem(ST_LS_KEY, JSON.stringify({data: JSON.stringify(ST_DATA), updatedAt: Date.now(), appliedAt: JSON.stringify(_stAppliedTime)}));
+    localStorage.setItem(ST_LS_KEY, JSON.stringify({data: JSON.stringify(ST_DATA), updatedAt: Date.now(), appliedAt: JSON.stringify(_stAppliedTime), cloudHash: JSON.stringify(_stCloudHash)}));
   } catch(e) {}
 }
 
@@ -12947,6 +12958,12 @@ function stLocalLoad() {
       try {
         var at = JSON.parse(obj.appliedAt);
         Object.keys(at).forEach(function(k) { if (at[k]) _stAppliedTime[k] = at[k]; });
+      } catch(e) {}
+    }
+    if (obj.cloudHash) {
+      try {
+        var ch = JSON.parse(obj.cloudHash);
+        Object.keys(ch).forEach(function(k) { if (ch[k]) _stCloudHash[k] = ch[k]; });
       } catch(e) {}
     }
     return true;
@@ -12986,24 +13003,53 @@ function stFireSave() {
 
       var now = Date.now();
       var promises = [];
-      var tooBig = [];
 
       keys.forEach(function(k) {
         if (!ST_DATA[k]) return;
         var payload = JSON.stringify(ST_DATA[k]);
-        // Güvenli pay: 1 MiB'in biraz altı
-        if (_stByteLen(payload) > 1000000) {
-          tooBig.push(k);
-          return; // bu sayfayı buluta gönderme (tek başına sınırı aşıyor)
-        }
+        var hash = _stHash(payload);
+        // İçerik bulutla aynıysa yazma: değişmeyen sayfaların (muhtemelen
+        // bayat) kopyalarını yeni timestamp ile buluta basıp başka
+        // cihazın güncel verisini ezmeyi önler.
+        if (_stCloudHash[k] === hash) return;
+
+        // Bu sayfa gerçekten yazılıyor → uygulanan zamanı şimdi damgala
+        _stAppliedTime[k] = now;
+
         try {
-          var p = window._fsSetDoc(
-            window._fsDoc(window._db, 'malzeme', _stDocId(k)),
-            { page: k, data: payload, updatedAt: now }
-          );
+          var p;
+          if (_stByteLen(payload) <= 1000000) {
+            // Normal tek doküman kaydı
+            p = window._fsSetDoc(
+              window._fsDoc(window._db, 'malzeme', _stDocId(k)),
+              { page: k, data: payload, updatedAt: now, chunks: 0 }
+            );
+          } else {
+            // 1 MiB üstü: satırları parçala, chunk dokümanlarına yaz,
+            // ana doküman sadece meta + chunk sayısı tutar.
+            var obj = ST_DATA[k];
+            var rows = (obj && obj.data) || [];
+            var meta = {};
+            Object.keys(obj).forEach(function(mk) { if (mk !== 'data') meta[mk] = obj[mk]; });
+            var packed = _stPackRows(rows, 700000);
+            var cw = [];
+            packed.forEach(function(chunkRows, ci) {
+              cw.push(window._fsSetDoc(
+                window._fsDoc(window._db, 'malzeme', _stDocId(k) + '__c' + ci),
+                { data: JSON.stringify(chunkRows) }
+              ));
+            });
+            // Önce chunk'lar, sonra ana doküman (okuyucular yarım veri görmesin)
+            p = Promise.all(cw).then(function() {
+              return window._fsSetDoc(
+                window._fsDoc(window._db, 'malzeme', _stDocId(k)),
+                { page: k, meta: JSON.stringify(meta), chunks: packed.length, updatedAt: now }
+              );
+            });
+          }
           if (p && p.then) {
             promises.push(
-              p.then(function(){ return null; })
+              p.then(function(){ _stCloudHash[k] = hash; return null; })
                .catch(function(e){ console.warn('FB kayıt hatası [' + k + ']:', e); return k; })
             );
           }
@@ -13012,24 +13058,17 @@ function stFireSave() {
         }
       });
 
-      function _bildir() {
-        if (tooBig.length) {
-          stBadge('⚠️ Çok büyük, buluta gitmedi: ' + tooBig.join(', '));
-          return true;
-        }
-        return false;
-      }
-
       if (promises.length) {
         Promise.all(promises).then(function(results) {
           var hatali = results.filter(Boolean);
+          stLocalSave(); // güncel appliedTime + cloudHash'i kalıcılaştır
           if (hatali.length) {
             stBadge('⚠️ Bulut kaydı başarısız: ' + hatali.join(', '));
-          } else if (!_bildir()) {
+          } else {
             stBadge('✓ Buluta kaydedildi');
           }
         });
-      } else if (!_bildir()) {
+      } else {
         stBadge('✓ Kaydedildi');
       }
     }
@@ -13043,8 +13082,33 @@ function stFireSave() {
   }, 800);
 }
 
+// Parçalı (chunked) canlı kaydı oku: chunk dokümanlarını birleştirip
+// {headers, data, ...} nesnesini yeniden kur
+function _stLiveChunkLoad(k, d) {
+  var n = d.chunks || 0;
+  var jobs = [];
+  for (var i = 0; i < n; i++) {
+    (function(i) {
+      jobs.push(
+        window._fsGetDoc(window._fsDoc(window._db, 'malzeme', _stDocId(k) + '__c' + i))
+          .then(function(s) { return _stParseChunk(s); })
+          .catch(function() { return []; })
+      );
+    })(i);
+  }
+  return Promise.all(jobs).then(function(parts) {
+    var rows = [];
+    parts.forEach(function(p) { rows = rows.concat(p); });
+    var obj = {};
+    if (d.meta) { try { obj = JSON.parse(d.meta) || {}; } catch(e) {} }
+    obj.data = rows;
+    return obj;
+  });
+}
+
 // Eski tek doküman + yeni sayfa-başı dokümanları oku, en günceli birleştir
-function _stFireLoadAll(cb) {
+// force=true: appliedTime kontrolünü atla, buluttaki veriyi her durumda uygula
+function _stFireLoadAll(cb, force) {
   if (!window._db || !window._fsGetDoc || !window._fsDoc) { if (cb) cb(); return; }
 
   var jobs = [];
@@ -13072,8 +13136,17 @@ function _stFireLoadAll(cb) {
       window._fsGetDoc(window._fsDoc(window._db, 'malzeme', _stDocId(k)))
         .then(function(snap) {
           var out = {};
-          if (snap && snap.exists() && snap.data().data) {
-            try { out[k] = { value: JSON.parse(snap.data().data), time: (snap.data().updatedAt || 0) }; }
+          if (!snap || !snap.exists()) return out;
+          var d = snap.data() || {};
+          if (d.chunks && !d.data) {
+            // Parçalı canlı kayıt: chunk'ları birleştir
+            return _stLiveChunkLoad(k, d).then(function(v) {
+              if (v) out[k] = { value: v, time: (d.updatedAt || 0) };
+              return out;
+            }).catch(function() { return out; });
+          }
+          if (d.data) {
+            try { out[k] = { value: JSON.parse(d.data), time: (d.updatedAt || 0) }; }
             catch(e) {}
           }
           return out;
@@ -13095,12 +13168,21 @@ function _stFireLoadAll(cb) {
       if (!best[k].value) return;
       var cloudRows = ((best[k].value || {}).data || []).length;
       var localRows = ((ST_DATA[k] || {}).data || []).length;
-      // Bulutu al eğer: Firebase verisi son uygulanan Firebase timestamp'inden DAHA YENİ ise
-      // ya da yerelde bu sayfa hiç yoksa ya da yerel boş ama bulutta veri varsa
-      if (best[k].time > (_stAppliedTime[k] || 0) || !ST_DATA[k] || (localRows === 0 && cloudRows > 0)) {
+      // Bulutu al eğer: force modundaysak, Firebase verisi son uygulanan
+      // Firebase timestamp'inden DAHA YENİ ise, yerelde bu sayfa hiç yoksa
+      // ya da yerel boş ama bulutta veri varsa
+      if (force || best[k].time > (_stAppliedTime[k] || 0) || !ST_DATA[k] || (localRows === 0 && cloudRows > 0)) {
         ST_DATA[k] = best[k].value;
         _stAppliedTime[k] = best[k].time;
+        _stCloudHash[k] = _stHash(JSON.stringify(best[k].value));
         changed = true;
+      } else if (_stCloudHash[k] === undefined && best[k].time <= (_stAppliedTime[k] || 0)) {
+        // İlk geçiş (hash daha önce hiç tutulmamış): yerel içerik buluttakiyle
+        // aynıysa hash'i eşitle ki gereksiz yeniden yazım olmasın
+        if (JSON.stringify(ST_DATA[k]) === JSON.stringify(best[k].value)) {
+          _stCloudHash[k] = _stHash(JSON.stringify(best[k].value));
+          changed = true;
+        }
       }
     });
     if (changed) stLocalSave();
@@ -13115,6 +13197,17 @@ function _stFireLoadAll(cb) {
     if (cb) cb();
   });
 }
+
+// Buluttaki veriyi zorla yükle: yerel zaman damgalarını sıfırlar ve
+// Firestore'daki her sayfayı olduğu gibi uygular. Takılı kalmış
+// (bayat damgalı) cihazları kurtarmak için kullanılır.
+window.stForceCloudLoad = function() {
+  if (!window._db) { stBadge('⚠️ Bulut bağlantısı henüz hazır değil'); return; }
+  if (!confirm('Buluttaki veriler bu cihazdakilerin ÜZERİNE yazılacak.\nBu cihazda buluta gitmemiş yeni değişiklik varsa kaybolur.\nDevam edilsin mi?')) return;
+  stBadge('⏳ Buluttan yükleniyor...');
+  _stAppliedTime = {};
+  _stFireLoadAll(function() { stBadge('✓ Bulut verisi yüklendi'); }, true);
+};
 
 function stLoad() {
   // Önce localStorage'dan yükle (hızlı, anlık görüntü) — tek parça
@@ -13142,12 +13235,15 @@ function _stStartRealtimeListener() {
   if (!window._db || !window._fsOnSnapshot || !window._fsDoc) return;
   _stRealtimeActive = true;
 
-  // stFireSave'i sarmala: kendi kayıtlarımızı snapshot'ta atlamak için
+  // stFireSave'i sarmala: kendi kayıtlarımızı snapshot'ta atlamak için.
+  // NOT: Burada TÜM sayfalara toplu _stAppliedTime damgası VURULMAZ —
+  // eski davranış, hiç değişmemiş sayfaların damgasını da güncelleyip
+  // buluttan gelen güncel verinin kalıcı olarak reddedilmesine yol
+  // açıyordu. Damga artık sadece gerçekten yazılan sayfalara,
+  // _doFireSave içinde vurulur.
   var _origStFireSave = stFireSave;
   window.stFireSave = stFireSave = function() {
     _stIsLocalUpdate = true;
-    var _t = Date.now();
-    Object.keys(ST_DATA).forEach(function(k) { _stAppliedTime[k] = _t; });
     _origStFireSave();
     setTimeout(function() { _stIsLocalUpdate = false; }, 2500);
   };
@@ -13156,21 +13252,30 @@ function _stStartRealtimeListener() {
     var k = pg[0];
     window._fsOnSnapshot(window._fsDoc(window._db, 'malzeme', _stDocId(k)), function(snap) {
       if (_stIsLocalUpdate) return;
-      if (snap && snap.exists() && snap.data().data) {
-        try {
-          var ct = snap.data().updatedAt || 0;
-          // Gelen snapshot elimizdekinden ESKI ise yok say — yeni eklenenleri ezmesin
-          if (ct < (_stAppliedTime[k] || 0)) return;
-          var v = JSON.parse(snap.data().data);
-          if (v) {
-            ST_DATA[k] = v;
-            _stAppliedTime[k] = ct;
-            stLocalSave();
-            var pn = document.getElementById('stPanel');
-            if (pn && pn.style.display !== 'none') { stAutoOnayAll(); stRender(); }
-          }
-        } catch(e) { console.warn('ST realtime parse hatası [' + k + ']:', e); }
+      if (!snap || !snap.exists()) return;
+      var d = snap.data() || {};
+      var ct = d.updatedAt || 0;
+      // Gelen snapshot elimizdekinden eski veya kendi yazımızla aynı
+      // zamandaysa yok say — yeni eklenenleri ezmesin
+      if (ct <= (_stAppliedTime[k] || 0)) return;
+      function _applyVal(v) {
+        if (!v) return;
+        ST_DATA[k] = v;
+        _stAppliedTime[k] = ct;
+        _stCloudHash[k] = _stHash(JSON.stringify(v));
+        stLocalSave();
+        var pn = document.getElementById('stPanel');
+        if (pn && pn.style.display !== 'none') { stAutoOnayAll(); stRender(); }
       }
+      try {
+        if (d.chunks && !d.data) {
+          _stLiveChunkLoad(k, d).then(_applyVal).catch(function(e) {
+            console.warn('ST realtime chunk hatası [' + k + ']:', e);
+          });
+        } else if (d.data) {
+          _applyVal(JSON.parse(d.data));
+        }
+      } catch(e) { console.warn('ST realtime parse hatası [' + k + ']:', e); }
     });
   });
 }
@@ -13190,6 +13295,12 @@ function _stStartRealtimeListener() {
       try {
         var at = JSON.parse(obj.appliedAt);
         Object.keys(at).forEach(function(k) { if (at[k]) _stAppliedTime[k] = at[k]; });
+      } catch(e) {}
+    }
+    if (obj.cloudHash) {
+      try {
+        var ch = JSON.parse(obj.cloudHash);
+        Object.keys(ch).forEach(function(k) { if (ch[k]) _stCloudHash[k] = ch[k]; });
       } catch(e) {}
     }
   } catch(e) {}
