@@ -12929,7 +12929,7 @@ var _stAppliedTime = {};
 
 function stLocalSave() {
   try {
-    localStorage.setItem(ST_LS_KEY, JSON.stringify({data: JSON.stringify(ST_DATA), updatedAt: Date.now()}));
+    localStorage.setItem(ST_LS_KEY, JSON.stringify({data: JSON.stringify(ST_DATA), updatedAt: Date.now(), appliedAt: JSON.stringify(_stAppliedTime)}));
   } catch(e) {}
 }
 
@@ -12943,6 +12943,12 @@ function stLocalLoad() {
     Object.keys(saved).forEach(function(k) {
       if (saved[k]) ST_DATA[k] = saved[k];
     });
+    if (obj.appliedAt) {
+      try {
+        var at = JSON.parse(obj.appliedAt);
+        Object.keys(at).forEach(function(k) { if (at[k]) _stAppliedTime[k] = at[k]; });
+      } catch(e) {}
+    }
     return true;
   } catch(e) { return false; }
 }
@@ -13084,32 +13090,18 @@ function _stFireLoadAll(cb) {
       });
     });
 
-    var lsRaw = null;
-    try { lsRaw = JSON.parse(localStorage.getItem(ST_LS_KEY) || 'null'); } catch(e) {}
-    var lsTime = lsRaw ? (lsRaw.updatedAt || 0) : 0;
-
     var changed = false;
     Object.keys(best).forEach(function(k) {
       if (!best[k].value) return;
-      // Satır sayıları: boş bir yerel kopyanın dolu bulutu ezmesini önlemek için
       var cloudRows = ((best[k].value || {}).data || []).length;
       var localRows = ((ST_DATA[k] || {}).data || []).length;
-      // Bulutu al eğer:
-      //  - bulut zaman olarak yeni/eşitse, VEYA
-      //  - yerelde bu sayfa hiç yoksa, VEYA
-      //  - yerel BOŞ ama bulutta veri varsa (boş yerel dolu bulutu EZEMEZ)
-      if (best[k].time >= lsTime || !ST_DATA[k] || (localRows === 0 && cloudRows > 0)) {
+      // Bulutu al eğer: Firebase verisi son uygulanan Firebase timestamp'inden DAHA YENİ ise
+      // ya da yerelde bu sayfa hiç yoksa ya da yerel boş ama bulutta veri varsa
+      if (best[k].time > (_stAppliedTime[k] || 0) || !ST_DATA[k] || (localRows === 0 && cloudRows > 0)) {
         ST_DATA[k] = best[k].value;
-        _stAppliedTime[k] = best[k].time;                       // uygulanan bulut zamani
+        _stAppliedTime[k] = best[k].time;
         changed = true;
-      } else {
-        // Yerel daha yeni: bu sayfayi en az yerel blogu kadar guncel say
-        _stAppliedTime[k] = Math.max(_stAppliedTime[k] || 0, lsTime);
       }
-    });
-    // Bulutta hic olmayan ama yerelde olan sayfalari da guncel isaretle
-    Object.keys(ST_DATA).forEach(function(k) {
-      if (_stAppliedTime[k] == null) _stAppliedTime[k] = lsTime;
     });
     if (changed) stLocalSave();
 
@@ -13194,6 +13186,12 @@ function _stStartRealtimeListener() {
     Object.keys(saved).forEach(function(k) {
       if (saved[k]) ST_DATA[k] = saved[k];
     });
+    if (obj.appliedAt) {
+      try {
+        var at = JSON.parse(obj.appliedAt);
+        Object.keys(at).forEach(function(k) { if (at[k]) _stAppliedTime[k] = at[k]; });
+      } catch(e) {}
+    }
   } catch(e) {}
 })();
 
