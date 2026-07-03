@@ -2074,6 +2074,60 @@ async function renderPartiList() {
 
 // ── PARTİ — BİLGİSAYARA İNDİR ──
 // PDF oluşturma yardımcısı (hem partiIndir hem arşiv kaydı için)
+// PDF için güvenli metin (HTML kaçış)
+function _pdfEsc(v) {
+  return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── SİPARİŞ FORMU PDF BÖLÜMÜ ──
+function siparisPDFBolumu(sheet, allSheets) {
+  const tSheet = (allSheets || []).find(s => s.type === 'teslim') ||
+                 (typeof SHEETS !== 'undefined' ? SHEETS.find(s => s.type === 'teslim') : null);
+  const teslimRows = tSheet ? (tSheet.rows || []) : [];
+  let h = `<h2>${_pdfEsc(sheet.name)}</h2>
+  <table style="table-layout:auto;">
+  <thead><tr>
+    <th>#</th><th>ÜRÜN KODU</th><th>ÜRÜN ADI</th><th>SİP. ADET</th><th>OLUŞTURAN</th>
+    <th>OLUŞ. TARİHİ</th><th>TERMİN</th><th>YETKİLİ ONAYI</th><th>GELİŞ ONAYI</th>
+    <th>GELEN ADET</th><th>DURUM</th><th>NOTLAR</th>
+  </tr></thead><tbody>`;
+  (sheet.rows || []).forEach((r, i) => {
+    const t = (typeof findTeslimForSiparis === 'function') ? findTeslimForSiparis(teslimRows, r, i) : null;
+    const gelen = t ? (t.gelisAdet || '') : '';
+    let durum = 'Bekleniyor', dClass = 'bekle';
+    if (t || r.gelisOnay === 'Onaylandı') { durum = 'Teslim Alındı'; dClass = 'onay'; }
+    const sa = parseFloat(r.sipAdet), ga = parseFloat(gelen);
+    if (!isNaN(sa) && !isNaN(ga)) {
+      if (ga < sa) { durum = 'Eksik Teslim (−' + (sa - ga) + ')'; dClass = 'bekle'; }
+      else if (ga > sa) { durum = 'Fazla Teslim (+' + (ga - sa) + ')'; }
+    }
+    const yc = r.yetkiliOnay === 'Onaylandı' ? 'onay' : (r.yetkiliOnay ? 'bekle' : 'bos');
+    const gc = r.gelisOnay === 'Onaylandı' ? 'onay' : (r.gelisOnay ? 'bekle' : 'bos');
+    h += `<tr><td>${i+1}</td><td>${_pdfEsc(r.urunKodu)}</td><td>${_pdfEsc(r.urunAdi)}</td>
+      <td>${_pdfEsc(r.sipAdet)||'—'}</td><td>${_pdfEsc(r.olusturan)||'—'}</td>
+      <td>${_pdfEsc(r.olusturmaTarihi)||'—'}</td><td>${_pdfEsc(r.terminTarihi)||'—'}</td>
+      <td class="${yc}">${_pdfEsc(r.yetkiliOnay)||'—'}</td><td class="${gc}">${_pdfEsc(r.gelisOnay)||'—'}</td>
+      <td>${_pdfEsc(gelen)||'—'}</td><td class="${dClass}">${durum}</td><td>${_pdfEsc(r.notlar)}</td></tr>`;
+  });
+  h += '</tbody></table>';
+  return h;
+}
+
+// ── TESLİM KAYIT PDF BÖLÜMÜ ──
+function teslimPDFBolumu(sheet) {
+  let h = `<h2>${_pdfEsc(sheet.name)}</h2>
+  <table style="table-layout:auto;">
+  <thead><tr>
+    <th>#</th><th>ÜRÜN KODU</th><th>ÜRÜN ADI</th><th>GELEN ADET</th><th>GELİŞ TARİHİ</th><th>TESLİM ALAN</th>
+  </tr></thead><tbody>`;
+  (sheet.rows || []).forEach((r, i) => {
+    h += `<tr><td>${i+1}</td><td>${_pdfEsc(r.urunKodu)}</td><td>${_pdfEsc(r.urunAdi)}</td>
+      <td>${_pdfEsc(r.gelisAdet)||'—'}</td><td>${_pdfEsc(r.gelisTarihi)||'—'}</td><td>${_pdfEsc(r.teslimAlan)||'—'}</td></tr>`;
+  });
+  h += '</tbody></table>';
+  return h;
+}
+
 function buildPDFHtml(baslik, altBaslik, sheets) {
   let html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <title>${baslik}</title>
@@ -2100,6 +2154,10 @@ function buildPDFHtml(baslik, altBaslik, sheets) {
 
   sheets.forEach(sheet => {
     if (!sheet.rows || sheet.rows.length === 0) return;
+    // Sipariş Formu ve Teslim Kayıt kendi tablo yapılarıyla eklenir —
+    // eskiden malzeme sütun filtresine takılıp PDF'te hiç görünmüyorlardı.
+    if (sheet.type === 'siparis') { html += siparisPDFBolumu(sheet, sheets); return; }
+    if (sheet.type === 'teslim')  { html += teslimPDFBolumu(sheet); return; }
     const dataRows = sheet.rows.filter(r => !r._group && (r['3'] || r['2']));
     if (dataRows.length === 0) return;
     html += `<h2>${sheet.name}</h2>
@@ -2318,8 +2376,11 @@ async function yeniPartiBaslat() {
       });
     } catch(eArsiv) { console.warn('Arşiv Firestore kaydı yazılamadı:', eArsiv); }
 
-    // Mevcut veriyi arşive kaydet — PDF olarak yazdır/indir
-    await arsivPDFIndir_inline(aktifAd, SHEETS, now);
+    // Mevcut veriyi arşive kaydet — PDF olarak yazdır/indir.
+    // PDF'te SADECE sıfırlanan (seçili) sayfalar yer alır; Firestore arşivine
+    // ise geri yükleme için her zaman TÜM veri kaydedilir (üstteki blok).
+    const arsivPdfSheets = SHEETS.filter((s, i) => seciliIndexler.includes(i));
+    await arsivPDFIndir_inline(aktifAd, arsivPdfSheets, now);
 
     // Yeni partiyi aktif yap
     await window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'sheets'), {
