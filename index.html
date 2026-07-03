@@ -10479,6 +10479,9 @@ function deleteRow(si, ri) {
 
 function rebuildTable(si) {
   const tbody = document.getElementById('tbody-' + si);
+  // Özel sayfalarda (sipariş/teslim/satış) tbody yoktur — sessizce çık.
+  // Aksi halde "Cannot set properties of null" hatası tüm işlemi yarıda kesiyordu.
+  if (!tbody || !state[si]) return;
   tbody.innerHTML = '';
   state[si].rows.forEach((row, ri) => {
     tbody.appendChild(makeRow(si, ri, row));
@@ -10500,6 +10503,8 @@ function updateTabCount(si) {
 }
 
 function updateStats(si) {
+  // Özel sayfalarda veya stat elementleri yokken sessizce çık
+  if (!state[si] || !document.getElementById('statTotal')) return;
   const rows = state[si].rows.filter(r => !r._group && (r['3'] || r['2']));
   document.getElementById('statTotal').textContent = rows.length;
   document.getElementById('statOnay').textContent = rows.filter(r => r._yetkili === 'Onaylandı').length;
