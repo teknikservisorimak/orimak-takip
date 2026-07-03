@@ -2629,6 +2629,32 @@ function ensureSiparisSids() {
 window.ensureSiparisSids = ensureSiparisSids;
 function getTeslimRows() { const si = getTeslimIdx(); return SHEETS[si] ? (SHEETS[si].rows || []) : []; }
 
+// ── SUNUCUDAN TAZE VERİ ÇEK ──
+// Sipariş ekleme/silme öncesi çağrılır: elimizdeki kopya bayatsa (başka
+// kullanıcı bu arada satır eklediyse) onun verisini EZMEMEK için önce
+// Firestore'daki güncel hali alınır, değişiklik onun üzerine yapılır.
+async function refreshSheetsFromServer() {
+  try {
+    if (!window._db || !window._fsGetDoc) return false;
+    const snap = await window._fsGetDoc(window._fsDoc(window._db, 'malzeme', 'sheets'));
+    if (snap.exists() && snap.data().data) {
+      const fresh = JSON.parse(snap.data().data);
+      ['siparis','teslim','satis'].forEach(tip => {
+        if (!fresh.find(s => s.type === tip)) {
+          const ex = SHEETS.find(s => s.type === tip);
+          if (ex) fresh.push(ex);
+        }
+      });
+      SHEETS = fresh;
+      _sheetsAppliedTime = snap.data().updatedAt || 0;
+      ensureSiparisSids();
+      return true;
+    }
+  } catch(e) { console.warn('Sunucudan tazeleme başarısız (yerel kopya kullanılacak):', e); }
+  return false;
+}
+window.refreshSheetsFromServer = refreshSheetsFromServer;
+
 // Bir sipariş satırı (r, index i) için teslim kaydını bul
 // Önce _sid bazlı (kalıcı), sonra siparisIdx (eski), sonra urunKodu (geriye dönük)
 function findTeslimForSiparis(teslimRows, r, i) {
@@ -2920,7 +2946,7 @@ function isTerminYakin(tarih) {
 
 async function saveSiparisRows() {
   const si = getSiparisIdx();
-  if (isOnline) await fbSaveAll();
+  await fbSaveAll(); /* kayıt her zaman denenir — başarısızlıkta uyarır ve bekletir */
 }
 
 // ══════════════════════════════════════════════
@@ -3369,7 +3395,7 @@ async function mailPopupGonder(siparis, idx) {
 
   // Seçilen yetkiliyi sipariş ile ilişkilendir
   const rows = getSiparisRows();
-  if (rows[idx]) { rows[idx].yetkiliMailIdx = parseInt(sel.value); const si = getSiparisIdx(); SHEETS[si].rows = rows; if (isOnline) fbSaveAll(); }
+  if (rows[idx]) { rows[idx].yetkiliMailIdx = parseInt(sel.value); const si = getSiparisIdx(); SHEETS[si].rows = rows; fbSaveAll(); }
 
   const siparisKopi = Object.assign({}, siparis, { yetkiliMailIdx: parseInt(sel.value) });
   if (not) siparisKopi._ekNot = not;
@@ -3884,14 +3910,14 @@ window.autoFillSiparisAdi = autoFillSiparisAdi;
 async function saveSiparis(editIdx) {
   const si = getSiparisIdx();
   if (si < 0) { alert('Sipariş sayfası bulunamadı!'); return; }
-  const rows = getSiparisRows();
   const _olusturanVal = document.getElementById('sp_olusturan').value.trim();
   if (!_olusturanVal) {
     alert('⚠️ "Sipariş Oluşturan" alanı boş bırakılamaz!');
     document.getElementById('sp_olusturan').focus();
     return;
   }
-  const yeni = {
+  // 1) Modal değerlerini ÖNCE oku (tazeleme sonrası DOM kapanabilir)
+  const modalVals = {
     urunKodu: document.getElementById('sp_kod').value.trim(),
     urunAdi: document.getElementById('sp_ad').value.trim(),
     sipAdet: document.getElementById('sp_adet').value.trim(),
@@ -3899,27 +3925,54 @@ async function saveSiparis(editIdx) {
     olusturmaTarihi: document.getElementById('sp_otar').value.trim(),
     terminTarihi: document.getElementById('sp_termin').value.trim(),
     notlar: document.getElementById('sp_notlar').value.trim(),
-    yetkiliOnay: editIdx >= 0 ? (rows[editIdx].yetkiliOnay||'') : '',
-    yetkiliOnayKisi: editIdx >= 0 ? (rows[editIdx].yetkiliOnayKisi||'') : '',
-    gelisOnay: editIdx >= 0 ? (rows[editIdx].gelisOnay||'') : '',
-    yetkiliMailIdx: editIdx >= 0 ? rows[editIdx].yetkiliMailIdx : undefined,
+  };
+  // 2) Düzenleme ise satırın kalıcı kimliğini tazeleme ÖNCESİNDE yakala
+  //    (tazeleme sonrası satır sırası/indexi değişmiş olabilir)
+  const eskiRows = getSiparisRows();
+  const editSid = editIdx >= 0 && eskiRows[editIdx] ? eskiRows[editIdx]._sid : null;
+
+  // 3) SUNUCUDAN GÜNCEL VERİYİ ÇEK — böylece bu arada başka kullanıcının
+  //    eklediği siparişler EZİLMEZ (eski "son yazan kazanır" hatası düzeltildi)
+  await refreshSheetsFromServer();
+
+  const rows = getSiparisRows();
+  // Düzenlenen satırı taze veride kimliğiyle bul
+  let hedefIdx = -1;
+  if (editSid) hedefIdx = rows.findIndex(r => r._sid === editSid);
+  else if (editIdx >= 0) hedefIdx = editIdx < rows.length ? editIdx : -1; // kimliksiz çok eski satır
+
+  const eskiSatir = hedefIdx >= 0 ? rows[hedefIdx] : {};
+  const yeni = {
+    ...modalVals,
+    yetkiliOnay: hedefIdx >= 0 ? (eskiSatir.yetkiliOnay||'') : '',
+    yetkiliOnayKisi: hedefIdx >= 0 ? (eskiSatir.yetkiliOnayKisi||'') : '',
+    gelisOnay: hedefIdx >= 0 ? (eskiSatir.gelisOnay||'') : '',
+    yetkiliMailIdx: hedefIdx >= 0 ? eskiSatir.yetkiliMailIdx : undefined,
     // Benzersiz sipariş kimliği — teslim kayıtlarında eşleşme için kullanılır
-    _sid: editIdx >= 0 && rows[editIdx]._sid ? rows[editIdx]._sid : ('s' + Date.now() + Math.random().toString(36).slice(2,6)),
+    _sid: (hedefIdx >= 0 && eskiSatir._sid) ? eskiSatir._sid : ('s' + Date.now() + Math.random().toString(36).slice(2,6)),
   };
   const _isYeniSiparis = editIdx < 0;
+  if (editIdx >= 0 && hedefIdx < 0) {
+    // Düzenlenmek istenen satır bu arada başkası tarafından silinmiş —
+    // kullanıcının emeği kaybolmasın, yeni satır olarak eklenir
+    alert('ℹ Düzenlediğiniz satır bu sırada başka bir kullanıcı tarafından silinmiş. Girdiğiniz bilgiler YENİ satır olarak eklendi.');
+  }
   // ── KALICI BİLDİRİM: satıra _notif alanı ekle (Firebase'e gidecek) ──
   yeni._notif = {
     type: _isYeniSiparis ? 'new' : 'edit',
     user: window._currentUser || '',
     ts:   Date.now()
   };
-  if (editIdx >= 0) rows[editIdx] = yeni;
+  if (hedefIdx >= 0) rows[hedefIdx] = yeni;
   else rows.push(yeni);
   SHEETS[si].rows = rows;
   document.getElementById('siparisModal').remove();
-  if (isOnline) await fbSaveAll();
+  // KAYIT HER ZAMAN DENENIR — eskiden "if (isOnline)" yüzünden bağlantı
+  // kopukken sipariş SESSİZCE kayboluyordu; artık fbSaveAll başarısızlıkta
+  // uyarır, yerelde bekletir ve otomatik tekrar dener.
+  await fbSaveAll();
   // ── SATIR BELİRTECİ: fbSaveAll bittikten sonra set et ──
-  const _highlightIdx = _isYeniSiparis ? rows.length - 1 : editIdx;
+  const _highlightIdx = hedefIdx >= 0 ? hedefIdx : rows.length - 1;
   window.setRowHighlight('siparis', _highlightIdx, _isYeniSiparis ? 'new' : 'edit');
   renderSiparisRows();
   updateTerminBadge();
@@ -3957,8 +4010,18 @@ window.editSiparis = editSiparis;
 async function deleteSiparis(idx) {
   if (!confirm('Bu siparişi silmek istediğinizden emin misiniz?')) return;
   const si = getSiparisIdx();
-  SHEETS[si].rows.splice(idx, 1);
-  if (isOnline) await fbSaveAll();
+  // Silinecek satırın kalıcı kimliğini yakala, sonra sunucudan taze veri çek —
+  // böylece bayat kopya kaydedilip başkasının yeni eklediği satırlar ezilmez.
+  const silSid = SHEETS[si].rows[idx] ? SHEETS[si].rows[idx]._sid : null;
+  await refreshSheetsFromServer();
+  const rows = getSiparisRows();
+  let hedefIdx = -1;
+  if (silSid) hedefIdx = rows.findIndex(r => r._sid === silSid);
+  else hedefIdx = idx < rows.length ? idx : -1; // kimliksiz çok eski satır
+  if (hedefIdx < 0) { renderSiparisRows(); return; } // zaten silinmiş
+  rows.splice(hedefIdx, 1);
+  SHEETS[getSiparisIdx()].rows = rows;
+  await fbSaveAll();
   renderSiparisRows();
   updateTerminBadge();
 }
@@ -4356,7 +4419,7 @@ async function saveTeslim(editIdx) {
   else rows.push(yeni);
   SHEETS[si].rows = rows;
   document.getElementById('teslimModal').remove();
-  if (isOnline) await fbSaveAll();
+  await fbSaveAll(); /* kayıt her zaman denenir — başarısızlıkta uyarır ve bekletir */
   // ── SATIR BELİRTECİ ──
   const _highlightTeslimIdx = _isYeniTeslim ? rows.length - 1 : editIdx;
   window.setRowHighlight('teslim', _highlightTeslimIdx, _isYeniTeslim ? 'new' : 'edit');
@@ -4393,7 +4456,7 @@ async function deleteTeslim(idx) {
   if (!confirm('Bu kaydı silmek istediğinizden emin misiniz?')) return;
   const si = getTeslimIdx();
   SHEETS[si].rows.splice(idx, 1);
-  if (isOnline) await fbSaveAll();
+  await fbSaveAll(); /* kayıt her zaman denenir — başarısızlıkta uyarır ve bekletir */
   renderTeslimRows();
   renderSiparisRows();
 }
@@ -4593,7 +4656,7 @@ async function saveSayfaAdi(i) {
   const yeniAd = document.getElementById(`sayfaInput_${i}`).value.trim();
   if (!yeniAd) return;
   SHEETS[i].name = yeniAd;
-  if (isOnline) await fbSaveAll();
+  await fbSaveAll(); /* kayıt her zaman denenir — başarısızlıkta uyarır ve bekletir */
   buildTabs();
   renderSayfaListesi();
 }
@@ -4648,7 +4711,7 @@ async function saveGrupAdi(si, ri) {
     if (r._makine !== undefined) clean.makine = r._makine;
     return clean;
   });
-  if (isOnline) await fbSaveAll();
+  await fbSaveAll(); /* kayıt her zaman denenir — başarısızlıkta uyarır ve bekletir */
   rebuildTable(si);
 }
 window.saveGrupAdi = saveGrupAdi;
@@ -4977,7 +5040,7 @@ async function saveRowEdit() {
   r._terminTarihi  = fromISODate(document.getElementById('re_termin').value);
   r._teslimTarihi  = fromISODate(document.getElementById('re_teslim').value);
   r._sipDurumu     = document.getElementById('re_sipDurumu').value;
-  if (isOnline) await apiUpdate(si, ri, 0, '');
+  await apiUpdate(si, ri, 0, '');
   rebuildTable(si);
   updateStats(si);
   closeRowEdit();
@@ -9714,7 +9777,7 @@ function buildTabs() {
           const yeniAd = prompt(`"${sheet.name}" sayfasının yeni adını girin:`, sheet.name);
           if (yeniAd && yeniAd.trim() && yeniAd.trim() !== sheet.name) {
             SHEETS[idx].name = yeniAd.trim();
-            if (isOnline) fbSaveAll();
+            fbSaveAll();
             buildTabs();
             if (window._currentSayfalar && window._currentSayfalar.length > 0) {
               applySayfaKisitlama(window._currentSayfalar);
@@ -9749,7 +9812,7 @@ function buildTabs() {
         const yeniAd = prompt(`"${sheet.name}" sayfasının yeni adını girin:`, sheet.name);
         if (yeniAd && yeniAd.trim() && yeniAd.trim() !== sheet.name) {
           SHEETS[idx].name = yeniAd.trim();
-          if (isOnline) fbSaveAll();
+          fbSaveAll();
           buildTabs();
           if (window._currentSayfalar && window._currentSayfalar.length > 0) {
             applySayfaKisitlama(window._currentSayfalar);
@@ -10108,7 +10171,7 @@ function makeRow(si, ri, row) {
           const inp = mkInput('number', row._makine, v => {
             state[si].rows[ri]._makine = v;
             refreshRow(si, ri); updateStats(si);
-            if (isOnline) apiUpdate(si, ri, 6, v);
+            apiUpdate(si, ri, 6, v);
           });
           td.appendChild(inp);
         } else {
@@ -10122,7 +10185,7 @@ function makeRow(si, ri, row) {
         const inp = mkInput('number', row._gelenAdet, v => {
           state[si].rows[ri]._gelenAdet = v;
           refreshRow(si, ri); updateStats(si);
-          if (isOnline) apiUpdate(si, ri, 11, v);
+          apiUpdate(si, ri, 11, v);
         });
         td.appendChild(inp);
       } else if (c.type === 'yetkili') {
@@ -10153,7 +10216,7 @@ function makeRow(si, ri, row) {
             state[si].rows[ri]._yetkiliKisi = '';
           }
           refreshRow(si, ri); updateStats(si);
-          if (isOnline) apiUpdate(si, ri, 7, v);
+          apiUpdate(si, ri, 7, v);
         }, true);
         yetkiliWrap.appendChild(yetkiliSel);
         const yetkiliKisiEl = document.createElement('div');
@@ -10175,7 +10238,7 @@ function makeRow(si, ri, row) {
             state[si].rows[ri]._gelisKisi = '';
           }
           refreshRow(si, ri); updateStats(si);
-          if (isOnline) apiUpdate(si, ri, 12, v);
+          apiUpdate(si, ri, 12, v);
         });
         gelisWrap.appendChild(gelisSel);
         const gelisKisiEl = document.createElement('div');
@@ -10201,7 +10264,7 @@ function makeRow(si, ri, row) {
             const parts = inp.value.split('-');
             const displayVal = parts.length === 3 ? parts[2]+'.'+parts[1]+'.'+parts[0] : inp.value;
             state[si].rows[ri][c.field] = displayVal;
-            if (isOnline) apiUpdate(si, ri, c.col, displayVal);
+            apiUpdate(si, ri, c.col, displayVal);
           };
           td.appendChild(inp);
         } else {
@@ -10238,7 +10301,7 @@ function makeRow(si, ri, row) {
         } else {
           inp.onchange = () => {
             state[si].rows[ri][c.field] = inp.value;
-            if (isOnline) apiUpdate(si, ri, c.col, inp.value);
+            apiUpdate(si, ri, c.col, inp.value);
           };
         }
         td.appendChild(inp);
@@ -10259,7 +10322,7 @@ function makeRow(si, ri, row) {
         sipDurSel.onchange = () => {
           state[si].rows[ri]._sipDurumu = sipDurSel.value;
           refreshRow(si, ri);
-          if (isOnline) apiUpdate(si, ri, 14, sipDurSel.value);
+          apiUpdate(si, ri, 14, sipDurSel.value);
         };
         // Renk badge
         const sipDurVal = row._sipDurumu || '';
@@ -10396,7 +10459,7 @@ function deleteRow(si, ri) {
   state[si].rows.splice(ri, 1);
   rebuildTable(si);
   updateStats(si);
-  if (isOnline) apiUpdate(si, ri, 0, ''); // Firebase'e kaydet
+  apiUpdate(si, ri, 0, ''); // Firebase'e kaydet
 }
 
 function rebuildTable(si) {
@@ -10474,11 +10537,68 @@ function filterTable(q) {
 const firebaseConfig = null; // login script'te tanımlı
 
 // ── FİRESTORE KAYDET ──
+// Kayıt asla sessizce kaybolmaz: başarısız olursa kullanıcı uyarılır,
+// veri localStorage'da bekletilir ve bağlantı gelince otomatik tekrar denenir.
+const PENDING_SAVE_KEY = 'orimak_bekleyen_kayit';
+let _saveRetryTimer = null;
+let _saveFailAlerted = false;
+
 async function fbSaveAll() {
-  if (!window._db) return;
+  // Firebase henüz hazır değilse kısa süre bekle (sayfa yeni açılmış olabilir)
+  if (!window._db) {
+    await new Promise(resolve => {
+      window.addEventListener('firebaseReady', resolve, { once: true });
+      setTimeout(resolve, 4000);
+    });
+  }
+  const payload = JSON.stringify(SHEETS, (k, v) => k === '_pdfSel' ? undefined : v);
+  // Önce yerel güvence: kayıt denemesinden ÖNCE tarayıcıya yaz (çökme/kapanmaya karşı)
+  try { localStorage.setItem(PENDING_SAVE_KEY, payload); } catch(eL) {}
+  if (!window._db) { _kayitBasarisiz(new Error('Firebase bağlantısı yok')); return; }
   try {
-    await window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'sheets'), { data: JSON.stringify(SHEETS, (k, v) => k === '_pdfSel' ? undefined : v), updatedAt: Date.now() });
-  } catch(e) { console.warn('Firebase kayıt hatası:', e); }
+    const ts = Date.now();
+    window._lastWrittenUpdatedAt = ts; // kendi yazımımızın yankısını tanımak için
+    await window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'sheets'), { data: payload, updatedAt: ts });
+    isOnline = true;
+    _saveFailAlerted = false;
+    try { localStorage.removeItem(PENDING_SAVE_KEY); } catch(eL) {}
+    if (_saveRetryTimer) { clearInterval(_saveRetryTimer); _saveRetryTimer = null; }
+    if (typeof setSyncStatus === 'function') setSyncStatus('✓ CANLI', 'ok');
+  } catch(e) {
+    console.warn('Firebase kayıt hatası:', e);
+    _kayitBasarisiz(e);
+  }
+}
+
+function _kayitBasarisiz(e) {
+  if (typeof setSyncStatus === 'function') setSyncStatus('⚠ KAYDEDİLEMEDİ', 'err');
+  if (!_saveFailAlerted) {
+    _saveFailAlerted = true;
+    alert('⚠ DİKKAT: Değişiklik buluta KAYDEDİLEMEDİ!\n\nSebep: ' + (e && e.message ? e.message : 'bağlantı sorunu') +
+      '\n\nVeriniz bu tarayıcıda güvende tutuluyor ve bağlantı gelince otomatik kaydedilecek. Sayfayı KAPATMAYIN, internet bağlantınızı kontrol edin.');
+  }
+  // Otomatik tekrar dene: hem online olayında hem 15 sn aralıkla
+  if (!_saveRetryTimer) {
+    _saveRetryTimer = setInterval(() => { _bekleyenKaydiDene(); }, 15000);
+    window.addEventListener('online', _bekleyenKaydiDene);
+  }
+}
+
+async function _bekleyenKaydiDene() {
+  let pending = null;
+  try { pending = localStorage.getItem(PENDING_SAVE_KEY); } catch(eL) {}
+  if (!pending || !window._db) return;
+  try {
+    const ts = Date.now();
+    window._lastWrittenUpdatedAt = ts;
+    await window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'sheets'), { data: pending, updatedAt: ts });
+    isOnline = true;
+    _saveFailAlerted = false;
+    try { localStorage.removeItem(PENDING_SAVE_KEY); } catch(eL) {}
+    if (_saveRetryTimer) { clearInterval(_saveRetryTimer); _saveRetryTimer = null; }
+    if (typeof setSyncStatus === 'function') setSyncStatus('✓ CANLI', 'ok');
+    console.log('Bekleyen kayıt başarıyla buluta yazıldı.');
+  } catch(e) { /* sonraki denemede tekrar */ }
 }
 
 // ── FİRESTORE'DAN YÜKLEMESİ ──
@@ -10525,13 +10645,16 @@ async function loadData() {
       restoreLastPage();
       setSyncStatus('✓ CANLI', 'ok');
     }
-    // Gerçek zamanlı dinle
+    // Gerçek zamanlı dinle — SADECE BİR KEZ kur ("Yenile" her basıldığında
+    // yeni dinleyici eklenip fbSaveAll tekrar tekrar sarmalanmasın)
+    if (!window._sheetsListenerActive) {
+    window._sheetsListenerActive = true;
     let isLocalUpdate = false;
     const origFbSaveAll = fbSaveAll;
     window.fbSaveAll = async function() {
       isLocalUpdate = true;
-      _sheetsAppliedTime = Date.now();
       await origFbSaveAll();
+      _sheetsAppliedTime = window._lastWrittenUpdatedAt || Date.now();
       setTimeout(() => { isLocalUpdate = false; }, 2000);
     };
     window._fsOnSnapshot(window._fsDoc(window._db, 'malzeme', 'sheets'), (d) => {
@@ -10539,8 +10662,11 @@ async function loadData() {
       if (isLocalUpdate) return;
       if (d.exists() && d.data().data) {
         var _ct = d.data().updatedAt || 0;
-        // Gelen snapshot elimizdekinden ESKI ise yok say — bayat veri renkleri/satirlari bozmasin
-        if (_ct < (_sheetsAppliedTime || 0)) return;
+        // Sadece KENDİ yazımımızın yankısını atla. Zaman karşılaştırması YAPILMAZ:
+        // updatedAt her bilgisayarın kendi saatinden gelir; operatörün saati geride
+        // olduğunda eski "_ct < _sheetsAppliedTime" kontrolü operatörün eklediği
+        // siparişleri "bayat" sanıp SONSUZA DEK yok sayıyordu. (hata düzeltildi)
+        if (_ct && _ct === window._lastWrittenUpdatedAt) { _sheetsAppliedTime = _ct; return; }
         _sheetsAppliedTime = _ct;
         const updated = JSON.parse(d.data().data);
         ['siparis','teslim','satis'].forEach(tip => {
@@ -10571,6 +10697,7 @@ async function loadData() {
         if (typeof _updatePageNotifClearBtn === 'function') _updatePageNotifClearBtn();
       }
     });
+    } // _sheetsListenerActive guard sonu
   } catch(e) {
     console.warn('Firebase hatası:', e);
     SHEETS = JSON.parse(JSON.stringify(OFFLINE_DATA));
@@ -10671,7 +10798,8 @@ async function addRow() {
     _notif: { type: 'new', user: window._currentUser || '', ts: Date.now() } };
 
   // Firebase'e kaydet
-  if (isOnline) {
+  // Her zaman kaydet — fbSaveAll bağlantı yoksa uyarır, yerelde bekletir ve tekrar dener
+  if (true) {
     const rows = state[si].rows;
     if (group === '__end__') {
       rows.push(newRow);
