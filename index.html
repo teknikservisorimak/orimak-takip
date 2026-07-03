@@ -984,6 +984,14 @@ body{font-family:'Barlow',sans-serif;background:#111;color:#eee;min-height:100vh
 .parti-msg.ok{display:block;background:rgba(146,208,80,.15);color:#92D050;border:1px solid rgba(146,208,80,.3);}
 .parti-msg.err{display:block;background:rgba(192,0,0,.15);color:#ff7777;border:1px solid rgba(192,0,0,.3);}
 #arsivOverlay{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:10001;display:none;flex-direction:column;}
+#jsonOverlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10000;display:none;align-items:center;justify-content:center;}
+#jsonOverlay.open{display:flex;}
+#jsonOverlay .parti-box{border-top-color:#5bc8e8;}
+#jsonOverlay .parti-head h2{color:#5bc8e8;}
+.json-btn{width:100%;padding:11px;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;letter-spacing:2px;cursor:pointer;transition:opacity .2s;display:flex;align-items:center;justify-content:center;gap:8px;}
+.json-btn:hover{opacity:.85;}
+.json-btn-dl{background:linear-gradient(135deg,#1d4a5c,#153a4a);color:#7fd0ea;border:1px solid #2a6e8a;}
+.json-btn-ul{background:linear-gradient(135deg,#5c3a1d,#4a2e15);color:#eab97f;border:1px solid #8a5e2a;margin-top:10px;}
 #arsivOverlay.open{display:flex;}
 .arsiv-header{background:#1a1a1a;border-bottom:2px solid var(--orange);padding:16px 28px;display:flex;align-items:center;gap:16px;}
 .arsiv-header h2{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;letter-spacing:2px;color:var(--orange);flex:1;}
@@ -2194,6 +2202,7 @@ async function yeniPartiBaslat() {
   const korunanAdlar = SHEETS.filter((_, i) => !seciliIndexler.includes(i)).map(s => s.name).join('\n• ');
   const msg = `"${ad}" partisi başlatılacak.\n\n🗑 Sıfırlanacak sayfalar:\n• ${secilenAdlar}` +
     (korunanAdlar ? `\n\n✅ Korunacak sayfalar:\n• ${korunanAdlar}` : '') +
+    '\n\n📋 Sipariş Formu & Teslim Kayıt: Teslim edilmemiş veya geliş onayı "Onaylandı" olmayan siparişler SİLİNMEZ, yeni partiye aynen taşınır.' +
     '\n\nDevam etmek istiyor musunuz?';
   if (!confirm(msg)) return;
 
@@ -2220,9 +2229,66 @@ async function yeniPartiBaslat() {
     }
     partiler.push({ ad, tarih: now });
 
+    // ── TAMAMLANMAMIŞ SİPARİŞLERİ KORU ──
+    // Teslim edilmemiş VEYA geliş onayı "Onaylandı" olmayan siparişler ve
+    // onlara bağlı teslim kayıtları yeni partiye AYNEN taşınır — veri kaybı olmaz.
+    ensureSiparisSids(); // her sipariş satırına kalıcı _sid garanti et
+
+    // Eski (index bazlı) teslim bağlantılarını kalıcı _siparisId'ye yükselt.
+    // Böylece sipariş satırları filtrelenip index kaysa bile bağ kopmaz.
+    (function migrateTeslimLinks() {
+      const sIdx = SHEETS.findIndex(s => s.type === 'siparis');
+      const tIdx = SHEETS.findIndex(s => s.type === 'teslim');
+      if (sIdx < 0 || tIdx < 0) return;
+      const sRows = SHEETS[sIdx].rows || [];
+      (SHEETS[tIdx].rows || []).forEach(t => {
+        if (!t._siparisId && t.siparisIdx !== undefined && t.siparisIdx !== null && sRows[t.siparisIdx]) {
+          t._siparisId = sRows[t.siparisIdx]._sid;
+          delete t.siparisIdx; // artık kalıcı kimlikle bağlı, eski index yanıltmasın
+        }
+      });
+    })();
+
+    // Bir sipariş "tamamlandı" sayılır ⇔ geliş onayı "Onaylandı" VE teslim kaydı var VE gelen adet ≥ sipariş adedi.
+    // Aksi halde (teslim edilmedi / eksik teslim / onay yok) satır yeni partiye taşınır.
+    function siparisTamamlandiMi(r, i, teslimRows) {
+      if ((r.gelisOnay || '') !== 'Onaylandı') return false;
+      const t = findTeslimForSiparis(teslimRows, r, i);
+      if (!t) return false;
+      const sa = parseFloat(r.sipAdet);
+      const ga = parseFloat(t.gelisAdet);
+      if (!isNaN(sa) && !isNaN(ga) && ga < sa) return false; // eksik teslim → koru
+      return true;
+    }
+
+    // Korunacak sipariş kimliklerini ORİJİNAL veri üzerinden hesapla
+    const korunanSidSet = new Set();
+    (function hesaplaKorunanlar() {
+      const sIdx = SHEETS.findIndex(s => s.type === 'siparis');
+      if (sIdx < 0) return;
+      const tIdx = SHEETS.findIndex(s => s.type === 'teslim');
+      const teslimRows = tIdx >= 0 ? (SHEETS[tIdx].rows || []) : [];
+      (SHEETS[sIdx].rows || []).forEach((r, i) => {
+        if (!siparisTamamlandiMi(r, i, teslimRows)) korunanSidSet.add(r._sid);
+      });
+    })();
+
     // Sadece seçili sayfaları sıfırla, diğerleri aynen kalsın
     const yeniSheets = JSON.parse(JSON.stringify(SHEETS)).map((sheet, i) => {
       if (!seciliIndexler.includes(i)) return sheet; // seçilmeyen sayfa aynen kalsın
+
+      // SİPARİŞ FORMU: tamamlanmamış siparişler tüm verileriyle taşınır,
+      // tamamlananlar arşive gider (PDF) ve listeden çıkarılır.
+      if (sheet.type === 'siparis') {
+        return { ...sheet, rows: (sheet.rows || []).filter(r => korunanSidSet.has(r._sid)) };
+      }
+
+      // TESLİM KAYIT: korunan siparişlere bağlı teslim kayıtları da taşınır
+      // (kısmi/eksik teslimlerin geçmişi kaybolmasın diye).
+      if (sheet.type === 'teslim') {
+        return { ...sheet, rows: (sheet.rows || []).filter(t => t._siparisId && korunanSidSet.has(t._siparisId)) };
+      }
+
       return {
         ...sheet,
         rows: sheet.rows.map(row => {
@@ -2240,6 +2306,14 @@ async function yeniPartiBaslat() {
         })
       };
     });
+
+    // Mevcut partinin TAM verisini Firestore arşivine kaydet — böylece
+    // "Yükle" ve "📄 PDF" butonları çalışır, hiçbir veri kaybolmaz.
+    try {
+      await window._fsSetDoc(window._fsDoc(window._db, 'arsiv', aktifAd.replace(/[^a-zA-Z0-9]/g, '_')), {
+        data: JSON.stringify(SHEETS), ad: aktifAd, tarih: now, savedAt: Date.now()
+      });
+    } catch(eArsiv) { console.warn('Arşiv Firestore kaydı yazılamadı:', eArsiv); }
 
     // Mevcut veriyi arşive kaydet — PDF olarak yazdır/indir
     await arsivPDFIndir_inline(aktifAd, SHEETS, now);
@@ -2323,6 +2397,139 @@ function showPartiMsg(text, type) {
   el.textContent = text; el.className = 'parti-msg ' + type;
   setTimeout(() => { el.className = 'parti-msg'; }, 4000);
 }
+
+// ══════════════════════════════════════════════
+// JSON YEDEKLEME / GERİ YÜKLEME (manuel veri güvencesi)
+// ══════════════════════════════════════════════
+function openJsonPanel() {
+  const ov = document.getElementById('jsonOverlay');
+  ov.classList.add('open');
+  const sel = document.getElementById('jsonSayfaSelect');
+  sel.innerHTML = '';
+  const optAll = document.createElement('option');
+  optAll.value = 'ALL';
+  optAll.textContent = '📚 TÜM SAYFALAR (komple yedek)';
+  sel.appendChild(optAll);
+  SHEETS.forEach((s, i) => {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = s.name;
+    if (i === activeSheet) o.selected = true;
+    sel.appendChild(o);
+  });
+  document.getElementById('jsonMsg').className = 'parti-msg';
+  // Geri yükleme (veri değiştirme) sadece admin ve manager için
+  const imp = document.getElementById('jsonImportWrap');
+  imp.style.display = (window._currentRole === 'admin' || window._currentRole === 'manager') ? '' : 'none';
+}
+window.openJsonPanel = openJsonPanel;
+
+function closeJsonPanel() { document.getElementById('jsonOverlay').classList.remove('open'); }
+window.closeJsonPanel = closeJsonPanel;
+function closeJsonOutside(e) { if (e.target === document.getElementById('jsonOverlay')) closeJsonPanel(); }
+window.closeJsonOutside = closeJsonOutside;
+
+function showJsonMsg(text, type) {
+  const el = document.getElementById('jsonMsg');
+  el.textContent = text; el.className = 'parti-msg ' + type;
+  setTimeout(() => { el.className = 'parti-msg'; }, 6000);
+}
+
+// Seçili sayfayı (veya tümünü) JSON dosyası olarak indir
+function jsonYedekIndir() {
+  try {
+    const val = document.getElementById('jsonSayfaSelect').value;
+    const now = new Date();
+    const ts = now.toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const temizle = (k, v) => k === '_pdfSel' ? undefined : v; // geçici seçim alanını yedeğe alma
+    let payload, fname;
+    if (val === 'ALL') {
+      payload = {
+        app: 'orimak-malzeme-yedek', kind: 'all',
+        tarih: now.toLocaleString('tr-TR'),
+        sheets: JSON.parse(JSON.stringify(SHEETS, temizle))
+      };
+      fname = 'orimak-tum-sayfalar-' + ts + '.json';
+    } else {
+      const i = parseInt(val);
+      const s = SHEETS[i];
+      if (!s) { showJsonMsg('Sayfa bulunamadı.', 'err'); return; }
+      payload = {
+        app: 'orimak-malzeme-yedek', kind: 'sheet',
+        sheetName: s.name, sheetType: s.type || '',
+        tarih: now.toLocaleString('tr-TR'),
+        sheet: JSON.parse(JSON.stringify(s, temizle))
+      };
+      fname = 'orimak-' + s.name.replace(/[^\w\-ğüşöçıİĞÜŞÖÇ]+/g, '_') + '-' + ts + '.json';
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    showJsonMsg('✓ Yedek indirildi: ' + fname, 'ok');
+  } catch (e) {
+    showJsonMsg('Hata: ' + e.message, 'err');
+  }
+}
+window.jsonYedekIndir = jsonYedekIndir;
+
+// JSON dosyasından veri geri yükle
+async function jsonYedekYukle(input) {
+  const file = input.files && input.files[0];
+  input.value = ''; // aynı dosya tekrar seçilebilsin
+  if (!file) return;
+  if (window._currentRole !== 'admin' && window._currentRole !== 'manager') {
+    showJsonMsg('Geri yükleme yetkiniz yok.', 'err'); return;
+  }
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch (e) {
+    showJsonMsg('Geçersiz JSON dosyası: ' + e.message, 'err'); return;
+  }
+  try {
+    if (data && data.app === 'orimak-malzeme-yedek' && data.kind === 'all' && Array.isArray(data.sheets)) {
+      // ── TÜM SAYFALAR YEDEĞİ ──
+      if (!confirm(`TÜM SAYFALAR yedeği yüklenecek.\nYedek tarihi: ${data.tarih || 'bilinmiyor'} — ${data.sheets.length} sayfa\n\n⚠ Mevcut TÜM veri bu yedekle DEĞİŞTİRİLECEK.\n\nDevam etmek istiyor musunuz?`)) return;
+      SHEETS = data.sheets;
+    } else if (data && data.app === 'orimak-malzeme-yedek' && data.kind === 'sheet' && data.sheet) {
+      // ── TEK SAYFA YEDEĞİ ── hedefi önce türe (özel sayfalar), sonra isme göre bul
+      let hi = -1;
+      if (data.sheetType) hi = SHEETS.findIndex(s => (s.type || '') === data.sheetType);
+      if (hi < 0) hi = SHEETS.findIndex(s => s.name === data.sheetName);
+      if (hi < 0) {
+        if (!confirm(`"${data.sheetName}" adında bir sayfa bulunamadı.\nYedek YENİ SAYFA olarak eklensin mi?`)) return;
+        SHEETS.push(data.sheet);
+      } else {
+        const eskiSatir = (SHEETS[hi].rows || []).length;
+        const yeniSatir = (data.sheet.rows || []).length;
+        if (!confirm(`"${SHEETS[hi].name}" sayfası geri yüklenecek.\nYedek tarihi: ${data.tarih || 'bilinmiyor'}\n\n⚠ Mevcut ${eskiSatir} satır silinip yerine yedekteki ${yeniSatir} satır gelecek.\n\nDevam etmek istiyor musunuz?`)) return;
+        SHEETS[hi] = data.sheet;
+      }
+    } else if (Array.isArray(data) && data.length && data[0] && data[0].name && Array.isArray(data[0].rows)) {
+      // ── HAM SHEETS DİZİSİ (eski/harici yedek) ──
+      if (!confirm(`Ham veri dizisi algılandı (${data.length} sayfa).\n\n⚠ Mevcut TÜM veri DEĞİŞTİRİLECEK.\n\nDevam etmek istiyor musunuz?`)) return;
+      SHEETS = data;
+    } else {
+      showJsonMsg('Dosya tanınmadı — bu uygulamanın JSON yedeği değil.', 'err'); return;
+    }
+
+    ensureSiparisSids();
+    // Buluta kaydet + arayüzü baştan kur (sekme/satır sayısı değişmiş olabilir)
+    if (typeof fbSaveAll === 'function') { try { await fbSaveAll(); } catch (eS) { console.warn('Firestore kaydı:', eS); } }
+    if (typeof buildUI === 'function') buildUI();
+    if (typeof reapplySession === 'function') reapplySession();
+    if (typeof restoreLastPage === 'function') { try { restoreLastPage(); } catch (eR) {} }
+    if (typeof updateStats === 'function' && typeof activeSheet === 'number') { try { updateStats(activeSheet); } catch (eU) {} }
+    showJsonMsg('✓ Yedek başarıyla geri yüklendi ve buluta kaydedildi.', 'ok');
+  } catch (e) {
+    showJsonMsg('Hata: ' + e.message, 'err');
+  }
+}
+window.jsonYedekYukle = jsonYedekYukle;
 
 // ── ARŞİV ──
 async function openArsiv() {
@@ -5027,6 +5234,9 @@ function showAdminMsg(text, type) {
     <button id="arsivBtn" class="hbtn hbtn-purple" onclick="openArsiv()" style="display:none">
       📁 ARŞİV
     </button>
+    <button id="jsonBtn" class="hbtn hbtn-dark" onclick="openJsonPanel()" title="JSON Yedekle / Geri Yükle" style="border:1px solid #2a6e8a;color:#7fd0ea;">
+      💾 JSON
+    </button>
     <button id="homeBtnHeader" class="hbtn hbtn-home" onclick="showHomePage()" title="Ana Sayfa">🏠 ANA SAYFA</button>
     <button class="hbtn hbtn-dark" onclick="loadData()">↺ Yenile</button>
     <button class="hbtn hbtn-dark" onclick="window.print()">🖨 Yazdır</button>
@@ -5159,6 +5369,32 @@ function showAdminMsg(text, type) {
       </div>
       <div class="admin-section-title">Partiler</div>
       <div class="parti-list" id="partiList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ JSON YEDEKLEME / GERİ YÜKLEME ══ -->
+<div id="jsonOverlay" onclick="closeJsonOutside(event)">
+  <div class="parti-box">
+    <div class="parti-head">
+      <h2>💾 JSON YEDEKLEME</h2>
+      <button class="admin-close" onclick="closeJsonPanel()">✕</button>
+    </div>
+    <div class="parti-body">
+      <div style="background:#161616;border:1px solid #2a2a2a;border-left:3px solid #5bc8e8;border-radius:8px;padding:14px;margin-bottom:18px;font-size:12px;color:#888;line-height:1.6;">
+        Veri kaybına karşı manuel güvence: seçtiğiniz sayfayı (veya tüm sayfaları) bilgisayarınıza <strong style="color:#7fd0ea;">JSON dosyası</strong> olarak indirin. Gerektiğinde aynı dosyayı geri yükleyerek verileri kurtarabilirsiniz.
+      </div>
+      <div class="parti-new-form">
+        <label>Sayfa Seçin</label>
+        <select id="jsonSayfaSelect" style="width:100%;background:#1a1a1a;border:1px solid #3a3a3a;border-radius:5px;padding:9px 12px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;margin-bottom:14px;"></select>
+        <button class="json-btn json-btn-dl" onclick="jsonYedekIndir()">⬇ JSON OLARAK İNDİR</button>
+        <div id="jsonImportWrap">
+          <button class="json-btn json-btn-ul" onclick="document.getElementById('jsonFileInput').click()">⬆ JSON'DAN GERİ YÜKLE</button>
+          <input type="file" id="jsonFileInput" accept=".json,application/json" style="display:none" onchange="jsonYedekYukle(this)"/>
+          <div style="font-size:11px;color:#666;margin-top:8px;line-height:1.5;">Geri yükleme, hedef sayfadaki mevcut veriyi yedekteki veriyle <strong style="color:#eab97f;">değiştirir</strong> ve buluta kaydeder. İşlemden önce onay istenir.</div>
+        </div>
+        <div class="parti-msg" id="jsonMsg"></div>
+      </div>
     </div>
   </div>
 </div>
