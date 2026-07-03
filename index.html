@@ -2249,16 +2249,19 @@ async function yeniPartiBaslat() {
       });
     })();
 
-    // Bir sipariş "tamamlandı" sayılır ⇔ geliş onayı "Onaylandı" VE teslim kaydı var VE gelen adet ≥ sipariş adedi.
-    // Aksi halde (teslim edilmedi / eksik teslim / onay yok) satır yeni partiye taşınır.
+    // Bir sipariş "tamamlandı" sayılır ⇔ geliş onayı "Onaylandı" VE
+    // (teslim kaydı yoksa da olur — uygulamanın DURUM sütunu gibi — ama teslim
+    //  kaydı VARSA gelen adet sipariş adedinden az olmamalı; eksik teslim korunur).
+    // Aksi halde (onay yok / eksik teslim) satır yeni partiye taşınır.
     function siparisTamamlandiMi(r, i, teslimRows) {
-      if ((r.gelisOnay || '') !== 'Onaylandı') return false;
+      if ((r.gelisOnay || '') !== 'Onaylandı') return false; // geliş onayı yok → koru
       const t = findTeslimForSiparis(teslimRows, r, i);
-      if (!t) return false;
-      const sa = parseFloat(r.sipAdet);
-      const ga = parseFloat(t.gelisAdet);
-      if (!isNaN(sa) && !isNaN(ga) && ga < sa) return false; // eksik teslim → koru
-      return true;
+      if (t) {
+        const sa = parseFloat(r.sipAdet);
+        const ga = parseFloat(t.gelisAdet);
+        if (!isNaN(sa) && !isNaN(ga) && ga < sa) return false; // eksik teslim → koru
+      }
+      return true; // onaylandı + (teslim kaydı yok VEYA tam/fazla teslim) → arşive gider
     }
 
     // Korunacak sipariş kimliklerini ORİJİNAL veri üzerinden hesapla
@@ -2325,9 +2328,21 @@ async function yeniPartiBaslat() {
     await window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'aktif'), { ad });
     await window._fsSetDoc(window._fsDoc(window._db, 'malzeme', 'partiler'), { list: partiler });
 
+    // Eski sipariş sayısını SHEETS değişmeden ÖNCE al (özet mesajı için)
+    const _sipIdxMsg = SHEETS.findIndex(s => s.type === 'siparis');
+    const eskiSiparisSayisi = _sipIdxMsg >= 0 ? (SHEETS[_sipIdxMsg].rows || []).length : 0;
     SHEETS = yeniSheets;
     buildState(); rebuildTable(activeSheet); updateStats(activeSheet);
-    showPartiMsg(`"${ad}" başlatıldı! ${seciliIndexler.length} sayfa sıfırlandı.`, 'ok');
+    if (typeof renderSiparisRows === 'function') renderSiparisRows();
+    if (typeof renderTeslimRows === 'function') renderTeslimRows();
+    // Sipariş sayfası sıfırlananlar arasındaysa taşınan/arşivlenen sayısını bildir
+    let _sipOzet = '';
+    if (_sipIdxMsg >= 0 && seciliIndexler.includes(_sipIdxMsg)) {
+      const _tasinan = (yeniSheets[_sipIdxMsg].rows || []).length;
+      const _arsivlenen = eskiSiparisSayisi - _tasinan;
+      _sipOzet = ` Sipariş: ${_arsivlenen} arşivlendi, ${_tasinan} yeni partiye taşındı.`;
+    }
+    showPartiMsg(`"${ad}" başlatıldı! ${seciliIndexler.length} sayfa sıfırlandı.${_sipOzet}`, 'ok');
     document.getElementById('newPartiAdi').value = '';
     renderPartiList();
   } catch(e) {
