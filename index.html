@@ -12779,8 +12779,12 @@ function stRenderContent() {
         var al = (h === 'Ürün Adı') ? 'text-align:left;' : '';
         return '<th style="'+thStyleFD+'width:'+w+';'+al+'">'+stEsc(h)+'</th>';
       }
+      if (fname === 'Servis Plan.html') {
+        return '<th class="st-th-rz" data-hn="'+stEsc(h)+'" style="'+thStyle+'">'+stEsc(h)+'<span class="st-col-rz" title="Sürükle: genişlet · Çift tık: sıfırla"></span></th>';
+      }
       return '<th style="'+thStyle+'">'+stEsc(h)+'</th>';
-    }).join('');
+    }).join('') +
+    '<th style="'+thStyle+'width:28px;padding:8px 2px;"></th>';
 
   // Renk göstergesi (Servis Plan)
   var legend = '';
@@ -12960,6 +12964,9 @@ function stRenderContent() {
     '<span style="font-family:Barlow Condensed,sans-serif;font-size:13px;color:#888;letter-spacing:1px;">'+filtered.length+(q?' / '+rows.length:'')+' kayit</span>'+
     '<input id="stSearch" type="text" placeholder="Ara..." value="'+stEsc(stSearchQuery)+'" oninput="stFilter()" style="background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:7px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;width:240px;"/>'+
     '<button onclick="stExport()" style="background:#1e1e1e;border:1px solid #333;color:#888;border-radius:5px;padding:7px 12px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">📥 EXCELE AKTAR</button>'+
+    (fname === 'Servis Plan.html' ?
+      '<button onclick="stResetColW()" title="Sütun genişliklerini varsayılana döndür" style="background:rgba(0,200,200,.08);border:1px solid rgba(0,200,200,.3);color:#00c8c8;border-radius:5px;padding:7px 12px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">↔ SÜTUNLARI SIFIRLA</button>'
+      : '')+
     (_stArchivable[fname] ?
       '<button onclick="stArchiveOpen(\''+fname.replace(/'/g,"\\'")+'\')" style="background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.35);color:var(--orange);border-radius:5px;padding:7px 12px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">📦 ARŞİVLE</button>'+
       '<button onclick="stArchiveToggle(\''+fname.replace(/'/g,"\\'")+'\')" style="background:rgba(90,160,255,.1);border:1px solid rgba(90,160,255,.3);color:#7ab8f5;border-radius:5px;padding:7px 12px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">'+(_stShowArchive[fname]?'🙈 ARŞİVİ GİZLE':'👁 ARŞİVİ GÖSTER')+'</button>'
@@ -12971,6 +12978,95 @@ function stRenderContent() {
     (_stArchivable[fname] ? '<div id="stArchiveView" style="margin-top:16px;"></div>' : '');
 
   if (_stArchivable[fname] && _stShowArchive[fname]) stArchiveRenderView(fname);
+
+  stInitColResize(fname);
+}
+
+// ── Servis Plan: sürüklenebilir sütun genişlikleri ──
+var _stColWKey = '_stColW_ServisPlan';
+function stGetColW() { try { return JSON.parse(localStorage.getItem(_stColWKey) || '{}'); } catch(e) { return {}; } }
+function stSaveColW(o) { try { localStorage.setItem(_stColWKey, JSON.stringify(o)); } catch(e) {} }
+window.stResetColW = function() {
+  try { localStorage.removeItem(_stColWKey); } catch(e) {}
+  stRenderContent();
+  if (typeof stBadge === 'function') stBadge('↔ Sütun genişlikleri sıfırlandı');
+};
+
+function stInitColResize(fname) {
+  if (fname !== 'Servis Plan.html') return;
+  // CSS (bir kez enjekte edilir)
+  if (!document.getElementById('stColRzCss')) {
+    var css = document.createElement('style');
+    css.id = 'stColRzCss';
+    css.textContent =
+      '.st-col-rz{position:absolute;top:0;right:-1px;width:8px;height:100%;cursor:col-resize;user-select:none;z-index:2;}' +
+      '.st-col-rz:hover,.st-col-rz.rz-on{background:rgba(0,200,200,.45);}' +
+      'body.st-rz-drag,body.st-rz-drag *{cursor:col-resize !important;user-select:none !important;}';
+    document.head.appendChild(css);
+  }
+  var box = document.getElementById('stContent');
+  if (!box) return;
+  var table = box.querySelector('table');
+  if (!table) return;
+  var ths = table.querySelectorAll('th.st-th-rz');
+  if (!ths.length) return;
+
+  // Kaydedilmiş genişlikleri uygula; yoksa mevcut render genişliğini sabitle
+  var saved = stGetColW();
+  ths.forEach(function(th) {
+    var hn = th.getAttribute('data-hn');
+    var w = saved[hn] ? parseInt(saved[hn], 10) : th.offsetWidth;
+    th.style.width = w + 'px';
+    th.style.minWidth = w + 'px';
+    th.style.maxWidth = w + 'px';
+  });
+  // Sabit düzen: sütunlar artık th genişliklerini takip eder
+  table.style.tableLayout = 'fixed';
+  var total = 0;
+  table.querySelectorAll('thead th').forEach(function(t) { total += t.offsetWidth; });
+  table.style.width = total + 'px';
+  table.style.minWidth = '100%';
+
+  // Sürükleme
+  ths.forEach(function(th) {
+    var grip = th.querySelector('.st-col-rz');
+    if (!grip) return;
+    grip.addEventListener('mousedown', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      var startX = e.clientX;
+      var startW = th.offsetWidth;
+      grip.classList.add('rz-on');
+      document.body.classList.add('st-rz-drag');
+      function onMove(ev) {
+        var w = Math.max(50, startW + (ev.clientX - startX));
+        th.style.width = w + 'px';
+        th.style.minWidth = w + 'px';
+        th.style.maxWidth = w + 'px';
+        var tot = 0;
+        table.querySelectorAll('thead th').forEach(function(t) { tot += t.offsetWidth; });
+        table.style.width = tot + 'px';
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        grip.classList.remove('rz-on');
+        document.body.classList.remove('st-rz-drag');
+        var o = stGetColW();
+        o[th.getAttribute('data-hn')] = th.offsetWidth;
+        stSaveColW(o);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    // Çift tık: bu sütunu sıfırla
+    grip.addEventListener('dblclick', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      var o = stGetColW();
+      delete o[th.getAttribute('data-hn')];
+      stSaveColW(o);
+      stRenderContent();
+    });
+  });
 }
 
 window.stOnayChange = function(rowIdx, colIdx, sel) {
