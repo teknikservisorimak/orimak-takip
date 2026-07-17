@@ -13360,7 +13360,7 @@ function stUpdateDetayCalc() {
   var fmtTRY = function(n){ return fmtTR(n)+' TRY'; };
 
   // Form alanlarını doldur
-  setVal('Ara Toplam', fmtTR(araToplam));
+  setVal('Ara Toplam', fmtTR(araToplam) + ' ' + pb);
   setVal('Ara Toplam (TL)', fmtTRY(araToplamTL));
   setVal('KDV (TL)', fmtTRY(kdvTL));
   setVal('Genel Toplam (TL)', fmtTRY(genelToplam));
@@ -13448,7 +13448,7 @@ window.stAddDetay = function() {
     var kdvTL = araToplamTL * kdvPct / 100;
     var genelTL = araToplamTL + kdvTL;
     var fmt = function(n){ return n.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+' TRY'; };
-    if (araToplIdx >= 0) row[araToplIdx] = araToplam.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    if (araToplIdx >= 0) row[araToplIdx] = araToplam.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' ' + pb;
     if (pb === 'TL' && kruIdx >= 0) row[kruIdx] = '1,00 TRY';
     if (araToplTLIdx >= 0) row[araToplTLIdx] = fmt(araToplamTL);
     if (kdvTLIdx >= 0) row[kdvTLIdx] = fmt(kdvTL);
