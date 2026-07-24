@@ -2092,7 +2092,7 @@ function siparisPDFBolumu(sheet, allSheets) {
     <th>GELEN ADET</th><th>DURUM</th><th>NOTLAR</th>
   </tr></thead><tbody>`;
   (sheet.rows || []).forEach((r, i) => {
-    const t = (typeof findTeslimForSiparis === 'function') ? findTeslimForSiparis(teslimRows, r, i) : null;
+    const t = (typeof getTeslimOzetForSiparis === 'function') ? getTeslimOzetForSiparis(teslimRows, r, i) : ((typeof findTeslimForSiparis === 'function') ? findTeslimForSiparis(teslimRows, r, i) : null);
     const gelen = t ? (t.gelisAdet || '') : '';
     let durum = 'Bekleniyor', dClass = 'bekle';
     if (t || r.gelisOnay === 'Onaylandı') { durum = 'Teslim Alındı'; dClass = 'onay'; }
@@ -2313,7 +2313,7 @@ async function yeniPartiBaslat() {
     // Aksi halde (onay yok / eksik teslim) satır yeni partiye taşınır.
     function siparisTamamlandiMi(r, i, teslimRows) {
       if ((r.gelisOnay || '') !== 'Onaylandı') return false; // geliş onayı yok → koru
-      const t = findTeslimForSiparis(teslimRows, r, i);
+      const t = getTeslimOzetForSiparis(teslimRows, r, i);
       if (t) {
         const sa = parseFloat(r.sipAdet);
         const ga = parseFloat(t.gelisAdet);
@@ -2754,6 +2754,36 @@ function findTeslimForSiparis(teslimRows, r, i) {
   });
 }
 window.findTeslimForSiparis = findTeslimForSiparis;
+
+function getTeslimOzetForSiparis(teslimRows, r, i) {
+  if (!teslimRows || !teslimRows.length) return null;
+  var matches = teslimRows.filter(function(t) {
+    if (r._sid && t._siparisId) return t._siparisId === r._sid;
+    return !t._siparisId && t.siparisIdx !== undefined && t.siparisIdx !== null && t.siparisIdx === i;
+  });
+  if (!matches.length) return null;
+
+  var toplam = 0, sayisalAdetVar = false, tarihler = [], alanlar = [];
+  matches.forEach(function(t) {
+    var adet = t.gelisAdet;
+    if (adet === undefined || adet === null || adet === '') adet = t.gelenAdet;
+    if (adet === undefined || adet === null || adet === '') adet = t._gelenAdet;
+    var n = parseFloat(String(adet || '').replace(',', '.'));
+    if (!isNaN(n)) { toplam += n; sayisalAdetVar = true; }
+
+    var tarih = t.gelisTarihi || t.teslimTarihi || '';
+    if (tarih) tarihler.push(tarih);
+    if (t.teslimAlan && alanlar.indexOf(t.teslimAlan) < 0) alanlar.push(t.teslimAlan);
+  });
+
+  return {
+    gelisAdet: sayisalAdetVar ? String(toplam) : '',
+    gelisTarihi: tarihler.length ? tarihler[tarihler.length - 1] : '',
+    teslimAlan: alanlar.join(', '),
+    kayitSayisi: matches.length
+  };
+}
+window.getTeslimOzetForSiparis = getTeslimOzetForSiparis;
 function buildSiparisPanel(si) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'padding:16px;';
@@ -2794,7 +2824,7 @@ function renderSiparisRows() {
   rows.forEach((r, i) => {
     // Teslim kayıttan geliş bilgisini çek
     const teslimRows = getTeslimRows();
-    const teslim = findTeslimForSiparis(teslimRows, r, i);
+    const teslim = getTeslimOzetForSiparis(teslimRows, r, i);
     const gelisAdet = teslim ? teslim.gelisAdet : '';
     const gelisTarihi = teslim ? teslim.gelisTarihi : '';
     const teslimAlan = teslim ? teslim.teslimAlan : '';
@@ -3567,7 +3597,7 @@ window.openSiparisTopluMail = openSiparisTopluMail;
 function siparisTopluMailTabloHtml(rows) {
   const teslimRows = (typeof getTeslimRows === 'function') ? getTeslimRows() : [];
   const satirlar = rows.map((r, i) => {
-    const teslim = findTeslimForSiparis(teslimRows, r, i);
+    const teslim = getTeslimOzetForSiparis(teslimRows, r, i);
     const gelen = teslim ? (teslim.gelisAdet || '—') : '—';
     const yColor = r.yetkiliOnay === 'Onaylandı' ? '#2a7a2a' : r.yetkiliOnay === 'Beklemede' ? '#b07000' : '#888';
     const sipColor = r.sipDurumu === 'Sipariş Edildi' ? '#2a7a2a' : r.sipDurumu === 'Sipariş Edilmedi' ? '#b07000' : '#888';
@@ -4261,7 +4291,7 @@ function _siparisPDFOlustur(rows, teslimRows) {
   </tr></thead><tbody>`;
 
   rows.forEach((r, i) => {
-    const teslim = findTeslimForSiparis(teslimRows, r, i);
+    const teslim = getTeslimOzetForSiparis(teslimRows, r, i);
     const gelisAdet = teslim ? teslim.gelisAdet : '';
     const gelisTarihi = teslim ? teslim.gelisTarihi : '';
     const teslimAlan = teslim ? teslim.teslimAlan : '';
@@ -5124,7 +5154,7 @@ function getTerminUrunler(gunSinir = 7) {
         if (!termin) return;
         // Teslim alındıysa atla
         const teslimRows = getTeslimRows ? getTeslimRows() : [];
-        const teslim = findTeslimForSiparis ? findTeslimForSiparis(teslimRows, r, ri) : teslimRows.find(t => t.urunKodu === r.urunKodu);
+        const teslim = getTeslimOzetForSiparis ? getTeslimOzetForSiparis(teslimRows, r, ri) : (findTeslimForSiparis ? findTeslimForSiparis(teslimRows, r, ri) : null);
         if (teslim) return;
         if (r.gelisOnay === 'Onaylandı') return;
         if (termin >= bugun && termin <= sinir) {
@@ -12614,10 +12644,23 @@ function stRender() {
 }
 
 
+function stMonthKey(value) {
+  var str = String(value || '').trim();
+  var m = str.match(/^(\d{4})[-/.](\d{1,2})(?:[-/.]\d{1,2})?$/);
+  if (m) return m[1] + '-' + String(+m[2]).padStart(2, '0');
+  m = str.match(/^(?:\d{1,2}[-/.])?(\d{1,2})[-/.](\d{4})$/);
+  if (m) return m[2] + '-' + String(+m[1]).padStart(2, '0');
+  return '';
+}
+
 // ── Tarih parse yardımcı (GG.AA.YYYY veya AA.YYYY) ──
 function stParseDate(s) {
   if (!s) return 0;
   var str = String(s).trim();
+  var iso = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (iso) return new Date(+iso[1], +iso[2]-1, +iso[3]).getTime();
+  var slash = str.match(/^(\d{1,2})[\/](\d{1,2})[\/](\d{4})$/);
+  if (slash) return new Date(+slash[3], +slash[2]-1, +slash[1]).getTime();
   // GG.AA.YYYY
   var m = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (m) return new Date(+m[3], +m[2]-1, +m[1]).getTime();
@@ -12855,9 +12898,10 @@ function stRenderContent() {
       return parseFloat(str) || 0;
     }
     (detayInfo2.data || []).forEach(function(r) {
-      var ay = String(r[ayIdx2]||'').trim();
-      if (!ay || ay === '#N/A' || ay.indexOf('1899') >= 0 || ay === '') return;
-      if (!ay.match(/^\d{4}-\d{2}$/)) return;
+      var rawAy = String(r[ayIdx2]||'').trim();
+      if (!rawAy || rawAy === '#N/A' || rawAy.indexOf('1899') >= 0) return;
+      var ay = stMonthKey(rawAy);
+      if (!ay) return;
       liveMonths[ay] = true;
       if (!monthly[ay]) monthly[ay] = {malzeme:0, servis:0, yol:0, kdv:0, genel:0, faturaSayisi:{}};
       var kat = String(r[katIdx2]||'').trim();
@@ -14289,8 +14333,8 @@ window.addEventListener('firebaseReady', function() {
 function _stRowMonth(fname, headers, row) {
   var ayI = headers.indexOf('Ay');
   if (ayI >= 0) {
-    var a = String(row[ayI] || '').trim();
-    if (/^\d{4}-\d{2}$/.test(a)) return a;
+    var a = stMonthKey(row[ayI]);
+    if (a) return a;
   }
   var di = stGetDateColIdx(fname, headers);
   if (di >= 0) {
@@ -14307,8 +14351,8 @@ function _stComputeFreeze(headers, archRows) {
   function num(s) { var str = String(s || '0').trim().replace(/[^0-9,.-]/g, '').replace(/\.(?=\d{3})/g, '').replace(',', '.'); return parseFloat(str) || 0; }
   var run = {};
   archRows.forEach(function(r) {
-    var ay = String(r[ayI] || '').trim();
-    if (!/^\d{4}-\d{2}$/.test(ay)) return;
+    var ay = stMonthKey(r[ayI]);
+    if (!ay) return;
     if (!run[ay]) run[ay] = { malzeme: 0, servis: 0, yol: 0, kdv: 0, genel: 0, fSet: {} };
     var kat = String(r[katI] || '').trim();
     if (kat === 'MALZEME') run[ay].malzeme += num(r[araI]);
