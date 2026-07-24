@@ -3649,6 +3649,7 @@ async function siparisTopluMailGonder() {
 window.siparisTopluMailGonder = siparisTopluMailGonder;
 
 async function brevoMailGonder(toEmail, toName, konu, htmlIcerik) {
+  if (!toEmail) { console.warn('[mail] alıcı e-postası boş, gönderilmedi:', toName); return false; }
   try {
     const res = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
@@ -3663,9 +3664,19 @@ async function brevoMailGonder(toEmail, toName, konu, htmlIcerik) {
         htmlContent: htmlIcerik
       })
     });
-    return res.ok;
+    if (!res.ok) {
+      // Eskiden hata sessizce yutuluyordu; artık gerçek sebep konsola yazılır
+      let detay = '';
+      try { detay = await res.text(); } catch(e) {}
+      console.error('[mail] Brevo reddetti — HTTP ' + res.status + ' → ' + toEmail, detay);
+      if (res.status === 401) console.error('[mail] 401 = API anahtarı geçersiz/iptal edilmiş. Brevo panelinden yeni anahtar alın.');
+      if (res.status === 402) console.error('[mail] 402 = Brevo kredisi/kotası bitmiş.');
+      return false;
+    }
+    console.log('[mail] gönderildi →', toEmail, '|', konu);
+    return true;
   } catch(e) {
-    console.error('Mail gönderilemedi:', e);
+    console.error('[mail] ağ hatası, gönderilemedi:', toEmail, e);
     return false;
   }
 }
@@ -3748,16 +3759,16 @@ function terminGrupHtml(grupAdi, rows) {
 function terminKontrol() {
   const ayarlar = getMailAyarlari();
   if (!ayarlar.termin.aktif) return;
-  const yetkililer = getYetkililer();
-  if (yetkililer.length === 0) return;
-  if (ayarlar.termin.yetkililer.length === 0) return;
+  const terminAlicilar = mailAyarYetkilileri(ayarlar.termin);
+  if (terminAlicilar.length === 0) return;
 
   const bugun = new Date(); bugun.setHours(0,0,0,0);
   const bugunStr = bugun.toISOString().slice(0,10);
   const gunSiniri = ayarlar.termin.gun || 3;
 
   // Hangi sayfalar taransın: ayarlarda seçiliyse onlar, seçili değilse hiçbirini tarama
-  const sayfaIdxler = ayarlar.termin.sayfalar;
+  // (sayfa ADI ile eşleşir — sayfa sırası değişse de doğru sayfa taranır)
+  const sayfaIdxler = SHEETS.map((s, i) => i).filter(i => mailAyarSayfaSecili(ayarlar.termin, i));
   if (sayfaIdxler.length === 0) return;
 
   // Termini yaklaşan satırları bölüm bölüm topla: [{ sayfaAdi, gruplar:[{grupAdi, rows:[...] }] }]
@@ -3862,11 +3873,7 @@ function terminKontrol() {
   gonderilecekKeys.forEach(k => localStorage.setItem(k, bugunStr));
 
   // Ayarlardaki her yetkiliye TEK toplu mail gönder
-  ayarlar.termin.yetkililer.forEach(yi => {
-    const y = yetkililer[yi];
-    if (!y) return;
-    brevoMailGonder(y.mail, y.ad, konu, htmlIcerik);
-  });
+  terminAlicilar.forEach(y => { brevoMailGonder(y.mail, y.ad, konu, htmlIcerik); });
 }
 
 setInterval(terminKontrol, 60 * 60 * 1000);
@@ -3875,10 +3882,10 @@ setTimeout(terminKontrol, 5000);
 // Yeni satır eklenince mail bildirimi
 function yeniSatirMailGonder(si, malzemeAdi, malzemeKodu, grup) {
   const ayarlar = getMailAyarlari();
-  if (!ayarlar.yeniSatir.aktif) return;
-  if (!ayarlar.yeniSatir.sayfalar.includes(si)) return;
-  if (ayarlar.yeniSatir.yetkililer.length === 0) return;
-  const yetkililer = getYetkililer();
+  if (!ayarlar.yeniSatir.aktif) { console.log('[mail] yeni satır bildirimi kapalı — gönderilmedi'); return; }
+  if (!mailAyarSayfaSecili(ayarlar.yeniSatir, si)) { console.log('[mail] bu sayfa mail ayarlarında seçili değil:', (SHEETS[si]||{}).name); return; }
+  const alicilar = mailAyarYetkilileri(ayarlar.yeniSatir);
+  if (alicilar.length === 0) { console.warn('[mail] seçili yetkili yok — gönderilmedi'); return; }
   const sayfaAdi = (SHEETS[si] && SHEETS[si].name) || 'Malzeme Listesi';
   const kim = window._currentUser || '—';
   const html = `
@@ -3898,9 +3905,7 @@ function yeniSatirMailGonder(si, malzemeAdi, malzemeKodu, grup) {
       </div>
       <div style="background:#f0f0f0;padding:10px 22px;font-size:11px;color:#aaa;text-align:center;">Orimak Takip Sistemi — otomatik yeni satır bildirimi</div>
     </div>`;
-  ayarlar.yeniSatir.yetkililer.forEach(yi => {
-    const y = yetkililer[yi];
-    if (!y) return;
+  alicilar.forEach(y => {
     brevoMailGonder(y.mail, y.ad, `➕ Yeni Satır: ${malzemeAdi||'—'} — ${sayfaAdi}`, html);
   });
 }
@@ -3911,20 +3916,28 @@ window.yeniSatirMailGonder = yeniSatirMailGonder;
 function yeniSiparisMailGonder(siparis) {
   try {
     const ayarlar = getMailAyarlari();
-    if (!ayarlar.yeniSatir || !ayarlar.yeniSatir.aktif) return;
     const si = getSiparisIdx();
-    if (si < 0 || !Array.isArray(ayarlar.yeniSatir.sayfalar) || !ayarlar.yeniSatir.sayfalar.includes(si)) return;
-    if (!Array.isArray(ayarlar.yeniSatir.yetkililer) || ayarlar.yeniSatir.yetkililer.length === 0) return;
-    const yetkililer = getYetkililer();
-    ayarlar.yeniSatir.yetkililer.forEach(yi => {
-      const y = yetkililer[yi];
-      if (!y || !y.mail) return;
+    if (!ayarlar.yeniSatir.aktif) {
+      console.warn('[mail] Sipariş maili gönderilmedi: Site Yönetimi → Mail Ayarları → "Yeni satır eklenince bildir" KAPALI.');
+      return;
+    }
+    if (si < 0) { console.warn('[mail] Sipariş maili gönderilmedi: sipariş sayfası bulunamadı.'); return; }
+    if (!mailAyarSayfaSecili(ayarlar.yeniSatir, si)) {
+      console.warn('[mail] Sipariş maili gönderilmedi: mail ayarlarında sipariş sayfası ("' + ((SHEETS[si]||{}).name || '?') + '") işaretli değil.');
+      return;
+    }
+    const alicilar = mailAyarYetkilileri(ayarlar.yeniSatir);
+    if (alicilar.length === 0) {
+      console.warn('[mail] Sipariş maili gönderilmedi: mail ayarlarında seçili yetkili yok (veya seçili yetkili silinmiş).');
+      return;
+    }
+    console.log('[mail] Yeni sipariş maili gönderiliyor →', alicilar.map(y => y.mail).join(', '));
+    alicilar.forEach(y => {
       mailSiparisYeni(siparis, y.mail, y.ad).then(ok => {
-        if (ok) console.log('✅ Yeni sipariş maili gönderildi:', y.mail);
-        else console.warn('❌ Sipariş maili gönderilemedi:', y.mail);
+        if (!ok) console.warn('[mail] ❌ Sipariş maili gönderilemedi:', y.mail, '— detay için yukarıdaki Brevo hatasına bakın.');
       });
     });
-  } catch (e) { console.error('yeniSiparisMailGonder hatası:', e); }
+  } catch (e) { console.error('[mail] yeniSiparisMailGonder hatası:', e); }
 }
 window.yeniSiparisMailGonder = yeniSiparisMailGonder;
 
@@ -4598,16 +4611,189 @@ function switchSYTab(idx) {
 }
 window.switchSYTab = switchSYTab;
 
-// ── MAİL AYARLARI ──
+// ── MAİL AYARLARI (v2 — Firestore senkronlu) ──
+// ESKİ DAVRANIŞ / HATA:
+//  1) Ayarlar SADECE localStorage'da tutuluyordu. Ayarı yapan tarayıcı dışında
+//     hiçbir cihazda otomatik mail çalışmıyordu; tarayıcı depolamayı temizleyince
+//     ayarlar sessizce varsayılana (yeniSatir.aktif = false) dönüyordu.
+//  2) Yetkili ve sayfa seçimleri DİZİ İNDEKSİ olarak saklanıyordu. Bir yetkili
+//     silinince ya da sayfa sırası değişince seçim başka birine/başka sayfaya
+//     kayıyor veya tamamen boşa düşüyordu.
+// YENİ DAVRANIŞ: ayarlar "ayarlar/mailAyarlari" dökümanında tutulur, tüm
+// cihazlarda ortaktır; seçimler E-POSTA ve SAYFA ADI ile saklanır (index'ler
+// geriye dönük uyumluluk için korunur).
+const MAIL_AYAR_DOC_ID = 'mailAyarlari';
+let _mailAyarCache = null;
+let _mailAyarListenerActive = false;
+let _mailAyarInited = false;
+
+function _mailAyarVarsayilan() {
+  return {
+    termin:    { aktif: true,  gun: 3, yetkiliMailler: [], sayfaAdlari: [], yetkililer: [], sayfalar: [] },
+    yeniSatir: { aktif: false, gun: 3, yetkiliMailler: [], sayfaAdlari: [], yetkililer: [], sayfalar: [] }
+  };
+}
+function _mailAyarBlok(b, varsAktif) {
+  b = (b && typeof b === 'object') ? b : {};
+  return {
+    aktif: (typeof b.aktif === 'boolean') ? b.aktif : varsAktif,
+    gun: parseInt(b.gun, 10) || 3,
+    yetkiliMailler: Array.isArray(b.yetkiliMailler) ? b.yetkiliMailler.slice() : [],
+    sayfaAdlari:    Array.isArray(b.sayfaAdlari)    ? b.sayfaAdlari.slice()    : [],
+    yetkililer:     Array.isArray(b.yetkililer)     ? b.yetkililer.slice()     : [],
+    sayfalar:       Array.isArray(b.sayfalar)       ? b.sayfalar.slice()       : []
+  };
+}
+function _mailAyarNormalize(o) {
+  if (!o || typeof o !== 'object') return _mailAyarVarsayilan();
+  return { termin: _mailAyarBlok(o.termin, true), yeniSatir: _mailAyarBlok(o.yeniSatir, false) };
+}
+
 function getMailAyarlari() {
-  try { return JSON.parse(localStorage.getItem('orimak_mail_ayarlari') || 'null') || {
-    termin: { aktif: true, gun: 3, yetkililer: [], sayfalar: [] },
-    yeniSatir: { aktif: false, yetkililer: [], sayfalar: [] }
-  }; } catch(e) { return { termin: { aktif: true, gun: 3, yetkililer: [], sayfalar: [] }, yeniSatir: { aktif: false, yetkililer: [], sayfalar: [] } }; }
+  if (_mailAyarCache) return _mailAyarCache;
+  let ham = null;
+  try { ham = JSON.parse(localStorage.getItem('orimak_mail_ayarlari') || 'null'); } catch(e) { ham = null; }
+  _mailAyarCache = _mailAyarNormalize(ham);
+  return _mailAyarCache;
 }
 function saveMailAyarlari(obj) {
-  localStorage.setItem('orimak_mail_ayarlari', JSON.stringify(obj));
+  _mailAyarCache = _mailAyarNormalize(obj);
+  try { localStorage.setItem('orimak_mail_ayarlari', JSON.stringify(_mailAyarCache)); } catch(e) {}
+  _mailAyarFirestoreKaydet(_mailAyarCache);
+  return _mailAyarCache;
 }
+
+// ── Firestore senkronu ──
+async function _mailAyarFirestoreKaydet(ayar) {
+  try {
+    if (!window._db || !window._fsDoc || !window._fsSetDoc) return;
+    const ref = window._fsDoc(window._db, 'ayarlar', MAIL_AYAR_DOC_ID);
+    await window._fsSetDoc(ref, { ayar: ayar, ts: Date.now() }, { merge: true });
+  } catch(e) { console.error('[mail] ayarlar buluta kaydedilemedi:', e); }
+}
+async function loadMailAyarFromFirestore() {
+  try {
+    if (!window._db || !window._fsDoc || !window._fsGetDoc) return getMailAyarlari();
+    const ref = window._fsDoc(window._db, 'ayarlar', MAIL_AYAR_DOC_ID);
+    const snap = await window._fsGetDoc(ref);
+    if (snap.exists() && snap.data().ayar) {
+      _mailAyarCache = _mailAyarNormalize(snap.data().ayar);
+      try { localStorage.setItem('orimak_mail_ayarlari', JSON.stringify(_mailAyarCache)); } catch(e) {}
+    } else {
+      // Bulutta yok — bu tarayıcıdaki mevcut ayarları buluta taşı (tek seferlik migration)
+      const yerel = getMailAyarlari();
+      const dolu = yerel.termin.yetkililer.length || yerel.termin.yetkiliMailler.length ||
+                   yerel.yeniSatir.yetkililer.length || yerel.yeniSatir.yetkiliMailler.length;
+      if (dolu) { await _mailAyarFirestoreKaydet(yerel); console.log('[mail] ayarlar localStorage → Firestore taşındı'); }
+    }
+  } catch(e) { console.error('[mail] ayarlar okunamadı:', e); }
+  _mailAyarPanelTazele();
+  return _mailAyarCache;
+}
+function _mailAyarPanelTazele() {
+  const p = document.getElementById('syPanel4');
+  if (p && p.innerHTML.trim() && typeof renderMailAyarlari === 'function') {
+    try { renderMailAyarlari(); } catch(e) {}
+  }
+}
+function startMailAyarListener() {
+  if (_mailAyarListenerActive) return;
+  if (!window._db || !window._fsDoc || !window._fsOnSnapshot) return;
+  try {
+    const ref = window._fsDoc(window._db, 'ayarlar', MAIL_AYAR_DOC_ID);
+    window._fsOnSnapshot(ref, function(snap) {
+      if (!snap.exists() || !snap.data().ayar) return;
+      _mailAyarCache = _mailAyarNormalize(snap.data().ayar);
+      try { localStorage.setItem('orimak_mail_ayarlari', JSON.stringify(_mailAyarCache)); } catch(e) {}
+      _mailAyarPanelTazele();
+    });
+    _mailAyarListenerActive = true;
+  } catch(e) { console.error('[mail] ayar listener hatası:', e); }
+}
+function _mailAyarInit() {
+  if (_mailAyarInited) return;
+  _mailAyarInited = true;
+  loadMailAyarFromFirestore().then(startMailAyarListener);
+}
+window.addEventListener('firebaseReady', _mailAyarInit);
+if (window._db) _mailAyarInit();
+
+// ── SEÇİM ÇÖZÜCÜLER (index kaymasına karşı) ──
+// Seçili yetkilileri döndürür: önce e-posta ile eşler, e-posta kaydı yoksa
+// eski index tabanlı kayda düşer.
+function mailAyarYetkilileri(blok) {
+  const hepsi = getYetkililer();
+  const secili = [], gorulen = {};
+  (blok.yetkiliMailler || []).forEach(function(m) {
+    const key = String(m || '').trim().toLowerCase();
+    if (!key || gorulen[key]) return;
+    const y = hepsi.find(function(x) { return String(x.mail || '').trim().toLowerCase() === key; });
+    if (y) { gorulen[key] = 1; secili.push(y); }
+  });
+  if (secili.length === 0) {
+    (blok.yetkililer || []).forEach(function(i) {
+      const y = hepsi[i]; if (!y) return;
+      const key = String(y.mail || '').trim().toLowerCase();
+      if (!key || gorulen[key]) return;
+      gorulen[key] = 1; secili.push(y);
+    });
+  }
+  return secili;
+}
+window.mailAyarYetkilileri = mailAyarYetkilileri;
+
+// Sayfa seçili mi? — önce sayfa ADI ile, kayıt yoksa eski index ile
+function mailAyarSayfaSecili(blok, si) {
+  const sheet = SHEETS[si];
+  if (!sheet) return false;
+  const adlar = blok.sayfaAdlari || [];
+  if (adlar.length) return adlar.indexOf(sheet.name) >= 0;
+  return (blok.sayfalar || []).indexOf(si) >= 0;
+}
+window.mailAyarSayfaSecili = mailAyarSayfaSecili;
+
+// Konsoldan çalıştırılabilir teşhis: otomatik mail neden gitmiyor?
+window.mailTeshis = function() {
+  const a = getMailAyarlari();
+  const si = (typeof getSiparisIdx === 'function') ? getSiparisIdx() : -1;
+  const alicilar = mailAyarYetkilileri(a.yeniSatir);
+  const rapor = {
+    'Yeni satır bildirimi açık mı?': a.yeniSatir.aktif ? 'EVET' : 'HAYIR ← burada kapalı',
+    'Seçili yetkili sayısı': alicilar.length,
+    'Seçili yetkililer': alicilar.map(function(y){ return y.ad + ' <' + y.mail + '>'; }).join(', ') || '(yok)',
+    'Sipariş sayfası bulundu mu?': si >= 0 ? ('EVET — index ' + si + ' (' + (SHEETS[si] ? SHEETS[si].name : '?') + ')') : 'HAYIR',
+    'Sipariş sayfası seçili mi?': (si >= 0 && mailAyarSayfaSecili(a.yeniSatir, si)) ? 'EVET' : 'HAYIR ← burada seçili değil',
+    'Seçili sayfalar': (a.yeniSatir.sayfaAdlari.length ? a.yeniSatir.sayfaAdlari.join(', ') : ('index: ' + a.yeniSatir.sayfalar.join(', '))) || '(yok)',
+    'Ayarlar bulutla senkron mu?': _mailAyarListenerActive ? 'EVET' : 'HAYIR (Firebase hazır değil)'
+  };
+  console.log('%c── OTOMATİK MAİL TEŞHİS ──', 'color:#f5a623;font-weight:bold');
+  Object.keys(rapor).forEach(function(k){ console.log(k + ':', rapor[k]); });
+  return rapor;
+};
+
+// Ayar panelinden test maili
+window.mailTestGonder = async function() {
+  const btn = document.getElementById('ma_testBtn');
+  const ayarlar = getMailAyarlari();
+  const alicilar = mailAyarYetkilileri(ayarlar.yeniSatir);
+  if (alicilar.length === 0) { alert('⚠️ Önce aşağıdaki listeden en az bir yetkili seçin.'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ GÖNDERİLİYOR...'; }
+  const html = siparisMaliHtml({
+    urunKodu: 'TEST-001', urunAdi: 'Test Ürünü', sipAdet: '1',
+    olusturan: (window._currentUser || 'Test'),
+    olusturmaTarihi: new Date().toLocaleDateString('tr-TR'),
+    terminTarihi: '—', notlar: 'Bu bir test mailidir, gerçek sipariş değildir.'
+  }, '🧪 Test maili');
+  let basarili = 0;
+  for (const y of alicilar) {
+    const ok = await brevoMailGonder(y.mail, y.ad, '🧪 Orimak Takip — Test Maili', html);
+    if (ok) basarili++;
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🧪 TEST MAİLİ GÖNDER'; }
+  alert(basarili === alicilar.length
+    ? '✅ ' + basarili + ' yetkiliye test maili gönderildi.'
+    : '❌ ' + alicilar.length + ' denemeden ' + basarili + ' tanesi başarılı.\n\nF12 → Console sekmesinde hata detayı yazıyor (çoğunlukla Brevo API anahtarı sorunu).');
+};
 
 function renderMailAyarlari() {
   const panel = document.getElementById('syPanel4');
@@ -4616,21 +4802,41 @@ function renderMailAyarlari() {
   const ayarlar = getMailAyarlari();
   const sayfaListesi = SHEETS.map((s, i) => ({ ad: s.name, idx: i, type: s.type }));
 
-  const yetkiliCheckboxHTML = (prefix, seciliIdxler) => yetkililer.length === 0
-    ? '<div style="color:#f87171;font-size:12px;padding:8px;">⚠️ Henüz yetkili eklenmedi. Yetkililer sekmesinden ekleyin.</div>'
-    : yetkililer.map((y, i) => `
+  // Seçili yetkililer artık e-posta ile eşleşir (index kayması olmaz)
+  const yetkiliCheckboxHTML = (prefix, blok) => {
+    if (yetkililer.length === 0) return '<div style="color:#f87171;font-size:12px;padding:8px;">⚠️ Henüz yetkili eklenmedi. Yetkililer sekmesinden ekleyin.</div>';
+    const seciliMailler = mailAyarYetkilileri(blok).map(y => String(y.mail||'').trim().toLowerCase());
+    return yetkililer.map((y, i) => `
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 10px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;">
-        <input type="checkbox" data-group="${prefix}" value="${i}" ${seciliIdxler.includes(i) ? 'checked' : ''} style="accent-color:#5bc8e8;width:13px;height:13px;" onchange="mailAyarDegisti()"/>
+        <input type="checkbox" data-group="${prefix}" value="${i}" data-mail="${(y.mail||'').replace(/"/g,'&quot;')}" ${seciliMailler.includes(String(y.mail||'').trim().toLowerCase()) ? 'checked' : ''} style="accent-color:#5bc8e8;width:13px;height:13px;" onchange="mailAyarDegisti()"/>
         <span style="font-size:13px;color:#ddd;">${y.ad}</span>
         <span style="font-size:11px;color:#666;margin-left:auto;">${y.mail}</span>
       </label>`).join('');
+  };
 
-  const sayfaCheckboxHTML = (prefix, seciliIdxler) => sayfaListesi.map(s => `
+  // Seçili sayfalar artık sayfa ADI ile eşleşir (sayfa sırası değişse de bozulmaz)
+  const sayfaCheckboxHTML = (prefix, blok) => sayfaListesi.map(s => `
     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 10px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;">
-      <input type="checkbox" data-group="${prefix}" value="${s.idx}" ${seciliIdxler.includes(s.idx) ? 'checked' : ''} style="accent-color:#5bc8e8;width:13px;height:13px;" onchange="mailAyarDegisti()"/>
+      <input type="checkbox" data-group="${prefix}" value="${s.idx}" data-ad="${(s.ad||'').replace(/"/g,'&quot;')}" ${mailAyarSayfaSecili(blok, s.idx) ? 'checked' : ''} style="accent-color:#5bc8e8;width:13px;height:13px;" onchange="mailAyarDegisti()"/>
       <span style="font-size:13px;color:#ddd;">${s.ad}</span>
-      <span style="font-size:11px;color:#666;margin-left:auto;font-family:'Barlow Condensed',sans-serif;letter-spacing:.5px;">${s.type||'malzeme'}</span>
+      <span style="font-size:11px;color:#666;margin-left:auto;font-family:'Barlow Condensed',sans-serif;letter-spacing:.5px;">${s.type||'malzeme'}${s.type==='siparis'?' ← sipariş formu':''}</span>
     </label>`).join('');
+
+  // Otomatik sipariş maili için canlı durum satırı
+  const _sipIdx = (typeof getSiparisIdx === 'function') ? getSiparisIdx() : -1;
+  const _sipSecili = _sipIdx >= 0 && mailAyarSayfaSecili(ayarlar.yeniSatir, _sipIdx);
+  const _sipAlici = mailAyarYetkilileri(ayarlar.yeniSatir).length;
+  const _durumOK = ayarlar.yeniSatir.aktif && _sipSecili && _sipAlici > 0;
+  const durumKutusu = `
+    <div id="ma_durumKutusu" style="background:${_durumOK ? 'rgba(30,180,80,.10)' : 'rgba(248,113,113,.10)'};border:1px solid ${_durumOK ? 'rgba(30,180,80,.35)' : 'rgba(248,113,113,.35)'};border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;line-height:1.8;color:#ccc;">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:1px;color:${_durumOK ? '#5fef9a' : '#f87171'};margin-bottom:4px;">
+        ${_durumOK ? '✅ SİPARİŞ FORMU OTOMATİK MAİLİ ÇALIŞIYOR' : '⚠️ SİPARİŞ FORMU OTOMATİK MAİLİ ÇALIŞMIYOR'}
+      </div>
+      ${ayarlar.yeniSatir.aktif ? '✔' : '✘'} Bildirim açık &nbsp;·&nbsp;
+      ${_sipAlici > 0 ? '✔' : '✘'} Seçili yetkili: ${_sipAlici} &nbsp;·&nbsp;
+      ${_sipSecili ? '✔' : '✘'} Sipariş sayfası seçili
+      ${_durumOK ? '' : '<br><span style="color:#888;">Üstteki kutuyu işaretleyin, en az bir yetkili seçin ve aşağıdaki sayfa listesinden <strong style="color:#5bc8e8;">sipariş formu sayfasını</strong> işaretleyin.</span>'}
+    </div>`;
 
   panel.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:20px;">
@@ -4653,13 +4859,13 @@ function renderMailAyarlari() {
         <div style="margin-bottom:12px;">
           <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">Bildirim Gönderilecek Yetkililer</div>
           <div style="display:flex;flex-direction:column;gap:5px;" id="ma_termin_yetkililer">
-            ${yetkiliCheckboxHTML('ma_termin_y', ayarlar.termin.yetkililer)}
+            ${yetkiliCheckboxHTML('ma_termin_y', ayarlar.termin)}
           </div>
         </div>
         <div>
           <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">Hangi Sayfalar Kontrol Edilsin?</div>
           <div style="display:flex;flex-direction:column;gap:5px;" id="ma_termin_sayfalar">
-            ${sayfaCheckboxHTML('ma_termin_s', ayarlar.termin.sayfalar)}
+            ${sayfaCheckboxHTML('ma_termin_s', ayarlar.termin)}
           </div>
         </div>
       </div>
@@ -4672,17 +4878,23 @@ function renderMailAyarlari() {
         </div>
         <div style="font-size:12px;color:#888;margin-bottom:14px;line-height:1.6;">
           Seçili sayfalara yeni satır eklendiğinde belirlenen yetkililer otomatik olarak bilgilendirilir.
+          <strong style="color:#5bc8e8;">Sipariş formu sayfası da bu kurala dahildir</strong> — sipariş eklenince mail buradan gider.
+        </div>
+        ${durumKutusu}
+        <div style="margin-bottom:14px;">
+          <button id="ma_testBtn" onclick="mailTestGonder()" style="padding:8px 16px;background:rgba(92,200,232,.12);border:1px solid rgba(92,200,232,.35);color:#5bc8e8;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">🧪 TEST MAİLİ GÖNDER</button>
+          <span style="font-size:11px;color:#666;margin-left:8px;">Seçili yetkililere örnek bir sipariş maili gönderir.</span>
         </div>
         <div style="margin-bottom:12px;">
           <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">Bildirim Gönderilecek Yetkililer</div>
           <div style="display:flex;flex-direction:column;gap:5px;" id="ma_yeniSatir_yetkililer">
-            ${yetkiliCheckboxHTML('ma_yeniSatir_y', ayarlar.yeniSatir.yetkililer)}
+            ${yetkiliCheckboxHTML('ma_yeniSatir_y', ayarlar.yeniSatir)}
           </div>
         </div>
         <div>
           <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:8px;font-family:'Barlow Condensed',sans-serif;">Hangi Sayfalarda Bildirim Gönderilsin?</div>
           <div style="display:flex;flex-direction:column;gap:5px;" id="ma_yeniSatir_sayfalar">
-            ${sayfaCheckboxHTML('ma_yeniSatir_s', ayarlar.yeniSatir.sayfalar)}
+            ${sayfaCheckboxHTML('ma_yeniSatir_s', ayarlar.yeniSatir)}
           </div>
         </div>
       </div>
@@ -4697,20 +4909,52 @@ function mailAyarDegisti() {
   const gun = parseInt(document.getElementById('ma_termin_gun')?.value) || 3;
   const aktif_yeniSatir = document.getElementById('ma_yeniSatir_aktif')?.checked || false;
 
-  const termin_yetkililer = Array.from(document.querySelectorAll('input[data-group="ma_termin_y"]:checked')).map(c => parseInt(c.value));
-  const termin_sayfalar = Array.from(document.querySelectorAll('input[data-group="ma_termin_s"]:checked')).map(c => parseInt(c.value));
-  const yeniSatir_yetkililer = Array.from(document.querySelectorAll('input[data-group="ma_yeniSatir_y"]:checked')).map(c => parseInt(c.value));
-  const yeniSatir_sayfalar = Array.from(document.querySelectorAll('input[data-group="ma_yeniSatir_s"]:checked')).map(c => parseInt(c.value));
+  const secili = (g) => Array.from(document.querySelectorAll('input[data-group="' + g + '"]:checked'));
+  const idxler = (g) => secili(g).map(c => parseInt(c.value));
+  const mailler = (g) => secili(g).map(c => c.getAttribute('data-mail') || '').filter(Boolean);
+  const adlar = (g) => secili(g).map(c => c.getAttribute('data-ad') || '').filter(Boolean);
 
   saveMailAyarlari({
-    termin: { aktif: aktif_termin, gun, yetkililer: termin_yetkililer, sayfalar: termin_sayfalar },
-    yeniSatir: { aktif: aktif_yeniSatir, yetkililer: yeniSatir_yetkililer, sayfalar: yeniSatir_sayfalar }
+    termin: {
+      aktif: aktif_termin, gun,
+      yetkililer: idxler('ma_termin_y'), sayfalar: idxler('ma_termin_s'),
+      yetkiliMailler: mailler('ma_termin_y'), sayfaAdlari: adlar('ma_termin_s')
+    },
+    yeniSatir: {
+      aktif: aktif_yeniSatir,
+      yetkililer: idxler('ma_yeniSatir_y'), sayfalar: idxler('ma_yeniSatir_s'),
+      yetkiliMailler: mailler('ma_yeniSatir_y'), sayfaAdlari: adlar('ma_yeniSatir_s')
+    }
   });
 
   const msg = document.getElementById('ma_kayitMsg');
   if (msg) { msg.style.display = 'block'; setTimeout(() => { msg.style.display = 'none'; }, 2000); }
+  // Durum kutusunu yerinde güncelle (panelin tamamını yeniden çizmeden)
+  if (typeof mailDurumTazele === 'function') mailDurumTazele();
 }
 window.mailAyarDegisti = mailAyarDegisti;
+
+// Sipariş otomatik mailinin canlı durumunu ayar panelinde yerinde günceller
+function mailDurumTazele() {
+  const kutu = document.getElementById('ma_durumKutusu');
+  if (!kutu) return;
+  const a = getMailAyarlari();
+  const si = (typeof getSiparisIdx === 'function') ? getSiparisIdx() : -1;
+  const sipSecili = si >= 0 && mailAyarSayfaSecili(a.yeniSatir, si);
+  const alici = mailAyarYetkilileri(a.yeniSatir).length;
+  const ok = a.yeniSatir.aktif && sipSecili && alici > 0;
+  kutu.style.background = ok ? 'rgba(30,180,80,.10)' : 'rgba(248,113,113,.10)';
+  kutu.style.borderColor = ok ? 'rgba(30,180,80,.35)' : 'rgba(248,113,113,.35)';
+  kutu.innerHTML =
+    '<div style="font-family:\'Barlow Condensed\',sans-serif;font-weight:700;letter-spacing:1px;color:' + (ok ? '#5fef9a' : '#f87171') + ';margin-bottom:4px;">' +
+      (ok ? '✅ SİPARİŞ FORMU OTOMATİK MAİLİ ÇALIŞIYOR' : '⚠️ SİPARİŞ FORMU OTOMATİK MAİLİ ÇALIŞMIYOR') +
+    '</div>' +
+    (a.yeniSatir.aktif ? '✔' : '✘') + ' Bildirim açık &nbsp;·&nbsp; ' +
+    (alici > 0 ? '✔' : '✘') + ' Seçili yetkili: ' + alici + ' &nbsp;·&nbsp; ' +
+    (sipSecili ? '✔' : '✘') + ' Sipariş sayfası seçili' +
+    (ok ? '' : '<br><span style="color:#888;">Üstteki kutuyu işaretleyin, en az bir yetkili seçin ve aşağıdaki sayfa listesinden <strong style="color:#5bc8e8;">sipariş formu sayfasını</strong> işaretleyin.</span>');
+}
+window.mailDurumTazele = mailDurumTazele;
 
 // Sayfa listesi düzenleme
 function renderSayfaListesi() {
@@ -12504,6 +12748,54 @@ function stGetDateColIdx(fname, headers) {
   return -1;
 }
 
+// ══════════════════════════════════════════════════════════════════
+// SERVİS PLAN — ONAY durumuna göre GÖRÜNÜM sıralaması
+// ══════════════════════════════════════════════════════════════════
+// Mod: 0 = kapalı (varsayılan SIRALAMA düzeni, en yeni üstte)
+//      1 = ▼ bekleyenler/işlem görmemişler üstte, ONAYLANDI en altta
+//      2 = ▲ tam tersi
+// ÖNEMLİ: Bu sıralama YALNIZCA ekrandaki görünümü değiştirir.
+// Kayıtların gerçek sırası, SIRALAMA numaraları, yeni kayıt ekleme,
+// düzenleme, silme, arşivleme ve buluta kayıt davranışı ETKİLENMEZ —
+// satır işlemleri her zaman gerçek dizi indeksi (actualIdx) ile yapılır.
+var _stOnaySortKey = '_stOnaySort_ServisPlan';
+function stGetOnaySort() {
+  try { var v = parseInt(localStorage.getItem(_stOnaySortKey) || '0', 10); return (v === 1 || v === 2) ? v : 0; }
+  catch(e) { return 0; }
+}
+function stSetOnaySort(v) { try { localStorage.setItem(_stOnaySortKey, String(v)); } catch(e) {} }
+window.stSetOnaySort = stSetOnaySort;
+window.stGetOnaySort = stGetOnaySort;
+
+// Küçük sayı = üstte kalır
+var _ST_ONAY_ONCELIK = {
+  'BEKLEMEDİ': 0, 'BEKLEMEDI': 0,           // onaylanmamış → en üstte
+  '': 1,                                     // hiçbir şey seçilmemiş → üstte
+  'FATURASI KESİLDİ': 2, 'FATURASI KESILDI': 2,
+  'ONAYLANDI': 3,                            // onaylananlar → en altta
+  'IPTAL': 4, 'İPTAL': 4                     // iptaller en sonda
+};
+function stOnayOncelik(v) {
+  var k = String(v === null || v === undefined ? '' : v).trim().toUpperCase();
+  return (_ST_ONAY_ONCELIK[k] !== undefined) ? _ST_ONAY_ONCELIK[k] : 1;
+}
+
+// ONAY başlığına tıklama: kapalı → ▼ → ▲ → kapalı
+window.stOnaySortToggle = function() {
+  var yeni = (stGetOnaySort() + 1) % 3;
+  stSetOnaySort(yeni);
+  stRenderContent();
+  if (typeof stBadge === 'function') {
+    stBadge(yeni === 1 ? '▼ Onaylanmayanlar üstte' : yeni === 2 ? '▲ Onaylananlar üstte' : '⇅ Varsayılan sıralama');
+  }
+};
+// Başlık tıklaması — sütun genişletme tutamacıyla çakışmasın
+window.stOnayHeaderClick = function(e) {
+  if (e && e.target && e.target.classList && e.target.classList.contains('st-col-rz')) return;
+  if (window._stRzJustDragged) { window._stRzJustDragged = false; return; }
+  window.stOnaySortToggle();
+};
+
 function stRenderContent() {
   var box = document.getElementById('stContent');
   if (!box) return;
@@ -12763,6 +13055,22 @@ function stRenderContent() {
     }
   }
 
+  // ── Servis Plan: ONAY durumuna göre görünüm sıralaması (yalnızca ekran) ──
+  var _onaySortMode = 0;
+  if (fname === 'Servis Plan.html') {
+    _onaySortMode = stGetOnaySort();
+    var _onayColIdx = headers.indexOf('ONAY');
+    if (_onaySortMode && _onayColIdx >= 0) {
+      // Array.prototype.sort kararlıdır → her durum grubunun İÇİNDE mevcut
+      // SIRALAMA düzeni (en yeni üstte) aynen korunur.
+      sortedRows = sortedRows.slice().sort(function(a, b) {
+        var pa = stOnayOncelik(a[_onayColIdx]);
+        var pb = stOnayOncelik(b[_onayColIdx]);
+        return (_onaySortMode === 2) ? (pb - pa) : (pa - pb);
+      });
+    }
+  }
+
   // Arama filtresi
   var q = stSearchQuery.toLowerCase();
   var filtered = q ? sortedRows.filter(function(r) {
@@ -12780,6 +13088,16 @@ function stRenderContent() {
         return '<th style="'+thStyleFD+'width:'+w+';'+al+'">'+stEsc(h)+'</th>';
       }
       if (fname === 'Servis Plan.html') {
+        if (h === 'ONAY') {
+          var _ok    = _onaySortMode === 1 ? '▼' : _onaySortMode === 2 ? '▲' : '⇅';
+          var _okRnk = _onaySortMode ? '#f5a623' : '#4a4a4a';
+          var _okTtl = _onaySortMode === 1 ? 'Onaylanmayanlar üstte · Onaylananlar en altta — tıkla: ters çevir'
+                     : _onaySortMode === 2 ? 'Onaylananlar üstte — tıkla: sıralamayı kapat'
+                     : 'Tıkla: onaylanmayanları üste al (görünüm sıralaması)';
+          return '<th class="st-th-rz" data-hn="'+stEsc(h)+'" onclick="stOnayHeaderClick(event)" title="'+_okTtl+'" style="'+thStyle+'cursor:pointer;user-select:none;'+(_onaySortMode?'color:#f5a623;background:#141008;':'')+'">'+
+                 stEsc(h)+' <span style="color:'+_okRnk+';font-size:11px;">'+_ok+'</span>'+
+                 '<span class="st-col-rz" title="Sürükle: genişlet · Çift tık: sıfırla"></span></th>';
+        }
         return '<th class="st-th-rz" data-hn="'+stEsc(h)+'" style="'+thStyle+'">'+stEsc(h)+'<span class="st-col-rz" title="Sürükle: genişlet · Çift tık: sıfırla"></span></th>';
       }
       return '<th style="'+thStyle+'">'+stEsc(h)+'</th>';
@@ -12795,6 +13113,11 @@ function stRenderContent() {
       '<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#ffcc40;font-family:Barlow Condensed,sans-serif;"><span style="width:13px;height:13px;background:rgba(245,166,35,0.55);border:1px solid #c07800;border-radius:3px;display:inline-block;"></span>Servis Tarihi Var</span>'+
       '<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#5fef9a;font-family:Barlow Condensed,sans-serif;"><span style="width:13px;height:13px;background:rgba(30,180,80,0.50);border:1px solid #1a8a40;border-radius:3px;display:inline-block;"></span>Onaylandı</span>'+
       '<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#7ab8f5;font-family:Barlow Condensed,sans-serif;"><span style="width:13px;height:13px;background:rgba(90,160,255,0.45);border:1px solid #2255bb;border-radius:3px;display:inline-block;"></span>Faturası Kesildi</span>'+
+      (stGetOnaySort()
+        ? '<span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#f5a623;font-family:Barlow Condensed,sans-serif;letter-spacing:1px;background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.35);border-radius:4px;padding:3px 9px;">'+
+          (stGetOnaySort() === 1 ? '▼ ONAYLANMAYANLAR ÜSTTE' : '▲ ONAYLANANLAR ÜSTTE')+
+          '<span onclick="stSetOnaySort(0);stRenderContent();" title="Sıralamayı kapat" style="cursor:pointer;color:#f87171;font-weight:700;margin-left:4px;">✕</span></span>'
+        : '<span style="margin-left:auto;font-size:11px;color:#555;font-family:Barlow Condensed,sans-serif;letter-spacing:1px;">ONAY başlığına tıkla → duruma göre sırala</span>')+
       '</div>';
   }
 
@@ -13051,6 +13374,9 @@ function stInitColResize(fname) {
         document.removeEventListener('mouseup', onUp);
         grip.classList.remove('rz-on');
         document.body.classList.remove('st-rz-drag');
+        // Sürükleme bitti — hemen ardından gelen click sıralamayı tetiklemesin
+        window._stRzJustDragged = true;
+        setTimeout(function(){ window._stRzJustDragged = false; }, 50);
         var o = stGetColW();
         o[th.getAttribute('data-hn')] = th.offsetWidth;
         stSaveColW(o);
