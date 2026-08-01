@@ -2092,7 +2092,7 @@ function siparisPDFBolumu(sheet, allSheets) {
     <th>GELEN ADET</th><th>DURUM</th><th>NOTLAR</th>
   </tr></thead><tbody>`;
   (sheet.rows || []).forEach((r, i) => {
-    const t = (typeof getTeslimOzetForSiparis === 'function') ? getTeslimOzetForSiparis(teslimRows, r, i) : ((typeof findTeslimForSiparis === 'function') ? findTeslimForSiparis(teslimRows, r, i) : null);
+    const t = (typeof findTeslimForSiparis === 'function') ? findTeslimForSiparis(teslimRows, r, i) : null;
     const gelen = t ? (t.gelisAdet || '') : '';
     let durum = 'Bekleniyor', dClass = 'bekle';
     if (t || r.gelisOnay === 'Onaylandı') { durum = 'Teslim Alındı'; dClass = 'onay'; }
@@ -2313,7 +2313,7 @@ async function yeniPartiBaslat() {
     // Aksi halde (onay yok / eksik teslim) satır yeni partiye taşınır.
     function siparisTamamlandiMi(r, i, teslimRows) {
       if ((r.gelisOnay || '') !== 'Onaylandı') return false; // geliş onayı yok → koru
-      const t = getTeslimOzetForSiparis(teslimRows, r, i);
+      const t = findTeslimForSiparis(teslimRows, r, i);
       if (t) {
         const sa = parseFloat(r.sipAdet);
         const ga = parseFloat(t.gelisAdet);
@@ -2754,74 +2754,6 @@ function findTeslimForSiparis(teslimRows, r, i) {
   });
 }
 window.findTeslimForSiparis = findTeslimForSiparis;
-
-function getTeslimOzetForSiparis(teslimRows, r, i) {
-  if (!teslimRows || !teslimRows.length) return null;
-  var matches = teslimRows.filter(function(t) {
-    if (r._sid && t._siparisId) return t._siparisId === r._sid;
-    return !t._siparisId && t.siparisIdx !== undefined && t.siparisIdx !== null && t.siparisIdx === i;
-  });
-  if (!matches.length) {
-    var kod = String(r.urunKodu || '').trim().toLocaleUpperCase('tr-TR');
-    var ayniKodluSiparisler = kod ? getSiparisRows().filter(function(s) {
-      return String(s.urunKodu || '').trim().toLocaleUpperCase('tr-TR') === kod;
-    }) : [];
-    if (kod && ayniKodluSiparisler.length === 1) {
-      matches = teslimRows.filter(function(t) {
-        return !t._siparisId && (t.siparisIdx === undefined || t.siparisIdx === null) &&
-          String(t.urunKodu || '').trim().toLocaleUpperCase('tr-TR') === kod;
-      });
-    }
-  }
-  if (!matches.length) return null;
-
-  var toplam = 0, sayisalAdetVar = false, tarihler = [], alanlar = [];
-  matches.forEach(function(t) {
-    var adet = t.gelisAdet;
-    if (adet === undefined || adet === null || adet === '') adet = t.gelenAdet;
-    if (adet === undefined || adet === null || adet === '') adet = t._gelenAdet;
-    if (adet === undefined || adet === null || adet === '') adet = t.adet;
-    var n = parseFloat(String(adet || '').replace(',', '.'));
-    if (!isNaN(n)) { toplam += n; sayisalAdetVar = true; }
-
-    var tarih = t.gelisTarihi || t.teslimTarihi || '';
-    if (tarih) tarihler.push(tarih);
-    if (t.teslimAlan && alanlar.indexOf(t.teslimAlan) < 0) alanlar.push(t.teslimAlan);
-  });
-
-  return {
-    gelisAdet: sayisalAdetVar ? String(toplam) : '',
-    gelisTarihi: tarihler.length ? tarihler[tarihler.length - 1] : '',
-    teslimAlan: alanlar.join(', '),
-    kayitSayisi: matches.length
-  };
-}
-window.getTeslimOzetForSiparis = getTeslimOzetForSiparis;
-
-function getTeslimSayisi(value) {
-  var number = parseFloat(String(value === undefined || value === null ? '' : value).replace(',', '.'));
-  return isNaN(number) ? null : number;
-}
-
-function findSiparisForTeslim(teslim) {
-  var siparisRows = getSiparisRows();
-  if (teslim._siparisId) {
-    var byId = siparisRows.find(function(s) { return s._sid === teslim._siparisId; });
-    if (byId) return byId;
-  }
-  if (teslim.siparisIdx !== undefined && teslim.siparisIdx !== null && siparisRows[teslim.siparisIdx]) return siparisRows[teslim.siparisIdx];
-  var kod = String(teslim.urunKodu || '').trim().toLocaleUpperCase('tr-TR');
-  var byCode = kod ? siparisRows.filter(function(s) { return String(s.urunKodu || '').trim().toLocaleUpperCase('tr-TR') === kod; }) : [];
-  return byCode.length === 1 ? byCode[0] : null;
-}
-
-function getSiparisTeslimDurumu(siparis, siparisIdx) {
-  var ozet = getTeslimOzetForSiparis(getTeslimRows(), siparis, siparisIdx);
-  var siparisAdet = getTeslimSayisi(siparis.sipAdet);
-  var teslimAdet = ozet ? getTeslimSayisi(ozet.gelisAdet) : 0;
-  var kalan = siparisAdet === null ? null : Math.max(0, siparisAdet - (teslimAdet || 0));
-  return { teslimAdet: teslimAdet || 0, kalan: kalan, tamam: kalan !== null && kalan === 0 };
-}
 function buildSiparisPanel(si) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'padding:16px;';
@@ -2862,7 +2794,7 @@ function renderSiparisRows() {
   rows.forEach((r, i) => {
     // Teslim kayıttan geliş bilgisini çek
     const teslimRows = getTeslimRows();
-    const teslim = getTeslimOzetForSiparis(teslimRows, r, i);
+    const teslim = findTeslimForSiparis(teslimRows, r, i);
     const gelisAdet = teslim ? teslim.gelisAdet : '';
     const gelisTarihi = teslim ? teslim.gelisTarihi : '';
     const teslimAlan = teslim ? teslim.teslimAlan : '';
@@ -3235,8 +3167,16 @@ if (window._db) {
 // ══════════════════════════════════════════════
 // BREVO MAIL SİSTEMİ
 // ══════════════════════════════════════════════
-const BREVO_API_KEY = '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';
-const BREVO_SENDER = { name: 'Orimak Takip', email: 'teknikservisorimak@gmail.com' };
+// ══════════════════════════════════════════════
+// MAIL PROXY
+// Brevo API anahtarı ARTIK BU DOSYADA DEĞİL.
+// Anahtar Cloudflare Worker'da "secret" olarak duruyor; bu dosya
+// herkese açık olsa bile sızmıyor. GitHub'ın otomatik sır taraması
+// artık iptal edilecek bir anahtar bulamaz.
+//
+// ⬇ Worker'ı kurduktan sonra adresini buraya yapıştırın:
+const MAIL_PROXY_URL = 'https://orimak-mail.teknikservisorimak.workers.dev';
+// ══════════════════════════════════════════════
 
 function openListeMailPopup() {
   const si = activeSheet;
@@ -3635,7 +3575,7 @@ window.openSiparisTopluMail = openSiparisTopluMail;
 function siparisTopluMailTabloHtml(rows) {
   const teslimRows = (typeof getTeslimRows === 'function') ? getTeslimRows() : [];
   const satirlar = rows.map((r, i) => {
-    const teslim = getTeslimOzetForSiparis(teslimRows, r, i);
+    const teslim = findTeslimForSiparis(teslimRows, r, i);
     const gelen = teslim ? (teslim.gelisAdet || '—') : '—';
     const yColor = r.yetkiliOnay === 'Onaylandı' ? '#2a7a2a' : r.yetkiliOnay === 'Beklemede' ? '#b07000' : '#888';
     const sipColor = r.sipDurumu === 'Sipariş Edildi' ? '#2a7a2a' : r.sipDurumu === 'Sipariş Edilmedi' ? '#b07000' : '#888';
@@ -3718,33 +3658,35 @@ window.siparisTopluMailGonder = siparisTopluMailGonder;
 
 async function brevoMailGonder(toEmail, toName, konu, htmlIcerik) {
   if (!toEmail) { console.warn('[mail] alıcı e-postası boş, gönderilmedi:', toName); return false; }
+  if (!MAIL_PROXY_URL) {
+    console.error('[mail] MAIL_PROXY_URL boş — Cloudflare Worker adresini index.html içindeki MAIL_PROXY_URL satırına yapıştırın.');
+    return false;
+  }
   try {
-    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const res = await fetch(MAIL_PROXY_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': BREVO_API_KEY
-      },
-      body: JSON.stringify({
-        sender: BREVO_SENDER,
-        to: [{ email: toEmail, name: toName }],
-        subject: konu,
-        htmlContent: htmlIcerik
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: toEmail, toName: toName || '', subject: konu, html: htmlIcerik })
     });
-    if (!res.ok) {
-      // Eskiden hata sessizce yutuluyordu; artık gerçek sebep konsola yazılır
-      let detay = '';
-      try { detay = await res.text(); } catch(e) {}
-      console.error('[mail] Brevo reddetti — HTTP ' + res.status + ' → ' + toEmail, detay);
-      if (res.status === 401) console.error('[mail] 401 = API anahtarı geçersiz/iptal edilmiş. Brevo panelinden yeni anahtar alın.');
-      if (res.status === 402) console.error('[mail] 402 = Brevo kredisi/kotası bitmiş.');
-      return false;
-    }
-    console.log('[mail] gönderildi →', toEmail, '|', konu);
-    return true;
+    let veri = {};
+    try { veri = await res.json(); } catch(e) {}
+
+    if (res.ok && veri.ok) { console.log('[mail] gönderildi →', toEmail, '|', konu); return true; }
+
+    // Proxy'nin döndürdüğü gerçek sebebi anlaşılır hale getir
+    const kod = veri.error || ('http_' + res.status);
+    const aciklama = {
+      origin_not_allowed:    'Worker bu adresten gelen çağrıya izin vermiyor. Worker dosyasındaki ALLOWED_ORIGINS listesine "' + location.origin + '" ekleyin.',
+      recipient_not_allowed: 'Alıcı alan adı Worker\'da izinli değil. Worker dosyasındaki ALLOWED_RECIPIENT_DOMAINS listesini güncelleyin.',
+      api_key_missing:       'Worker ayarlarında BREVO_API_KEY secret tanımlı değil.',
+      brevo_rejected:        'Brevo isteği reddetti — HTTP ' + (veri.status || '?') + '. Anahtar veya gönderici doğrulaması sorunlu olabilir.',
+      missing_fields:        'Eksik alan gönderildi (to/subject/html).'
+    }[kod] || 'Bilinmeyen hata.';
+
+    console.error('[mail] ❌ ' + toEmail + ' — ' + kod + ': ' + aciklama, veri.detay || veri.mesaj || '');
+    return false;
   } catch(e) {
-    console.error('[mail] ağ hatası, gönderilemedi:', toEmail, e);
+    console.error('[mail] Worker\'a ulaşılamadı:', toEmail, e);
     return false;
   }
 }
@@ -4197,7 +4139,7 @@ function buildTeslimPanel(si) {
       <table id="teslimTable">
         <thead><tr>
           <th>NO</th><th>ÜRÜN KODU</th><th>ÜRÜN ADI</th>
-          <th style="text-align:center;">SİP. ADEDİ</th><th style="text-align:center;">GELİŞ ADEDİ</th><th>GELİŞ TARİHİ</th><th>TESLİM ALAN</th><th>İŞLEMLER</th>
+          <th style="text-align:center;">GELİŞ ADEDİ</th><th>GELİŞ TARİHİ</th><th>TESLİM ALAN</th><th>İŞLEMLER</th>
         </tr></thead>
         <tbody id="teslimBody"></tbody>
       </table>
@@ -4329,7 +4271,7 @@ function _siparisPDFOlustur(rows, teslimRows) {
   </tr></thead><tbody>`;
 
   rows.forEach((r, i) => {
-    const teslim = getTeslimOzetForSiparis(teslimRows, r, i);
+    const teslim = findTeslimForSiparis(teslimRows, r, i);
     const gelisAdet = teslim ? teslim.gelisAdet : '';
     const gelisTarihi = teslim ? teslim.gelisTarihi : '';
     const teslimAlan = teslim ? teslim.teslimAlan : '';
@@ -4384,12 +4326,10 @@ function renderTeslimRows() {
   const rows = getTeslimRows();
   tbody.innerHTML = '';
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:#555;font-family:Barlow Condensed,sans-serif;letter-spacing:2px;">Henüz teslim kaydı yok</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:#555;font-family:Barlow Condensed,sans-serif;letter-spacing:2px;">Henüz teslim kaydı yok</td></tr>';
     return;
   }
   rows.forEach((r, i) => {
-    const siparis = findSiparisForTeslim(r);
-    const siparisAdet = siparis ? (siparis.sipAdet || '—') : '—';
     const tr = document.createElement('tr');
     tr.className = 'data-row';
     // ── SATIR BELİRTECİ: _highlightRow (anlık) VEYA r._notif (kalıcı) ──
@@ -4406,7 +4346,6 @@ function renderTeslimRows() {
       <td class="col-no">${i+1}${_teslimBadgeHtml}</td>
       <td style="font-family:'Barlow Condensed',sans-serif;font-weight:600;">${r.urunKodu||''}</td>
       <td>${r.urunAdi||''}</td>
-      <td style="text-align:center;font-weight:700;color:#f5a623;">${siparisAdet}</td>
       <td style="text-align:center;">${r.gelisAdet||''}</td>
       <td style="font-size:11px;">${r.gelisTarihi||''}</td>
       <td>${r.teslimAlan||''}</td>
@@ -4438,24 +4377,19 @@ function openTeslimEkle(editIdx = -1) {
       : (r.siparisIdx !== undefined && r.siparisIdx !== null)
         ? (r.siparisIdx === si)
         : false;
-    const teslimDurumu = getSiparisTeslimDurumu(s, si);
-    if (editIdx < 0 && teslimDurumu.tamam) return '';
-    const siparisAdet = s.sipAdet || '—';
-    const kalan = teslimDurumu.kalan === null ? '—' : teslimDurumu.kalan;
-    return `<option value="${sid}" ${isSelected?'selected':''}>Satır ${si+1}: ${s.urunKodu} — ${s.urunAdi} | Sipariş: ${siparisAdet} | Kalan: ${kalan}</option>`;
+    return `<option value="${sid}" ${isSelected?'selected':''}>Satır ${si+1}: ${s.urunKodu} — ${s.urunAdi}</option>`;
   }).join('');
 
   const overlay = document.createElement('div');
   overlay.id = 'teslimModal';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10005;display:flex;align-items:center;justify-content:center;';
   overlay.innerHTML = `
-    <div style="background:#1a1a1a;border:1px solid #2e2e2e;border-top:3px solid #92d050;border-radius:12px;width:560px;max-width:95vw;box-shadow:0 24px 80px rgba(0,0,0,.8);">
+    <div style="background:#1a1a1a;border:1px solid #2e2e2e;border-top:3px solid #92d050;border-radius:12px;width:480px;max-width:95vw;box-shadow:0 24px 80px rgba(0,0,0,.8);">
       <div style="padding:18px 24px 14px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;justify-content:space-between;">
         <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;letter-spacing:2px;color:#92d050;">${editIdx>=0?'✏️ KAYIT DÜZENLE':'➕ YENİ TESLİM KAYDI'}</h3>
         <button onclick="document.getElementById('teslimModal').remove()" style="background:none;border:none;color:#666;font-size:20px;cursor:pointer;">✕</button>
       </div>
-      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px;">
-        <div style="padding:10px 12px;border-radius:7px;background:rgba(146,208,80,.07);border:1px solid rgba(146,208,80,.22);font-size:12px;color:#b8dca0;line-height:1.45;">Siparişten seçim yaptığınızda kalan adet otomatik hesaplanır. Tam teslim edilen siparişler yeni kayıtta listelenmez.</div>
+      <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px;">
         <div>
           <label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:5px;font-family:'Barlow Condensed',sans-serif;">Ürün (Siparişten Seç)</label>
           <select id="tk_kod" style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:9px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;" onchange="autoFillTeslimAdi()">
@@ -4463,16 +4397,14 @@ function openTeslimEkle(editIdx = -1) {
             ${options}
             <option value="__manual__" ${_isManualRecord?'selected':''}>✎ Siparişsiz / manuel giriş</option>
           </select>
-          <div id="tk_adi_preview" style="display:none;margin-top:8px;padding:9px 10px;background:rgba(146,208,80,.1);border:1px solid rgba(146,208,80,.3);border-radius:5px;font-size:12px;color:#bde89a;font-family:'Barlow',sans-serif;"></div>
+          <div id="tk_adi_preview" style="display:none;margin-top:6px;padding:6px 10px;background:rgba(146,208,80,.1);border:1px solid rgba(146,208,80,.3);border-radius:5px;font-size:12px;color:#92d050;font-family:'Barlow',sans-serif;"></div>
         </div>
         <div id="tk_manuel_wrap" style="display:none;flex-direction:column;gap:12px;">
           ${siparisField('Ürün Kodu (Manuel)','tk_kod_m',r.urunKodu||'')}
           ${siparisField('Ürün Adı (Manuel)','tk_ad_m',r.urunAdi||'')}
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <div><label style="display:block;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#666;margin-bottom:5px;font-family:'Barlow Condensed',sans-serif;">Geliş Adedi</label><input id="tk_adet" type="number" min="0" step="any" value="${String(r.gelisAdet || '').replace(/"/g,'&quot;')}" placeholder="0" style="width:100%;background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:9px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;"></div>
-          ${siparisField('Geliş Tarihi','tk_tarih',r.gelisTarihi||bugun)}
-        </div>
+        ${siparisField('Geliş Adedi','tk_adet',r.gelisAdet||'')}
+        ${siparisField('Geliş Tarihi','tk_tarih',r.gelisTarihi||bugun)}
         ${siparisField('Teslim Alan','tk_alan',r.teslimAlan||'')}
       </div>
       <div style="padding:16px 24px;border-top:1px solid #2a2a2a;display:flex;gap:8px;justify-content:flex-end;">
@@ -4509,15 +4441,11 @@ function autoFillTeslimAdi() {
   if (manuelWrap) manuelWrap.style.display = 'none';
   const sid = sel.value;
   const siparisRows = getSiparisRows();
-  let siparisIdx = siparisRows.findIndex(s => s._sid === sid);
-  let siparis = siparisIdx >= 0 ? siparisRows[siparisIdx] : null;
-  if (!siparis) { const idx = parseInt(sid); if (!isNaN(idx)) { siparis = siparisRows[idx]; siparisIdx = idx; } }
+  let siparis = siparisRows.find(s => s._sid === sid);
+  if (!siparis) { const idx = parseInt(sid); if (!isNaN(idx)) siparis = siparisRows[idx]; }
   if (!siparis) { hidePreview(); return; }
   if (adiPreview) {
-    const durum = getSiparisTeslimDurumu(siparis, siparisIdx);
-    const siparisAdet = siparis.sipAdet || '—';
-    const kalan = durum.kalan === null ? '—' : durum.kalan;
-    adiPreview.textContent = '📦 ' + (siparis.urunKodu || '') + (siparis.urunAdi ? ' — ' + siparis.urunAdi : '') + '  |  Sipariş: ' + siparisAdet + '  |  Toplam gelen: ' + durum.teslimAdet + '  |  Kalan: ' + kalan;
+    adiPreview.textContent = '📦 ' + (siparis.urunKodu || '') + (siparis.urunAdi ? ' — ' + siparis.urunAdi : '') + (siparis.sipAdet ? '  ·  ' + siparis.sipAdet + ' adet' : '');
     adiPreview.style.display = '';
   }
 }
@@ -4535,14 +4463,6 @@ async function saveTeslim(editIdx) {
   }
   const siparisRows = getSiparisRows();
   const kodSelVal = document.getElementById('tk_kod').value;
-  const gelisAdetVal = document.getElementById('tk_adet').value.trim();
-  const gelisAdetNum = getTeslimSayisi(gelisAdetVal);
-
-  if (gelisAdetNum === null || gelisAdetNum <= 0) {
-    alert('⚠️ "Geliş Adedi" sıfırdan büyük bir sayı olmalıdır.');
-    document.getElementById('tk_adet').focus();
-    return;
-  }
 
   // Seçim zorunlu: ne sipariş seçilmiş ne de manuel işaretlenmişse engelle
   if (kodSelVal === '') {
@@ -4561,18 +4481,6 @@ async function saveTeslim(editIdx) {
       const numIdx = parseInt(kodSelVal);
       if (!isNaN(numIdx) && siparisRows[numIdx]) { siparis = siparisRows[numIdx]; siparisIdx = numIdx; _siparisId = siparis._sid || ''; }
     }
-    if (!siparis) {
-      alert('⚠️ Seçilen sipariş bulunamadı. Lütfen sayfayı yenileyip tekrar deneyin.');
-      return;
-    }
-  }
-
-  if (siparis) {
-    const siparisAdetNum = getTeslimSayisi(siparis.sipAdet);
-    const oncekiTeslimler = rows.filter((_, index) => index !== editIdx);
-    const oncekiOzet = getTeslimOzetForSiparis(oncekiTeslimler, siparis, siparisIdx);
-    const oncekiToplam = oncekiOzet ? (getTeslimSayisi(oncekiOzet.gelisAdet) || 0) : 0;
-    if (siparisAdetNum !== null && oncekiToplam + gelisAdetNum > siparisAdetNum && !confirm('Girilen adet sipariş miktarını aşıyor.\n\nSipariş: ' + siparisAdetNum + '\nBu kayıtla toplam gelen: ' + (oncekiToplam + gelisAdetNum) + '\n\nYine de kaydedilsin mi?')) return;
   }
 
   // Kod ve ad: sipariş seçildiyse siparişten (elle yazılmaz), manuelde kullanıcıdan
@@ -4595,7 +4503,7 @@ async function saveTeslim(editIdx) {
     urunAdi: urunAdiVal,
     _siparisId: _siparisId || undefined, // _sid bazlı eşleşme (kalıcı)
     siparisIdx: siparisIdx >= 0 ? siparisIdx : undefined, // geriye dönük uyumluluk
-    gelisAdet: gelisAdetVal,
+    gelisAdet: document.getElementById('tk_adet').value.trim(),
     gelisTarihi: document.getElementById('tk_tarih').value.trim(),
     teslimAlan: _teslimAlanVal,
   };
@@ -5226,7 +5134,7 @@ function getTerminUrunler(gunSinir = 7) {
         if (!termin) return;
         // Teslim alındıysa atla
         const teslimRows = getTeslimRows ? getTeslimRows() : [];
-        const teslim = getTeslimOzetForSiparis ? getTeslimOzetForSiparis(teslimRows, r, ri) : (findTeslimForSiparis ? findTeslimForSiparis(teslimRows, r, ri) : null);
+        const teslim = findTeslimForSiparis ? findTeslimForSiparis(teslimRows, r, ri) : teslimRows.find(t => t.urunKodu === r.urunKodu);
         if (teslim) return;
         if (r.gelisOnay === 'Onaylandı') return;
         if (termin >= bugun && termin <= sinir) {
@@ -12716,23 +12624,10 @@ function stRender() {
 }
 
 
-function stMonthKey(value) {
-  var str = String(value || '').trim();
-  var m = str.match(/^(\d{4})[-/.](\d{1,2})(?:[-/.]\d{1,2})?$/);
-  if (m) return m[1] + '-' + String(+m[2]).padStart(2, '0');
-  m = str.match(/^(?:\d{1,2}[-/.])?(\d{1,2})[-/.](\d{4})$/);
-  if (m) return m[2] + '-' + String(+m[1]).padStart(2, '0');
-  return '';
-}
-
 // ── Tarih parse yardımcı (GG.AA.YYYY veya AA.YYYY) ──
 function stParseDate(s) {
   if (!s) return 0;
   var str = String(s).trim();
-  var iso = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (iso) return new Date(+iso[1], +iso[2]-1, +iso[3]).getTime();
-  var slash = str.match(/^(\d{1,2})[\/](\d{1,2})[\/](\d{4})$/);
-  if (slash) return new Date(+slash[3], +slash[2]-1, +slash[1]).getTime();
   // GG.AA.YYYY
   var m = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (m) return new Date(+m[3], +m[2]-1, +m[1]).getTime();
@@ -12970,10 +12865,9 @@ function stRenderContent() {
       return parseFloat(str) || 0;
     }
     (detayInfo2.data || []).forEach(function(r) {
-      var rawAy = String(r[ayIdx2]||'').trim();
-      if (!rawAy || rawAy === '#N/A' || rawAy.indexOf('1899') >= 0) return;
-      var ay = stMonthKey(rawAy);
-      if (!ay) return;
+      var ay = String(r[ayIdx2]||'').trim();
+      if (!ay || ay === '#N/A' || ay.indexOf('1899') >= 0 || ay === '') return;
+      if (!ay.match(/^\d{4}-\d{2}$/)) return;
       liveMonths[ay] = true;
       if (!monthly[ay]) monthly[ay] = {malzeme:0, servis:0, yol:0, kdv:0, genel:0, faturaSayisi:{}};
       var kat = String(r[katIdx2]||'').trim();
@@ -14405,8 +14299,8 @@ window.addEventListener('firebaseReady', function() {
 function _stRowMonth(fname, headers, row) {
   var ayI = headers.indexOf('Ay');
   if (ayI >= 0) {
-    var a = stMonthKey(row[ayI]);
-    if (a) return a;
+    var a = String(row[ayI] || '').trim();
+    if (/^\d{4}-\d{2}$/.test(a)) return a;
   }
   var di = stGetDateColIdx(fname, headers);
   if (di >= 0) {
@@ -14423,8 +14317,8 @@ function _stComputeFreeze(headers, archRows) {
   function num(s) { var str = String(s || '0').trim().replace(/[^0-9,.-]/g, '').replace(/\.(?=\d{3})/g, '').replace(',', '.'); return parseFloat(str) || 0; }
   var run = {};
   archRows.forEach(function(r) {
-    var ay = stMonthKey(r[ayI]);
-    if (!ay) return;
+    var ay = String(r[ayI] || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(ay)) return;
     if (!run[ay]) run[ay] = { malzeme: 0, servis: 0, yol: 0, kdv: 0, genel: 0, fSet: {} };
     var kat = String(r[katI] || '').trim();
     if (kat === 'MALZEME') run[ay].malzeme += num(r[araI]);
