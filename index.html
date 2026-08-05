@@ -12552,7 +12552,7 @@ if (window._db) setTimeout(snLoad, 1500);
 (function() {
 
 var ST_DATA = {};
-var ST_PAGES = [["Servis Plan.html", "📋 Servis Plan"], ["Faturalar.html", "🧾 Faturalar"], ["FaturaDetaylari.html", "📄 Fatura Detayları"], ["Genel Rapor.html", "📈 Genel Rapor"], ["Raporlar.html", "📊 Raporlar"], ["FiyatListesi.html", "💲 Fiyat Listesi"]];
+var ST_PAGES = [["Servis Plan.html", "📋 Servis Plan"], ["Faturalar.html", "🧾 Faturalar"], ["FaturaDetaylari.html", "📄 Fatura Detayları"], ["Genel Rapor.html", "📈 Genel Rapor"], ["Maliyet.html", "💸 Maliyet"], ["FiyatListesi.html", "💲 Fiyat Listesi"]];
 var stActiveIdx = 0;
 var stSearchQuery = '';
 // Arşivlenmiş (dondurulmuş) Genel Rapor aylık özeti — { "YYYY-MM": {malzeme,servis,yol,kdv,genel,faturaCount} }
@@ -12806,11 +12806,676 @@ window.stOnayHeaderClick = function(e) {
   window.stOnaySortToggle();
 };
 
+// ═══════════════════════════════════════════════════════════
+// MALİYET (GİDER) SAYFASI — fatura bazlı gider takibi + analiz
+// (eski "Raporlar" sekmesinin yerine)
+// ═══════════════════════════════════════════════════════════
+var ST_MAL_HEADERS = ['Fatura No', 'Gider Türü', 'Açıklama', 'Tutar (TL)', 'Tarih', 'Ay'];
+var ST_MAL_TURLER = ['Yemek', 'Yol Ücreti', 'Yakıt', 'Amortisman', 'Konaklama', 'Sarf Malzeme', 'İşçilik', 'Kargo/Nakliye', 'Diğer'];
+var ST_MAL_RENK = {
+  'Yemek':'#f5a623', 'Yol Ücreti':'#c49ef5', 'Yakıt':'#ff6b6b', 'Amortisman':'#5ab8f5',
+  'Konaklama':'#92d050', 'Sarf Malzeme':'#f78fb3', 'İşçilik':'#ffd166',
+  'Kargo/Nakliye':'#4ecdc4', 'Diğer':'#9aa0a6'
+};
+var ST_MAL_IKON = {
+  'Yemek':'🍽️', 'Yol Ücreti':'🛣️', 'Yakıt':'⛽', 'Amortisman':'📉',
+  'Konaklama':'🏨', 'Sarf Malzeme':'🧰', 'İşçilik':'👷', 'Kargo/Nakliye':'🚚', 'Diğer':'📦'
+};
+
+function stMalRenk(t){ return ST_MAL_RENK[t] || '#9aa0a6'; }
+function stMalIkon(t){ return ST_MAL_IKON[t] || '📦'; }
+
+function stParseTRYNum(s){
+  var str = String(s==null?'':s).trim();
+  str = str.replace(/[^0-9,.\-]/g,'').replace(/\.(?=\d{3}(\D|$))/g,'').replace(',','.');
+  return parseFloat(str) || 0;
+}
+function stFmtTRY(n){ return (Number(n)||0).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' ₺'; }
+function stFmtNum(n){ return (Number(n)||0).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+var ST_AY_ISIM = {'01':'Ocak','02':'Şubat','03':'Mart','04':'Nisan','05':'Mayıs','06':'Haziran','07':'Temmuz','08':'Ağustos','09':'Eylül','10':'Ekim','11':'Kasım','12':'Aralık'};
+function stAyAdi(ay){ if(!ay) return 'Tüm Zamanlar'; var p=String(ay).split('-'); return (ST_AY_ISIM[p[1]]||p[1])+' '+p[0]; }
+
+function stEnsureMaliyet(){
+  var info = ST_DATA['Maliyet.html'];
+  if (!info || typeof info !== 'object') { ST_DATA['Maliyet.html'] = {headers: ST_MAL_HEADERS.slice(), data: []}; return; }
+  if (!info.headers || !info.headers.length) info.headers = ST_MAL_HEADERS.slice();
+  if (!info.data) info.data = [];
+  ST_MAL_HEADERS.forEach(function(h){ if (info.headers.indexOf(h) < 0) info.headers.push(h); });
+}
+
+// Bir faturanın ait olduğu ayı (YYYY-MM) Faturalar / Fatura Detayları'ndan bul
+function stFaturaAy(fno){
+  fno = String(fno||'').trim();
+  if (!fno) return '';
+  function fromTarih(t){
+    var p = String(t||'').trim().split(/[.\/-]/);
+    if (p.length===3){
+      if (p[2] && p[2].length===4) return p[2] + '-' + String(p[1]||'').padStart(2,'0');
+      if (p[0] && p[0].length===4) return p[0] + '-' + String(p[1]||'').padStart(2,'0');
+    }
+    return '';
+  }
+  var fat = ST_DATA['Faturalar.html'] || {headers:[],data:[]};
+  var fh = fat.headers||[]; var fni=fh.indexOf('Fatura No'), fai=fh.indexOf('Ay'), fti=fh.indexOf('Fatura Tarihi');
+  var i, r=null;
+  for (i=0;i<(fat.data||[]).length;i++){ if (String(fat.data[i][fni]||'').trim()===fno){ r=fat.data[i]; break; } }
+  if (r){
+    var ay=String(r[fai]||'').trim();
+    if (ay.match(/^\d{4}-\d{2}$/)) return ay;
+    var d=fromTarih(r[fti]); if (d) return d;
+  }
+  var det = ST_DATA['FaturaDetaylari.html'] || {headers:[],data:[]};
+  var dh=det.headers||[]; var dni=dh.indexOf('Fatura No'), dai=dh.indexOf('Ay');
+  for (i=0;i<(det.data||[]).length;i++){
+    if (String(det.data[i][dni]||'').trim()===fno){ var a2=String(det.data[i][dai]||'').trim(); if (a2.match(/^\d{4}-\d{2}$/)) return a2; }
+  }
+  return '';
+}
+
+// Bir faturanın cirosunu (Fatura Detayları'ndan) döndür — {gen: KDV dahil, ara: KDV hariç}
+function stFaturaCiro(fno){
+  var det = ST_DATA['FaturaDetaylari.html'] || {headers:[],data:[]};
+  var dh=det.headers||[];
+  var ni=dh.indexOf('Fatura No'), gi=dh.indexOf('Genel Toplam (TL)'), ai=dh.indexOf('Ara Toplam (TL)');
+  var gen=0, ara=0, t=String(fno||'').trim();
+  (det.data||[]).forEach(function(r){
+    if (String(r[ni]||'').trim()!==t) return;
+    gen += stParseTRYNum(r[gi]); ara += stParseTRYNum(r[ai]);
+  });
+  return {gen:gen, ara:ara};
+}
+
+// Sistemde geçen tüm ayları (YYYY-MM) topla — yeni→eski
+function stMalAyListesi(){
+  var s = {};
+  function add(v){ v=String(v||'').trim(); if (v.match(/^\d{4}-\d{2}$/)) s[v]=true; }
+  var mal = ST_DATA['Maliyet.html']||{headers:[],data:[]}; var mai=(mal.headers||[]).indexOf('Ay');
+  (mal.data||[]).forEach(function(r){ add(r[mai]); });
+  var det = ST_DATA['FaturaDetaylari.html']||{headers:[],data:[]}; var dai=(det.headers||[]).indexOf('Ay');
+  (det.data||[]).forEach(function(r){ add(r[dai]); });
+  var fat = ST_DATA['Faturalar.html']||{headers:[],data:[]}; var fai=(fat.headers||[]).indexOf('Ay');
+  (fat.data||[]).forEach(function(r){ add(r[fai]); });
+  return Object.keys(s).sort().reverse();
+}
+
+// Seçili aya göre gider satırları (gerçek indeksiyle)
+function stMalRows(ay){
+  stEnsureMaliyet();
+  var info = ST_DATA['Maliyet.html'];
+  var ai = info.headers.indexOf('Ay');
+  var out = [];
+  (info.data||[]).forEach(function(r, idx){
+    if (ay && String(r[ai]||'').trim() !== ay) return;
+    out.push({r:r, idx:idx});
+  });
+  return out;
+}
+
+// ── Gider türü dağılımı (seçili ay) ──
+function stMalByTur(ay){
+  stEnsureMaliyet();
+  var h = ST_DATA['Maliyet.html'].headers;
+  var turI=h.indexOf('Gider Türü'), tutI=h.indexOf('Tutar (TL)');
+  var map = {}, toplam=0;
+  ST_MAL_TURLER.forEach(function(t){ map[t]=0; });
+  stMalRows(ay).forEach(function(o){
+    var t = String(o.r[turI]||'').trim() || 'Diğer';
+    if (!(t in map)) map[t]=0;
+    var v = stParseTRYNum(o.r[tutI]);
+    map[t]+=v; toplam+=v;
+  });
+  return {map:map, toplam:toplam};
+}
+
+// ── Fatura bazında gider + ciro + net (seçili ay) ──
+function stMalByFatura(ay){
+  stEnsureMaliyet();
+  var h = ST_DATA['Maliyet.html'].headers;
+  var fnoI=h.indexOf('Fatura No'), tutI=h.indexOf('Tutar (TL)');
+  var grp = {}; var sira = [];
+  stMalRows(ay).forEach(function(o){
+    var fno = String(o.r[fnoI]||'').trim() || '(Faturasız)';
+    if (!grp[fno]){ grp[fno]={fno:fno, gider:0, adet:0}; sira.push(fno); }
+    grp[fno].gider += stParseTRYNum(o.r[tutI]);
+    grp[fno].adet++;
+  });
+  return sira.map(function(fno){
+    var g = grp[fno];
+    var c = (fno==='(Faturasız)') ? {gen:0,ara:0} : stFaturaCiro(fno);
+    return {fno:fno, gider:g.gider, adet:g.adet, ciro:c.gen, gelir:c.ara, net:(c.ara - g.gider)};
+  }).sort(function(a,b){ return b.gider - a.gider; });
+}
+
+window.stMalAyChange = function(){
+  var el = document.getElementById('stMalAy');
+  stMalAySecili = el ? el.value : '';
+  stRenderContent();
+};
+
+window.stMalAutoAy = function(){
+  var h = ST_MAL_HEADERS;
+  var fnoEl = document.getElementById('stMalF_'+h.indexOf('Fatura No'));
+  var tarEl = document.getElementById('stMalF_'+h.indexOf('Tarih'));
+  var ayEl  = document.getElementById('stMalF_'+h.indexOf('Ay'));
+  if (!ayEl) return;
+  var ay = '';
+  if (fnoEl && fnoEl.value.trim()) ay = stFaturaAy(fnoEl.value.trim());
+  if (!ay && tarEl && tarEl.value.trim()){
+    var p = tarEl.value.trim().split(/[.\/-]/);
+    if (p.length===3){ if (p[2].length===4) ay=p[2]+'-'+String(p[1]).padStart(2,'0'); else if (p[0].length===4) ay=p[0]+'-'+String(p[1]).padStart(2,'0'); }
+  }
+  if (ay) ayEl.value = ay;
+  // fatura no girildiyse cironun küçük ipucunu göster
+  var hint = document.getElementById('stMalCiroHint');
+  if (hint && fnoEl){
+    var fno = fnoEl.value.trim();
+    if (fno){ var c = stFaturaCiro(fno); hint.style.display=''; hint.innerHTML = '📄 <b>'+stEsc(fno)+'</b> — Ciro (KDV dahil): <b style="color:#7fda9e;">'+stFmtTRY(c.gen)+'</b>'+(ay?(' &nbsp;·&nbsp; Ay: <b>'+stAyAdi(ay)+'</b>'):''); }
+    else hint.style.display='none';
+  }
+};
+
+window.stAddMaliyet = function(){
+  stEnsureMaliyet();
+  var info = ST_DATA['Maliyet.html'];
+  var h = info.headers;
+  var row = h.map(function(_,ci){ var el=document.getElementById('stMalF_'+ci); return el?el.value.trim():''; });
+  var fnoI=h.indexOf('Fatura No'), turI=h.indexOf('Gider Türü'), tutI=h.indexOf('Tutar (TL)'), tarI=h.indexOf('Tarih'), ayI=h.indexOf('Ay');
+  if (!row[turI]) { alert('Lütfen bir gider türü seçin.'); return; }
+  if (!stParseTRYNum(row[tutI])) { alert('Lütfen geçerli bir tutar girin (örn. 1.250,00).'); return; }
+  row[tutI] = stFmtNum(stParseTRYNum(row[tutI])); // normalize
+  if (!row[ayI]){
+    var ay = row[fnoI] ? stFaturaAy(row[fnoI]) : '';
+    if (!ay && row[tarI]){ var p=row[tarI].split(/[.\/-]/); if(p.length===3){ if(p[2].length===4) ay=p[2]+'-'+String(p[1]).padStart(2,'0'); else if(p[0].length===4) ay=p[0]+'-'+String(p[1]).padStart(2,'0'); } }
+    row[ayI]=ay;
+  }
+  info.data.unshift(row);
+  stFireSave();
+  h.forEach(function(_,ci){ var el=document.getElementById('stMalF_'+ci); if(el){ if(el.tagName==='SELECT') el.selectedIndex=0; else el.value=''; } });
+  var hint=document.getElementById('stMalCiroHint'); if(hint) hint.style.display='none';
+  stBadge('✓ Gider kaydedildi');
+  stRenderContent();
+};
+
+window.stMalTurChange = function(rowIdx, colIdx, sel){
+  if (!ST_DATA['Maliyet.html'] || !ST_DATA['Maliyet.html'].data[rowIdx]) return;
+  ST_DATA['Maliyet.html'].data[rowIdx][colIdx] = sel.value;
+  stFireSave();
+  stBadge('✓ Gider türü güncellendi');
+  stRenderContent();
+};
+
+// ══════════════════════════════════════════════════════════════
+// MALİYET SAYFASI RENDER
+// ══════════════════════════════════════════════════════════════
+function stRenderMaliyet(box){
+  stEnsureMaliyet();
+  var info = ST_DATA['Maliyet.html'];
+  var h = info.headers;
+  var ay = stMalAySecili || '';
+
+  var aylar = stMalAyListesi();
+  if (ay && aylar.indexOf(ay) < 0) { ay=''; stMalAySecili=''; }
+
+  var turAgg = stMalByTur(ay);
+  var byFat = stMalByFatura(ay);
+  var toplamGider = turAgg.toplam;
+
+  // en yüksek gider kalemi + yakıt
+  var enYuksekTur='—', enYuksekVal=0;
+  Object.keys(turAgg.map).forEach(function(t){ if (turAgg.map[t] > enYuksekVal){ enYuksekVal=turAgg.map[t]; enYuksekTur=t; } });
+  var yakit = turAgg.map['Yakıt'] || 0;
+  var giderliFatura = byFat.filter(function(x){ return x.fno!=='(Faturasız)'; }).length;
+
+  var css = ''
+    + '<style>'
+    + '@keyframes stMalFade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}'
+    + '@keyframes stMalBar{from{width:0}to{}}'
+    + '.stMalCard{animation:stMalFade .4s ease both}'
+    + '.stMalTypeRow .bar{animation:stMalBar .7s cubic-bezier(.2,.8,.2,1) both}'
+    + '.stMalBtn{transition:transform .12s,box-shadow .12s,filter .12s}'
+    + '.stMalBtn:hover{transform:translateY(-1px);filter:brightness(1.12)}'
+    + '.stMalBtn:active{transform:translateY(0)}'
+    + '</style>';
+
+  var html = css + '<div style="font-family:Barlow Condensed,sans-serif;">';
+
+  // ── Üst bar: başlık + ay filtresi + PDF butonları ──
+  var ayOpts = '<option value="">Tüm Zamanlar</option>' + aylar.map(function(a){ return '<option value="'+a+'"'+(a===ay?' selected':'')+'>'+stAyAdi(a)+'</option>'; }).join('');
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px;">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+      + '<div style="font-family:Barlow Condensed,sans-serif;font-size:19px;font-weight:900;letter-spacing:1.5px;color:#ff6b6b;">💸 MALİYET / GİDER TAKİBİ</div>'
+      + '<span style="font-size:11px;color:#666;letter-spacing:1px;">Fatura bazında gider işleme &amp; analiz</span>'
+    + '</div>'
+    + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+      + '<span style="font-size:11px;color:#888;letter-spacing:1px;">DÖNEM:</span>'
+      + '<select id="stMalAy" onchange="stMalAyChange()" style="background:#1e1e1e;border:1px solid #333;border-radius:6px;color:#eee;font-size:12px;font-family:Barlow Condensed,sans-serif;font-weight:700;letter-spacing:1px;padding:7px 12px;cursor:pointer;outline:none;">'+ayOpts+'</select>'
+      + '<button class="stMalBtn" onclick="stOpenMaliyetPDF()" style="background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.35);color:#ff9b9b;border-radius:6px;padding:7px 12px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">📄 MALİYET RAPORU (PDF)</button>'
+      + '<button class="stMalBtn" onclick="stOpenAnalizPDF()" style="background:linear-gradient(135deg,#7fda9e,#4ecdc4);border:none;color:#08130d;border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:900;letter-spacing:1px;cursor:pointer;box-shadow:0 3px 12px rgba(127,218,158,.25);">📊 DETAYLI ANALİZ (PDF)</button>'
+    + '</div>'
+  + '</div>';
+
+  // ── Özet kartlar ──
+  var kartlar = [
+    {label:'TOPLAM GİDER', val:stFmtTRY(toplamGider), sub:stAyAdi(ay), c:'#ff6b6b', bg:'rgba(255,107,107,0.12)', bd:'rgba(255,107,107,0.35)'},
+    {label:'EN YÜKSEK KALEM', val:enYuksekTur, sub:stFmtTRY(enYuksekVal), c:stMalRenk(enYuksekTur), bg:'rgba(255,255,255,0.03)', bd:'#2a2a2a', ikon:stMalIkon(enYuksekTur)},
+    {label:'TOPLAM YAKIT', val:stFmtTRY(yakit), sub:toplamGider>0?('%'+Math.round(yakit/toplamGider*100)+' pay'):'—', c:'#ff6b6b', bg:'rgba(255,107,107,0.08)', bd:'rgba(255,107,107,0.25)', ikon:'⛽'},
+    {label:'GİDERLİ FATURA', val:giderliFatura+' adet', sub:(stMalRows(ay).length)+' gider satırı', c:'#5ab8f5', bg:'rgba(90,184,245,0.08)', bd:'rgba(90,184,245,0.25)', ikon:'📄'}
+  ];
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px;">';
+  kartlar.forEach(function(k, i){
+    html += '<div class="stMalCard" style="animation-delay:'+(i*60)+'ms;background:'+k.bg+';border:1px solid '+k.bd+';border-radius:12px;padding:15px 16px;position:relative;overflow:hidden;">'
+      + (k.ikon?'<div style="position:absolute;right:10px;top:8px;font-size:22px;opacity:.25;">'+k.ikon+'</div>':'')
+      + '<div style="font-size:10px;font-weight:800;letter-spacing:1.5px;color:'+k.c+';margin-bottom:7px;">'+k.label+'</div>'
+      + '<div style="font-size:18px;font-weight:900;color:'+k.c+';line-height:1.1;">'+stEsc(k.val)+'</div>'
+      + '<div style="font-size:11px;color:#888;margin-top:5px;letter-spacing:.5px;">'+stEsc(k.sub)+'</div>'
+    + '</div>';
+  });
+  html += '</div>';
+
+  // ── Gider türü dağılımı (barlar) ──
+  html += '<div style="background:#111;border:1px solid #222;border-radius:12px;padding:16px 18px;margin-bottom:20px;">';
+  html += '<div style="font-size:12px;font-weight:800;letter-spacing:1.5px;color:#bbb;margin-bottom:14px;">GİDER TÜRÜ DAĞILIMI — '+stAyAdi(ay)+'</div>';
+  var turlerSirali = Object.keys(turAgg.map).filter(function(t){ return turAgg.map[t]>0; }).sort(function(a,b){ return turAgg.map[b]-turAgg.map[a]; });
+  if (!turlerSirali.length){
+    html += '<div style="color:#555;font-size:13px;letter-spacing:1px;padding:14px 0;text-align:center;">Bu dönemde gider kaydı yok.</div>';
+  } else {
+    // üst stacked bar
+    html += '<div style="display:flex;height:12px;border-radius:6px;overflow:hidden;margin-bottom:16px;background:#1a1a1a;">';
+    turlerSirali.forEach(function(t){ var pct=toplamGider>0?(turAgg.map[t]/toplamGider*100):0; html += '<div title="'+stEsc(t)+' — '+stFmtTRY(turAgg.map[t])+'" style="width:'+pct+'%;background:'+stMalRenk(t)+';"></div>'; });
+    html += '</div>';
+    turlerSirali.forEach(function(t){
+      var val=turAgg.map[t]; var pct=toplamGider>0?Math.round(val/toplamGider*100):0;
+      html += '<div class="stMalTypeRow" style="display:flex;align-items:center;gap:12px;margin-bottom:9px;">'
+        + '<div style="width:150px;font-size:12.5px;color:#ddd;font-weight:600;letter-spacing:.5px;white-space:nowrap;">'+stMalIkon(t)+' '+stEsc(t)+'</div>'
+        + '<div style="flex:1;background:#1a1a1a;border-radius:5px;height:14px;overflow:hidden;">'
+          + '<div class="bar" style="width:'+pct+'%;height:100%;background:'+stMalRenk(t)+';border-radius:5px;box-shadow:0 0 10px '+stMalRenk(t)+'55;"></div>'
+        + '</div>'
+        + '<div style="width:130px;text-align:right;font-size:12.5px;font-weight:800;color:'+stMalRenk(t)+';">'+stFmtTRY(val)+'</div>'
+        + '<div style="width:44px;text-align:right;font-size:11px;color:#888;">%'+pct+'</div>'
+      + '</div>';
+    });
+  }
+  html += '</div>';
+
+  // ── Yeni gider formu ──
+  var form = '';
+  h.forEach(function(hd, ci){
+    if (hd === 'Gider Türü'){
+      var opts = '<option value="">— seç —</option>' + ST_MAL_TURLER.map(function(o){ return '<option value="'+o+'">'+stMalIkon(o)+' '+o+'</option>'; }).join('');
+      form += '<div style="flex:1;min-width:150px;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#ff9b9b;margin-bottom:4px;">'+stEsc(hd)+' *</div>'
+        + '<select id="stMalF_'+ci+'" style="width:100%;background:#1e1e1e;border:1px solid #333;border-radius:5px;padding:8px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;">'+opts+'</select></div>';
+    } else if (hd === 'Tutar (TL)'){
+      form += '<div style="flex:1;min-width:130px;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#ff9b9b;margin-bottom:4px;">'+stEsc(hd)+' *</div>'
+        + '<input id="stMalF_'+ci+'" type="text" placeholder="örn. 1.250,00" style="width:100%;background:#1e1e1e;border:1px solid #333;border-radius:5px;padding:8px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;" /></div>';
+    } else if (hd === 'Fatura No'){
+      form += '<div style="flex:1;min-width:120px;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#555;margin-bottom:4px;">'+stEsc(hd)+'</div>'
+        + '<input id="stMalF_'+ci+'" type="text" placeholder="Fatura No" oninput="stMalAutoAy()" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:8px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;" /></div>';
+    } else if (hd === 'Tarih'){
+      form += '<div style="flex:1;min-width:120px;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#555;margin-bottom:4px;">'+stEsc(hd)+'</div>'
+        + '<input id="stMalF_'+ci+'" type="text" placeholder="GG.AA.YYYY" oninput="stMalAutoAy()" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:8px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;" /></div>';
+    } else if (hd === 'Ay'){
+      form += '<div style="flex:0;min-width:110px;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--orange);margin-bottom:4px;">'+stEsc(hd)+' ⟳</div>'
+        + '<input id="stMalF_'+ci+'" type="text" placeholder="Otomatik" title="Fatura no ya da tarihten otomatik dolar" style="width:100%;background:#111;border:1px solid rgba(245,166,35,.3);border-radius:5px;padding:8px 10px;color:var(--orange);font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;font-weight:600;" /></div>';
+    } else {
+      form += '<div style="flex:2;min-width:160px;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#555;margin-bottom:4px;">'+stEsc(hd)+'</div>'
+        + '<input id="stMalF_'+ci+'" type="text" placeholder="'+stEsc(hd)+'" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:8px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;" /></div>';
+    }
+  });
+  html += '<div style="background:#161616;border:1px solid #222;border-top:2px solid #ff6b6b;border-radius:12px;padding:16px;margin-bottom:20px;">'
+    + '<div style="font-size:13px;font-weight:800;letter-spacing:1.5px;color:#ff6b6b;margin-bottom:12px;">+ YENİ GİDER İŞLE</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">'+form+'</div>'
+    + '<div id="stMalCiroHint" style="display:none;font-size:11.5px;color:#aaa;background:#0e0e0e;border:1px solid #222;border-radius:6px;padding:7px 12px;margin-bottom:10px;letter-spacing:.5px;"></div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;">'
+      + '<button class="stMalBtn" onclick="stAddMaliyet()" style="padding:9px 24px;background:linear-gradient(135deg,#ff6b6b,#ff8c69);color:#160404;border:none;border-radius:6px;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:13px;cursor:pointer;letter-spacing:1px;box-shadow:0 3px 12px rgba(255,107,107,.25);">💾 GİDERİ KAYDET</button>'
+    + '</div>'
+  + '</div>';
+
+  // ── Fatura bazında gider özeti ──
+  html += '<div style="background:#111;border:1px solid #222;border-radius:12px;padding:16px 18px;margin-bottom:20px;">';
+  html += '<div style="font-size:12px;font-weight:800;letter-spacing:1.5px;color:#bbb;margin-bottom:12px;">FATURA BAZINDA GİDER &amp; KÂRLILIK — '+stAyAdi(ay)+'</div>';
+  if (!byFat.length){
+    html += '<div style="color:#555;font-size:13px;letter-spacing:1px;padding:14px 0;text-align:center;">Bu dönemde gider kaydı yok.</div>';
+  } else {
+    var thf = 'padding:9px 12px;font-size:11px;font-weight:700;letter-spacing:1px;border-bottom:1px solid #1e1e1e;white-space:nowrap;';
+    html += '<div style="overflow:auto;border-radius:8px;border:1px solid #1e1e1e;">'
+      + '<table style="width:100%;border-collapse:collapse;min-width:640px;">'
+      + '<thead><tr style="background:#0d0d0d;">'
+        + '<th style="'+thf+'text-align:left;color:#888;">FATURA NO</th>'
+        + '<th style="'+thf+'text-align:right;color:#7fda9e;">CİRO (KDV dahil)</th>'
+        + '<th style="'+thf+'text-align:right;color:#ff6b6b;">TOPLAM GİDER</th>'
+        + '<th style="'+thf+'text-align:right;color:#5ab8f5;">NET (KDV hariç)</th>'
+        + '<th style="'+thf+'text-align:right;color:#666;">GİDER SATIRI</th>'
+      + '</tr></thead><tbody>';
+    byFat.forEach(function(x, i){
+      var tdf='padding:9px 12px;border-bottom:1px solid #1a1a1a;font-size:12.5px;text-align:right;';
+      var netC = x.net>=0 ? '#7fda9e' : '#ff6b6b';
+      var faturasiz = x.fno==='(Faturasız)';
+      html += '<tr style="background:'+(i%2?'rgba(255,255,255,.012)':'transparent')+';">'
+        + '<td style="'+tdf+'text-align:left;font-weight:700;color:'+(faturasiz?'#777':'#ddd')+';">'+stEsc(x.fno)+'</td>'
+        + '<td style="'+tdf+'color:#7fda9e;">'+(faturasiz?'—':stFmtTRY(x.ciro))+'</td>'
+        + '<td style="'+tdf+'color:#ff9b9b;font-weight:700;">'+stFmtTRY(x.gider)+'</td>'
+        + '<td style="'+tdf+'color:'+netC+';font-weight:800;">'+(faturasiz?'—':stFmtTRY(x.net))+'</td>'
+        + '<td style="'+tdf+'color:#666;">'+x.adet+'</td>'
+      + '</tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  html += '</div>';
+
+  // ── Gider satırları tablosu (düzenlenebilir) ──
+  var rows = stMalRows(ay);
+  var turI=h.indexOf('Gider Türü');
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">'
+    + '<div style="font-size:12px;font-weight:800;letter-spacing:1.5px;color:#bbb;">GİDER KAYITLARI <span style="color:#666;font-weight:600;">('+rows.length+' satır)</span></div>'
+    + '<button class="stMalBtn" onclick="stExportMaliyet()" style="background:#1e1e1e;border:1px solid #333;color:#888;border-radius:5px;padding:7px 12px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">📥 EXCELE AKTAR</button>'
+  + '</div>';
+  var thh = 'background:#0e0e0e;color:#666;font-size:11px;font-weight:700;letter-spacing:1px;padding:8px 10px;text-align:left;white-space:nowrap;position:sticky;top:0;';
+  var th = '<th style="'+thh+'width:26px;text-align:center;">#</th>' + h.map(function(hd){ return '<th style="'+thh+'">'+stEsc(hd)+'</th>'; }).join('') + '<th style="'+thh+'width:30px;"></th>';
+  var body = rows.map(function(o, i){
+    var r=o.r, actualIdx=o.idx;
+    var tds = h.map(function(hd, ci){
+      var val = r[ci]!==undefined ? r[ci] : '';
+      if (hd === 'Gider Türü'){
+        var opts = '<option value="">—</option>' + ST_MAL_TURLER.map(function(x){ return '<option value="'+x+'"'+(String(val)===x?' selected':'')+'>'+x+'</option>'; }).join('');
+        return '<td style="padding:4px 8px;border-bottom:1px solid #1a1a1a;"><select onchange="stMalTurChange('+actualIdx+','+ci+',this)" style="background:rgba(0,0,0,.4);border:1px solid #333;border-radius:4px;color:'+stMalRenk(val)+';font-size:11px;font-family:Barlow Condensed,sans-serif;font-weight:700;padding:4px 6px;cursor:pointer;min-width:120px;">'+opts+'</select></td>';
+      }
+      var isNumCol = (hd==='Tutar (TL)');
+      var col = isNumCol ? '#ff9b9b' : '#ccc';
+      var wt = isNumCol ? 'font-weight:800;' : '';
+      var refresh = (hd==='Tutar (TL)'||hd==='Fatura No'||hd==='Ay') ? ' onblur="stRenderContent()"' : '';
+      return '<td contenteditable="true" oninput="stEdit('+actualIdx+','+ci+',this)"'+refresh+' style="padding:7px 10px;border-bottom:1px solid #1a1a1a;color:'+col+';font-size:12px;'+wt+'max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;outline:none;cursor:text;" title="'+stEsc(val)+'">'+stEsc(val)+'</td>';
+    }).join('');
+    return '<tr style="background:'+(i%2?'rgba(255,255,255,.012)':'transparent')+';">'
+      + '<td style="padding:7px 4px;border-bottom:1px solid #1a1a1a;color:#555;font-size:10px;text-align:center;">'+(i+1)+'</td>'
+      + tds
+      + '<td style="padding:7px 4px;border-bottom:1px solid #1a1a1a;text-align:center;"><button onclick="stDel('+actualIdx+')" title="Sil" style="background:rgba(200,0,0,.12);border:1px solid rgba(200,0,0,.3);color:#ff6666;border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;">✕</button></td>'
+    + '</tr>';
+  }).join('');
+  if (!body) body = '<tr><td colspan="99" style="padding:30px;text-align:center;color:#444;letter-spacing:2px;">Kayıt yok</td></tr>';
+  html += '<div style="overflow:auto;border-radius:8px;border:1px solid #1e1e1e;max-height:460px;">'
+    + '<table style="width:100%;border-collapse:collapse;"><thead><tr>'+th+'</tr></thead><tbody>'+body+'</tbody></table>'
+  + '</div>';
+
+  html += '</div>';
+  box.innerHTML = html;
+}
+
+// ── Maliyet Excel (CSV) dışa aktar ──
+window.stExportMaliyet = function(){
+  stEnsureMaliyet();
+  var info = ST_DATA['Maliyet.html'];
+  var ay = stMalAySecili || '';
+  var rows = stMalRows(ay).map(function(o){ return o.r; });
+  var sep = ';';
+  var esc = function(v){ v=String(v==null?'':v); return /["\n;]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  var lines = [info.headers.map(esc).join(sep)];
+  rows.forEach(function(r){ lines.push(info.headers.map(function(_,ci){ return esc(r[ci]); }).join(sep)); });
+  var blob = new Blob(['\ufeff'+lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'Maliyet_' + (ay||'Tumu') + '.csv';
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1500);
+  stBadge('📥 Maliyet CSV indirildi');
+};
+
+// ══════════════════════════════════════════════════════════════
+// PDF: MALİYET RAPORU (basit gider dökümü)
+// ══════════════════════════════════════════════════════════════
+window.stOpenMaliyetPDF = function(ay){
+  if (ay === undefined){ var el=document.getElementById('stMalAy'); ay = el?el.value:''; }
+  var e = function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  var turAgg = stMalByTur(ay);
+  var byFat = stMalByFatura(ay);
+  var rows = stMalRows(ay).map(function(o){ return o.r; });
+  var h = ST_DATA['Maliyet.html'].headers;
+  var toplam = turAgg.toplam;
+  var bugun = new Date().toLocaleString('tr-TR');
+
+  var turTablo = Object.keys(turAgg.map).filter(function(t){return turAgg.map[t]>0;}).sort(function(a,b){return turAgg.map[b]-turAgg.map[a];}).map(function(t){
+    var pct = toplam>0?Math.round(turAgg.map[t]/toplam*100):0;
+    return '<tr><td>'+stMalIkon(t)+' '+e(t)+'</td><td class="r b">'+stFmtTRY(turAgg.map[t])+'</td>'
+      + '<td class="r">%'+pct+'</td><td><div class="bar"><span style="width:'+pct+'%;background:'+stMalRenk(t)+'"></span></div></td></tr>';
+  }).join('') || '<tr><td colspan="4" class="c muted">Kayıt yok</td></tr>';
+
+  var fatTablo = byFat.map(function(x){
+    var faturasiz = x.fno==='(Faturasız)';
+    return '<tr><td class="b">'+e(x.fno)+'</td><td class="r">'+(faturasiz?'—':stFmtTRY(x.ciro))+'</td>'
+      + '<td class="r red b">'+stFmtTRY(x.gider)+'</td><td class="r '+(x.net>=0?'green':'red')+' b">'+(faturasiz?'—':stFmtTRY(x.net))+'</td></tr>';
+  }).join('') || '<tr><td colspan="4" class="c muted">Kayıt yok</td></tr>';
+
+  var satirTablo = rows.map(function(r){
+    return '<tr>'+h.map(function(hd,ci){ var cls=(hd==='Tutar (TL)')?'r b':''; return '<td class="'+cls+'">'+e(r[ci])+'</td>'; }).join('')+'</tr>';
+  }).join('') || '<tr><td colspan="'+h.length+'" class="c muted">Kayıt yok</td></tr>';
+
+  var html = ''
+  + '<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Maliyet Raporu — '+e(stAyAdi(ay))+'</title>'
+  + '<style>'
+  + '*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;margin:0;padding:28px 34px;font-size:12px}'
+  + 'h1{font-size:20px;margin:0 0 2px}h2{font-size:14px;margin:24px 0 8px;padding-bottom:5px;border-bottom:2px solid #ff6b6b;color:#c0392b}'
+  + '.head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #1a1a1a;padding-bottom:10px;margin-bottom:6px}'
+  + '.brand{font-size:22px;font-weight:900;letter-spacing:1px}.sub{color:#666;font-size:11px}'
+  + '.kpis{display:flex;gap:10px;margin:14px 0}'
+  + '.kpi{flex:1;border:1px solid #ddd;border-radius:8px;padding:10px 12px;background:#fafafa}'
+  + '.kpi .l{font-size:10px;color:#888;font-weight:700;letter-spacing:.5px}.kpi .v{font-size:16px;font-weight:900;margin-top:3px}'
+  + 'table{width:100%;border-collapse:collapse;margin-top:4px}th,td{padding:6px 8px;border-bottom:1px solid #e6e6e6;text-align:left}'
+  + 'th{background:#f2f2f2;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:#555}'
+  + '.r{text-align:right}.c{text-align:center}.b{font-weight:800}.muted{color:#aaa;padding:14px}'
+  + '.red{color:#c0392b}.green{color:#1e8449}'
+  + '.bar{background:#eee;border-radius:4px;height:9px;width:120px;overflow:hidden}.bar span{display:block;height:100%}'
+  + '.foot{margin-top:26px;border-top:1px solid #ddd;padding-top:8px;color:#999;font-size:10px;display:flex;justify-content:space-between}'
+  + '@media print{body{padding:12px}}'
+  + '</style></head><body>'
+  + '<div class="head"><div><div class="brand">ORİMAK MAKİNA</div><div class="sub">Servis Takip · Maliyet / Gider Raporu</div></div>'
+    + '<div style="text-align:right"><div class="b" style="font-size:15px;color:#c0392b">'+e(stAyAdi(ay))+'</div><div class="sub">'+e(bugun)+'</div></div></div>'
+  + '<div class="kpis">'
+    + '<div class="kpi"><div class="l">TOPLAM GİDER</div><div class="v red">'+stFmtTRY(toplam)+'</div></div>'
+    + '<div class="kpi"><div class="l">GİDER SATIRI</div><div class="v">'+rows.length+'</div></div>'
+    + '<div class="kpi"><div class="l">TOPLAM YAKIT</div><div class="v red">'+stFmtTRY(turAgg.map['Yakıt']||0)+'</div></div>'
+    + '<div class="kpi"><div class="l">GİDERLİ FATURA</div><div class="v">'+byFat.filter(function(x){return x.fno!=="(Faturasız)";}).length+'</div></div>'
+  + '</div>'
+  + '<h2>Gider Türü Dağılımı</h2><table><thead><tr><th>Tür</th><th class="r">Tutar</th><th class="r">Pay</th><th>Grafik</th></tr></thead><tbody>'+turTablo+'</tbody>'
+    + '<tfoot><tr><td class="b">TOPLAM</td><td class="r b red">'+stFmtTRY(toplam)+'</td><td class="r b">%100</td><td></td></tr></tfoot></table>'
+  + '<h2>Fatura Bazında Gider &amp; Kârlılık</h2><table><thead><tr><th>Fatura No</th><th class="r">Ciro (KDV dahil)</th><th class="r">Gider</th><th class="r">Net (KDV hariç)</th></tr></thead><tbody>'+fatTablo+'</tbody></table>'
+  + '<h2>Gider Kayıtları</h2><table><thead><tr>'+h.map(function(hd){return '<th>'+e(hd)+'</th>';}).join('')+'</tr></thead><tbody>'+satirTablo+'</tbody></table>'
+  + '<div class="foot"><span>ORİMAK Makina · Servis Takip Sistemi</span><span>Oluşturma: '+e(bugun)+'</span></div>'
+  + '<script>window.onload=function(){setTimeout(function(){window.print();},400);}<\/script>'
+  + '</body></html>';
+
+  var w = window.open('', '_blank');
+  if (w){ w.document.write(html); w.document.close(); }
+  else alert('Açılır pencere engellendi. Tarayıcı ayarlarından pop-up izni verin.');
+};
+
+// ══════════════════════════════════════════════════════════════
+// PDF: DETAYLI ANALİZ (satış + gider + kârlılık)
+// ══════════════════════════════════════════════════════════════
+window.stOpenAnalizPDF = function(ay){
+  if (ay === undefined){ var el=document.getElementById('stMalAy'); ay = el?el.value:''; }
+  var e = function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  var bugun = new Date().toLocaleString('tr-TR');
+
+  // ── Fatura Detayları'ndan satış analizleri ──
+  var det = ST_DATA['FaturaDetaylari.html'] || {headers:[],data:[]};
+  var dh = det.headers||[];
+  var iKat=dh.indexOf('Kategori'), iUrun=dh.indexOf('Ürün Adı'), iMik=dh.indexOf('Miktar'),
+      iAra=dh.indexOf('Ara Toplam (TL)'), iGen=dh.indexOf('Genel Toplam (TL)'), iKdv=dh.indexOf('KDV (TL)'),
+      iAy=dh.indexOf('Ay'), iFno=dh.indexOf('Fatura No'), iBirim=dh.indexOf('Birim');
+
+  var ciro=0, gelir=0, kdvTop=0;
+  var kat = {'MALZEME':0, 'SERVİS BEDELİ':0, 'YOL':0};
+  var urunMap = {};      // Ürün Adı -> {miktar, tutar, birim}
+  var faturaGelir = {};  // Fatura No -> gelir(KDV hariç)
+  var faturaCiro = {};   // Fatura No -> ciro(KDV dahil)
+  var aylikSatis = {};   // ay -> {ciro, gelir}
+
+  (det.data||[]).forEach(function(r){
+    if (ay && String(r[iAy]||'').trim() !== ay) return;
+    var k = String(r[iKat]||'').trim();
+    var ara = stParseTRYNum(r[iAra]);
+    var gen = stParseTRYNum(r[iGen]);
+    var kdv = stParseTRYNum(r[iKdv]);
+    ciro += gen; gelir += ara; kdvTop += kdv;
+    if (k in kat) kat[k] += ara;
+    if (k === 'MALZEME'){
+      var u = String(r[iUrun]||'').trim() || '(isimsiz)';
+      if (!urunMap[u]) urunMap[u]={miktar:0, tutar:0, birim:String(r[iBirim]||'').trim()};
+      urunMap[u].miktar += stParseTRYNum(r[iMik]);
+      urunMap[u].tutar += ara;
+    }
+    var fno = String(r[iFno]||'').trim();
+    if (fno){ faturaGelir[fno]=(faturaGelir[fno]||0)+ara; faturaCiro[fno]=(faturaCiro[fno]||0)+gen; }
+    var a = String(r[iAy]||'').trim();
+    if (a.match(/^\d{4}-\d{2}$/)){ if(!aylikSatis[a]) aylikSatis[a]={ciro:0,gelir:0}; aylikSatis[a].ciro+=gen; aylikSatis[a].gelir+=ara; }
+  });
+
+  // ── Gider analizleri ──
+  var turAgg = stMalByTur(ay);
+  var giderTop = turAgg.toplam;
+  var yakit = turAgg.map['Yakıt'] || 0;
+  var enYuksekTur='—', enYuksekVal=0;
+  Object.keys(turAgg.map).forEach(function(t){ if (turAgg.map[t]>enYuksekVal){ enYuksekVal=turAgg.map[t]; enYuksekTur=t; } });
+
+  // aylık gider
+  stEnsureMaliyet();
+  var mh = ST_DATA['Maliyet.html'].headers;
+  var mAy=mh.indexOf('Ay'), mTut=mh.indexOf('Tutar (TL)');
+  var aylikGider = {};
+  (ST_DATA['Maliyet.html'].data||[]).forEach(function(r){
+    var a=String(r[mAy]||'').trim(); if(!a.match(/^\d{4}-\d{2}$/)) return;
+    aylikGider[a]=(aylikGider[a]||0)+stParseTRYNum(r[mTut]);
+  });
+
+  var net = gelir - giderTop;
+  var marj = gelir>0 ? (net/gelir*100) : 0;
+
+  // top ürünler (tutara göre)
+  var urunler = Object.keys(urunMap).map(function(u){ return {u:u, miktar:urunMap[u].miktar, tutar:urunMap[u].tutar, birim:urunMap[u].birim}; })
+    .sort(function(a,b){ return b.tutar-a.tutar; });
+  var topUrun = urunler.slice(0,15);
+  var enCokMalzeme = urunler.length ? urunler[0] : null;
+  // en çok miktar giden malzeme
+  var enCokMiktar = urunler.slice().sort(function(a,b){ return b.miktar-a.miktar; })[0] || null;
+
+  var katToplam = kat['MALZEME']+kat['SERVİS BEDELİ']+kat['YOL'];
+
+  // ── HTML parçaları ──
+  var katTablo = ['MALZEME','SERVİS BEDELİ','YOL'].map(function(k){
+    var pct = katToplam>0?Math.round(kat[k]/katToplam*100):0;
+    var renk = k==='MALZEME'?'#2980b9':k==='SERVİS BEDELİ'?'#27ae60':'#8e44ad';
+    return '<tr><td class="b">'+e(k)+'</td><td class="r b">'+stFmtTRY(kat[k])+'</td><td class="r">%'+pct+'</td>'
+      + '<td><div class="bar"><span style="width:'+pct+'%;background:'+renk+'"></span></div></td></tr>';
+  }).join('');
+
+  var urunTablo = topUrun.map(function(x, i){
+    return '<tr><td class="c muted">'+(i+1)+'</td><td>'+e(x.u)+'</td><td class="r">'+stFmtNum(x.miktar)+' '+e(x.birim)+'</td><td class="r b">'+stFmtTRY(x.tutar)+'</td></tr>';
+  }).join('') || '<tr><td colspan="4" class="c muted">Malzeme satışı yok</td></tr>';
+
+  var giderTablo = Object.keys(turAgg.map).filter(function(t){return turAgg.map[t]>0;}).sort(function(a,b){return turAgg.map[b]-turAgg.map[a];}).map(function(t){
+    var pct = giderTop>0?Math.round(turAgg.map[t]/giderTop*100):0;
+    return '<tr><td>'+stMalIkon(t)+' '+e(t)+'</td><td class="r b red">'+stFmtTRY(turAgg.map[t])+'</td><td class="r">%'+pct+'</td>'
+      + '<td><div class="bar"><span style="width:'+pct+'%;background:'+stMalRenk(t)+'"></span></div></td></tr>';
+  }).join('') || '<tr><td colspan="4" class="c muted">Gider kaydı yok</td></tr>';
+
+  // fatura kârlılık: giderli faturaları öne al
+  var giderByFat = stMalByFatura(ay);
+  var giderMap = {}; giderByFat.forEach(function(x){ if(x.fno!=='(Faturasız)') giderMap[x.fno]=x.gider; });
+  var tumFaturalar = {}; Object.keys(faturaGelir).forEach(function(f){ tumFaturalar[f]=true; }); Object.keys(giderMap).forEach(function(f){ tumFaturalar[f]=true; });
+  var karlilik = Object.keys(tumFaturalar).map(function(f){
+    var g = faturaGelir[f]||0; var c = faturaCiro[f]||0; var gid = giderMap[f]||0;
+    return {fno:f, ciro:c, gelir:g, gider:gid, net:g-gid};
+  }).sort(function(a,b){ return b.ciro-a.ciro; }).slice(0,25);
+  var karTablo = karlilik.map(function(x){
+    return '<tr><td class="b">'+e(x.fno)+'</td><td class="r">'+stFmtTRY(x.ciro)+'</td><td class="r red">'+stFmtTRY(x.gider)+'</td>'
+      + '<td class="r b '+(x.net>=0?'green':'red')+'">'+stFmtTRY(x.net)+'</td></tr>';
+  }).join('') || '<tr><td colspan="4" class="c muted">Fatura yok</td></tr>';
+
+  // aylık trend (yalnızca "tüm zamanlar")
+  var aylikBlok = '';
+  if (!ay){
+    var tumAylar = {}; Object.keys(aylikSatis).forEach(function(a){tumAylar[a]=true;}); Object.keys(aylikGider).forEach(function(a){tumAylar[a]=true;});
+    var sirali = Object.keys(tumAylar).sort();
+    if (sirali.length){
+      var satir = sirali.map(function(a){
+        var c=(aylikSatis[a]||{}).ciro||0; var g=(aylikSatis[a]||{}).gelir||0; var gid=aylikGider[a]||0; var n=g-gid;
+        return '<tr><td class="b">'+e(stAyAdi(a))+'</td><td class="r">'+stFmtTRY(c)+'</td><td class="r red">'+stFmtTRY(gid)+'</td><td class="r b '+(n>=0?'green':'red')+'">'+stFmtTRY(n)+'</td></tr>';
+      }).join('');
+      aylikBlok = '<h2>Aylık Trend (Ciro · Gider · Net)</h2><table><thead><tr><th>Ay</th><th class="r">Ciro (KDV dahil)</th><th class="r">Gider</th><th class="r">Net (KDV hariç)</th></tr></thead><tbody>'+satir+'</tbody></table>';
+    }
+  }
+
+  var oneCikanlar = ''
+    + '<div class="hi">'
+      + '<div class="hix"><span class="hl">🏆 En çok satılan malzeme</span><span class="hv">'+(enCokMalzeme?e(enCokMalzeme.u)+' — '+stFmtTRY(enCokMalzeme.tutar):'—')+'</span></div>'
+      + '<div class="hix"><span class="hl">📦 En çok miktar giden</span><span class="hv">'+(enCokMiktar?e(enCokMiktar.u)+' — '+stFmtNum(enCokMiktar.miktar)+' '+e(enCokMiktar.birim):'—')+'</span></div>'
+      + '<div class="hix"><span class="hl">💥 En yüksek gider kalemi</span><span class="hv red">'+stMalIkon(enYuksekTur)+' '+e(enYuksekTur)+' — '+stFmtTRY(enYuksekVal)+'</span></div>'
+      + '<div class="hix"><span class="hl">⛽ Toplam yakıt gideri</span><span class="hv red">'+stFmtTRY(yakit)+'</span></div>'
+    + '</div>';
+
+  var html = ''
+  + '<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Detaylı Analiz — '+e(stAyAdi(ay))+'</title>'
+  + '<style>'
+  + '*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;margin:0;padding:28px 34px;font-size:12px}'
+  + 'h1{font-size:20px;margin:0}h2{font-size:14px;margin:22px 0 8px;padding-bottom:5px;border-bottom:2px solid #16a085;color:#0e6655}'
+  + '.head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #1a1a1a;padding-bottom:10px;margin-bottom:8px}'
+  + '.brand{font-size:22px;font-weight:900;letter-spacing:1px}.sub{color:#666;font-size:11px}'
+  + '.kpis{display:flex;gap:9px;margin:14px 0}'
+  + '.kpi{flex:1;border:1px solid #e0e0e0;border-radius:8px;padding:9px 11px;background:#fafafa;text-align:center}'
+  + '.kpi .l{font-size:9.5px;color:#888;font-weight:700;letter-spacing:.4px}.kpi .v{font-size:15px;font-weight:900;margin-top:3px}'
+  + 'table{width:100%;border-collapse:collapse;margin-top:4px}th,td{padding:6px 8px;border-bottom:1px solid #ececec;text-align:left}'
+  + 'th{background:#f2f2f2;font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:#555}'
+  + '.r{text-align:right}.c{text-align:center}.b{font-weight:800}.muted{color:#aaa}'
+  + '.red{color:#c0392b}.green{color:#1e8449}.blue{color:#2471a3}'
+  + '.bar{background:#eee;border-radius:4px;height:9px;width:130px;overflow:hidden}.bar span{display:block;height:100%}'
+  + '.hi{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 4px}'
+  + '.hix{border:1px solid #e6e6e6;border-left:4px solid #16a085;border-radius:6px;padding:8px 11px;background:#f7fbfa;display:flex;flex-direction:column;gap:2px}'
+  + '.hl{font-size:10px;color:#888;font-weight:700}.hv{font-size:13px;font-weight:800}'
+  + '.foot{margin-top:24px;border-top:1px solid #ddd;padding-top:8px;color:#999;font-size:10px;display:flex;justify-content:space-between}'
+  + '.two{display:flex;gap:18px}.two>div{flex:1}'
+  + '@media print{body{padding:12px}h2{break-after:avoid}table{break-inside:auto}tr{break-inside:avoid}}'
+  + '</style></head><body>'
+  + '<div class="head"><div><div class="brand">ORİMAK MAKİNA</div><div class="sub">Servis Takip · Detaylı Maliyet &amp; Satış Analizi</div></div>'
+    + '<div style="text-align:right"><div class="b" style="font-size:15px;color:#0e6655">'+e(stAyAdi(ay))+'</div><div class="sub">'+e(bugun)+'</div></div></div>'
+  + '<div class="kpis">'
+    + '<div class="kpi"><div class="l">CİRO (KDV dahil)</div><div class="v">'+stFmtTRY(ciro)+'</div></div>'
+    + '<div class="kpi"><div class="l">GELİR (KDV hariç)</div><div class="v blue">'+stFmtTRY(gelir)+'</div></div>'
+    + '<div class="kpi"><div class="l">TOPLAM GİDER</div><div class="v red">'+stFmtTRY(giderTop)+'</div></div>'
+    + '<div class="kpi"><div class="l">NET KÂR</div><div class="v '+(net>=0?'green':'red')+'">'+stFmtTRY(net)+'</div></div>'
+    + '<div class="kpi"><div class="l">KÂR MARJI</div><div class="v '+(marj>=0?'green':'red')+'">%'+stFmtNum(marj)+'</div></div>'
+  + '</div>'
+  + '<h2>Öne Çıkanlar</h2>'+oneCikanlar
+  + '<div class="two">'
+    + '<div><h2>Kategori Bazında Satış</h2><table><thead><tr><th>Kategori</th><th class="r">Tutar</th><th class="r">Pay</th><th>Grafik</th></tr></thead><tbody>'+katTablo+'</tbody>'
+      + '<tfoot><tr><td class="b">TOPLAM</td><td class="r b">'+stFmtTRY(katToplam)+'</td><td class="r b">%100</td><td></td></tr></tfoot></table></div>'
+    + '<div><h2>Gider Dağılımı</h2><table><thead><tr><th>Tür</th><th class="r">Tutar</th><th class="r">Pay</th><th>Grafik</th></tr></thead><tbody>'+giderTablo+'</tbody>'
+      + '<tfoot><tr><td class="b">TOPLAM</td><td class="r b red">'+stFmtTRY(giderTop)+'</td><td class="r b">%100</td><td></td></tr></tfoot></table></div>'
+  + '</div>'
+  + '<h2>En Çok Satılan Malzemeler (İlk 15)</h2><table><thead><tr><th class="c">#</th><th>Ürün</th><th class="r">Toplam Miktar</th><th class="r">Toplam Tutar</th></tr></thead><tbody>'+urunTablo+'</tbody></table>'
+  + '<h2>Fatura Bazında Kârlılık (İlk 25)</h2><table><thead><tr><th>Fatura No</th><th class="r">Ciro (KDV dahil)</th><th class="r">Gider</th><th class="r">Net (KDV hariç)</th></tr></thead><tbody>'+karTablo+'</tbody></table>'
+  + aylikBlok
+  + '<div class="foot"><span>ORİMAK Makina · Servis Takip Sistemi — analiz otomatik üretilmiştir</span><span>Oluşturma: '+e(bugun)+'</span></div>'
+  + '<script>window.onload=function(){setTimeout(function(){window.print();},450);}<\/script>'
+  + '</body></html>';
+
+  var w = window.open('', '_blank');
+  if (w){ w.document.write(html); w.document.close(); }
+  else alert('Açılır pencere engellendi. Tarayıcı ayarlarından pop-up izni verin.');
+};
+
+
+window.stRenderContent = stRenderContent; // inline onblur/onclick handlers global scope erişimi
 function stRenderContent() {
   var box = document.getElementById('stContent');
   if (!box) return;
   var pg = ST_PAGES[stActiveIdx];
   var fname = pg[0], label = pg[1];
+
+  // ── MALİYET SAYFASI ──
+  if (fname === 'Maliyet.html') {
+    stRenderMaliyet(box);
+    return;
+  }
 
   // ── FİYAT LİSTESİ SAYFASI ──
   if (fname === 'FiyatListesi.html') {
@@ -12899,12 +13564,23 @@ function stRenderContent() {
       for (var _i = 0; _i < fc; _i++) monthly[ay].faturaSayisi['__frz_' + ay + '_' + _i] = true;
     });
 
+    // ── Aylık GİDER (Maliyet sayfası) ──
+    var _malInfoGR = ST_DATA['Maliyet.html'] || {headers:[], data:[]};
+    var _mhGR = _malInfoGR.headers || [];
+    var _mAyIGR = _mhGR.indexOf('Ay'), _mTutIGR = _mhGR.indexOf('Tutar (TL)');
+    (_malInfoGR.data || []).forEach(function(r){
+      var _ay = String(r[_mAyIGR]||'').trim();
+      if (!/^\d{4}-\d{2}$/.test(_ay)) return;
+      if (!monthly[_ay]) monthly[_ay] = {malzeme:0, servis:0, yol:0, kdv:0, genel:0, gider:0, faturaSayisi:{}};
+      monthly[_ay].gider = (monthly[_ay].gider||0) + parseTRY2(r[_mTutIGR]);
+    });
+
     var aylar = Object.keys(monthly).sort();
     var fmtTRY3 = function(n){ return n.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+' \u20ba'; };
     var ayIsim = {'01':'Ocak','02':'\u015eubat','03':'Mart','04':'Nisan','05':'May\u0131s','06':'Haziran','07':'Temmuz','08':'A\u011fustos','09':'Eyl\u00fcl','10':'Ekim','11':'Kas\u0131m','12':'Aral\u0131k'};
 
-    var toplamMal=0, toplamSer=0, toplamYol=0, toplamKdv=0, toplamGenel=0;
-    aylar.forEach(function(ay){ var m=monthly[ay]; toplamMal+=m.malzeme; toplamSer+=m.servis; toplamYol+=m.yol; toplamKdv+=m.kdv; toplamGenel+=m.genel; });
+    var toplamMal=0, toplamSer=0, toplamYol=0, toplamKdv=0, toplamGenel=0, toplamGider=0;
+    aylar.forEach(function(ay){ var m=monthly[ay]; toplamMal+=m.malzeme; toplamSer+=m.servis; toplamYol+=m.yol; toplamKdv+=m.kdv; toplamGenel+=m.genel; toplamGider+=(m.gider||0); });
 
     var grHtml = '<div style="font-family:Barlow Condensed,sans-serif;">';
 
@@ -12922,7 +13598,8 @@ function stRenderContent() {
         '<div style="font-size:12.5px;color:#ccc;line-height:1.55;">\u015eu aylar hem dondurulmu\u015f (ar\u015fiv) \u00f6zette hem de canl\u0131 Fatura Detaylar\u0131 listesinde kay\u0131t i\u00e7eriyor: <b style="color:#ffb0b0;">' + _grOverlap.join(', ') + '</b>. Bu aylar\u0131n tutarlar\u0131 Genel Rapor\u2019da iki kez toplan\u0131yor olabilir. Sa\u011fdaki <b>\u00d6ZET\u0130 ONAR</b> butonu buluttaki ger\u00e7ek ar\u015fivden yeniden hesaplar ve canl\u0131 listede zaten bulunan sat\u0131rlar\u0131 \u00f6zetten \u00e7\u0131kar\u0131r (hi\u00e7bir fatura sat\u0131r\u0131 silinmez).</div>'+
       '</div>';
     }
-    grHtml += '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">'+
+    grHtml += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;">'+
+      '<button onclick="stOpenAnalizPDF(\'\')" style="background:linear-gradient(135deg,#7fda9e,#4ecdc4);border:none;color:#08130d;border-radius:6px;padding:6px 12px;font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:900;letter-spacing:1px;cursor:pointer;">\ud83d\udcca DETAYLI ANAL\u0130Z (PDF)</button>'+
       '<button onclick="stGRFixFrozen()" style="background:rgba(90,184,245,.08);border:1px solid rgba(90,184,245,.3);color:#5ab8f5;border-radius:6px;padding:6px 12px;font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;cursor:pointer;">\ud83d\udee0\ufe0f \u00d6ZET\u0130 ONAR \u2014 ar\u015fivden yeniden hesapla</button>'+
     '</div>';
 
@@ -12933,7 +13610,9 @@ function stRenderContent() {
       {label:'MALZEME', val:toplamMal, color:'#5ab8f5', bg:'rgba(90,184,245,0.10)', border:'rgba(90,184,245,0.3)'},
       {label:'SERVİS BEDELİ', val:toplamSer, color:'#92D050', bg:'rgba(146,208,80,0.10)', border:'rgba(146,208,80,0.3)'},
       {label:'YOL', val:toplamYol, color:'#c49ef5', bg:'rgba(196,158,245,0.10)', border:'rgba(196,158,245,0.3)'},
-      {label:'TOPLAM KDV', val:toplamKdv, color:'#ff8c69', bg:'rgba(255,140,105,0.10)', border:'rgba(255,140,105,0.3)'}
+      {label:'TOPLAM KDV', val:toplamKdv, color:'#ff8c69', bg:'rgba(255,140,105,0.10)', border:'rgba(255,140,105,0.3)'},
+      {label:'TOPLAM GİDER', val:toplamGider, color:'#ff6b6b', bg:'rgba(255,107,107,0.12)', border:'rgba(255,107,107,0.35)'},
+      {label:'NET KÂR', val:(toplamGenel - toplamKdv) - toplamGider, color:'#7fda9e', bg:'rgba(127,218,158,0.12)', border:'rgba(127,218,158,0.35)'}
     ];
     ozet3.forEach(function(o){
       grHtml += '<div style="background:'+o.bg+';border:1px solid '+o.border+';border-radius:10px;padding:14px 16px;">'+
@@ -12954,6 +13633,8 @@ function stRenderContent() {
     grHtml += '<th style="'+thS3+'color:#92d050;">SERVİS BEDELİ</th>';
     grHtml += '<th style="'+thS3+'color:#c49ef5;">YOL</th>';
     grHtml += '<th style="'+thS3+'color:#ff8c69;">KDV</th>';
+    grHtml += '<th style="'+thS3+'color:#ff6b6b;">GİDER</th>';
+    grHtml += '<th style="'+thS3+'color:#7fda9e;">NET KÂR</th>';
     grHtml += '<th style="'+thS3+'color:#666;">FATURA</th>';
     grHtml += '</tr></thead><tbody>';
 
@@ -12980,6 +13661,9 @@ function stRenderContent() {
       grHtml += '<td style="'+tdS3+'font-size:12px;color:#92d050;">'+fmtTRY3(m.servis)+'</td>';
       grHtml += '<td style="'+tdS3+'font-size:12px;color:#c49ef5;">'+fmtTRY3(m.yol)+'</td>';
       grHtml += '<td style="'+tdS3+'font-size:12px;color:#ff8c69;">'+fmtTRY3(m.kdv)+'</td>';
+      grHtml += '<td style="'+tdS3+'font-size:12px;color:#ff6b6b;">'+fmtTRY3(m.gider||0)+'</td>';
+      var _netGR = (m.genel - m.kdv) - (m.gider||0);
+      grHtml += '<td style="'+tdS3+'font-size:13px;font-weight:700;color:'+(_netGR>=0?'#7fda9e':'#ff6b6b')+';">'+fmtTRY3(_netGR)+'</td>';
       grHtml += '<td style="'+tdS3+'font-size:12px;color:#666;">'+fSayi+' adet</td>';
       grHtml += '</tr>';
     });
@@ -12993,6 +13677,8 @@ function stRenderContent() {
     grHtml += '<td style="'+totS3+'color:#92d050;">'+fmtTRY3(toplamSer)+'</td>';
     grHtml += '<td style="'+totS3+'color:#c49ef5;">'+fmtTRY3(toplamYol)+'</td>';
     grHtml += '<td style="'+totS3+'color:#ff8c69;">'+fmtTRY3(toplamKdv)+'</td>';
+    grHtml += '<td style="'+totS3+'color:#ff6b6b;">'+fmtTRY3(toplamGider)+'</td>';
+    grHtml += '<td style="'+totS3+'color:'+(((toplamGenel-toplamKdv)-toplamGider)>=0?'#7fda9e':'#ff6b6b')+';">'+fmtTRY3((toplamGenel-toplamKdv)-toplamGider)+'</td>';
     grHtml += '<td style="'+totS3+'color:#555;">—</td>';
     grHtml += '</tr>';
     grHtml += '</tbody></table></div>';
