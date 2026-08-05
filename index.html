@@ -12810,6 +12810,7 @@ window.stOnayHeaderClick = function(e) {
 // MALİYET (GİDER) SAYFASI — fatura bazlı gider takibi + analiz
 // (eski "Raporlar" sekmesinin yerine)
 // ═══════════════════════════════════════════════════════════
+var stMalAySecili = '';
 var ST_MAL_HEADERS = ['Fatura No', 'Gider Türü', 'Açıklama', 'Tutar (TL)', 'Tarih', 'Ay'];
 var ST_MAL_TURLER = ['Yemek', 'Yol Ücreti', 'Yakıt', 'Amortisman', 'Konaklama', 'Sarf Malzeme', 'İşçilik', 'Kargo/Nakliye', 'Diğer'];
 var ST_MAL_RENK = {
@@ -12945,6 +12946,76 @@ function stMalByFatura(ay){
     var c = (fno==='(Faturasız)') ? {gen:0,ara:0} : stFaturaCiro(fno);
     return {fno:fno, gider:g.gider, adet:g.adet, ciro:c.gen, gelir:c.ara, net:(c.ara - g.gider)};
   }).sort(function(a,b){ return b.gider - a.gider; });
+}
+
+// ── Firma analizi yardımcıları ──────────────────────────────────
+// Başlık listesinde firma/müşteri/ünvan/cari sütununu bulur
+function stFirmaColIdx(headers){
+  var idx = -1;
+  (headers||[]).forEach(function(h, i){
+    if (idx >= 0) return;
+    var H = String(h||'').toLocaleUpperCase('tr-TR');
+    if (/F[İI]RMA|MÜŞTER[İI]|ÜNVAN|UNVAN|CAR[İI]/.test(H)) idx = i;
+  });
+  return idx;
+}
+// Başlık listesinde "Fatura No" sütununu bulur
+function stFnoColIdx(headers){
+  var idx = -1;
+  (headers||[]).forEach(function(h, i){
+    if (idx >= 0) return;
+    var H = String(h||'').toLocaleUpperCase('tr-TR');
+    if (/FATURA\s*NO/.test(H)) idx = i;
+  });
+  return idx;
+}
+// Bir tarih/metinden YYYY-MM ayı çıkarır (ISO, gg.aa.yyyy, gg/aa/yyyy)
+function stMonthOf(s){
+  var t = String(s||'').trim();
+  var m = t.match(/(\d{4})-(\d{2})/); if (m) return m[1]+'-'+m[2];
+  m = t.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/); if (m) return m[3]+'-'+('0'+m[2]).slice(-2);
+  return '';
+}
+// Fatura No -> Firma eşleşmesi (Servis Plan + Faturalar tablolarından, sütunlar varsa)
+function stFaturaFirmaMap(){
+  var map = {};
+  var sp = ST_DATA['Servis Plan.html'] || {headers:[], data:[]};
+  var sfi = stFirmaColIdx(sp.headers), sni = stFnoColIdx(sp.headers);
+  if (sfi >= 0 && sni >= 0){
+    (sp.data||[]).forEach(function(r){
+      var f = String(r[sni]||'').trim(), fm = String(r[sfi]||'').trim();
+      if (f && fm && !map[f]) map[f] = fm;
+    });
+  }
+  var fa = ST_DATA['Faturalar.html'] || {headers:[], data:[]};
+  var ffi = stFirmaColIdx(fa.headers), fni = stFnoColIdx(fa.headers);
+  if (ffi >= 0 && fni >= 0){
+    (fa.data||[]).forEach(function(r){
+      var f = String(r[fni]||'').trim(), fm = String(r[ffi]||'').trim();
+      if (f && fm) map[f] = fm; // Faturalar daha yetkili, üzerine yazar
+    });
+  }
+  return map;
+}
+// Eşleşme yoksa: Servis Plan'dan firma aktivite dökümü (adet / onaylı / faturalı)
+function stFirmaAktivite(ay){
+  var sp = ST_DATA['Servis Plan.html'] || {headers:[], data:[]};
+  var sh = sp.headers || [];
+  var fi = stFirmaColIdx(sh);
+  if (fi < 0) return null;
+  var oi = sh.indexOf('ONAY');
+  var di = sh.indexOf('SERVİS TARİHİ'); if (di < 0) di = sh.indexOf('SERVİS TALEP TARİHİ');
+  var grp = {};
+  (sp.data||[]).forEach(function(r){
+    var fm = String(r[fi]||'').trim(); if (!fm) return;
+    if (ay){ var mo = di>=0 ? stMonthOf(r[di]) : ''; if (mo && mo !== ay) return; }
+    if (!grp[fm]) grp[fm] = {firma:fm, adet:0, onayli:0, faturali:0};
+    grp[fm].adet++;
+    var ov = oi>=0 ? String(r[oi]||'').trim() : '';
+    if (ov === 'ONAYLANDI' || ov === 'FATURASI KESİLDİ') grp[fm].onayli++;
+    if (ov === 'FATURASI KESİLDİ') grp[fm].faturali++;
+  });
+  return Object.keys(grp).map(function(k){ return grp[k]; }).sort(function(a,b){ return b.adet - a.adet; });
 }
 
 window.stMalAyChange = function(){
@@ -13391,17 +13462,54 @@ window.stOpenAnalizPDF = function(ay){
       + '<td class="r b '+(x.net>=0?'green':'red')+'">'+stFmtTRY(x.net)+'</td></tr>';
   }).join('') || '<tr><td colspan="4" class="c muted">Fatura yok</td></tr>';
 
-  // aylık trend (yalnızca "tüm zamanlar")
-  var aylikBlok = '';
-  if (!ay){
-    var tumAylar = {}; Object.keys(aylikSatis).forEach(function(a){tumAylar[a]=true;}); Object.keys(aylikGider).forEach(function(a){tumAylar[a]=true;});
-    var sirali = Object.keys(tumAylar).sort();
-    if (sirali.length){
-      var satir = sirali.map(function(a){
-        var c=(aylikSatis[a]||{}).ciro||0; var g=(aylikSatis[a]||{}).gelir||0; var gid=aylikGider[a]||0; var n=g-gid;
-        return '<tr><td class="b">'+e(stAyAdi(a))+'</td><td class="r">'+stFmtTRY(c)+'</td><td class="r red">'+stFmtTRY(gid)+'</td><td class="r b '+(n>=0?'green':'red')+'">'+stFmtTRY(n)+'</td></tr>';
+  // ── AYLIK DETAYLI ANALİZ (seçili döneme saygılı) ──
+  var aylikGiderF = {};
+  (ST_DATA['Maliyet.html'].data||[]).forEach(function(r){
+    var a = String(r[mAy]||'').trim(); if (!a.match(/^\d{4}-\d{2}$/)) return;
+    if (ay && a !== ay) return;
+    aylikGiderF[a] = (aylikGiderF[a]||0) + stParseTRYNum(r[mTut]);
+  });
+  var _aySet = {}; Object.keys(aylikSatis).forEach(function(a){ _aySet[a]=true; }); Object.keys(aylikGiderF).forEach(function(a){ _aySet[a]=true; });
+  var _aylar = Object.keys(_aySet).sort();
+  var _tC=0,_tG=0,_tGid=0;
+  var aydRows = _aylar.map(function(a){
+    var c=(aylikSatis[a]||{}).ciro||0, g=(aylikSatis[a]||{}).gelir||0, gid=aylikGiderF[a]||0, n=g-gid, m=g>0?(n/g*100):0;
+    _tC+=c; _tG+=g; _tGid+=gid;
+    return '<tr><td class="b">'+e(stAyAdi(a))+'</td><td class="r">'+stFmtTRY(c)+'</td><td class="r blue">'+stFmtTRY(g)+'</td><td class="r red">'+stFmtTRY(gid)+'</td><td class="r b '+(n>=0?'green':'red')+'">'+stFmtTRY(n)+'</td><td class="r '+(m>=0?'green':'red')+'">%'+stFmtNum(m)+'</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="c muted">Veri yok</td></tr>';
+  var _tN=_tG-_tGid, _tM=_tG>0?(_tN/_tG*100):0;
+  var aylikDetayBlok = '<h2>Aylık Detaylı Analiz</h2><table><thead><tr><th>Ay</th><th class="r">Ciro (KDV dahil)</th><th class="r">Gelir (KDV hariç)</th><th class="r">Gider</th><th class="r">Net</th><th class="r">Marj</th></tr></thead><tbody>'+aydRows+'</tbody>'
+    + '<tfoot><tr><td class="b">TOPLAM</td><td class="r b">'+stFmtTRY(_tC)+'</td><td class="r b blue">'+stFmtTRY(_tG)+'</td><td class="r b red">'+stFmtTRY(_tGid)+'</td><td class="r b '+(_tN>=0?'green':'red')+'">'+stFmtTRY(_tN)+'</td><td class="r b '+(_tM>=0?'green':'red')+'">%'+stFmtNum(_tM)+'</td></tr></tfoot></table>';
+
+  // ── FİRMA BAZINDA ANALİZ ──
+  var firmaMap = stFaturaFirmaMap();
+  var firmaPnl = {};
+  Object.keys(tumFaturalar).forEach(function(f){
+    var fm = firmaMap[f] || '(Eşleşmemiş)';
+    if (!firmaPnl[fm]) firmaPnl[fm] = {firma:fm, ciro:0, gelir:0, gider:0};
+    firmaPnl[fm].ciro  += (faturaCiro[f]||0);
+    firmaPnl[fm].gelir += (faturaGelir[f]||0);
+    firmaPnl[fm].gider += (giderMap[f]||0);
+  });
+  var firmaArr = Object.keys(firmaPnl).map(function(k){ var x=firmaPnl[k]; x.net=x.gelir-x.gider; x.marj=x.gelir>0?(x.net/x.gelir*100):0; return x; }).sort(function(a,b){ return b.ciro-a.ciro; });
+  var firmaEsli = firmaArr.filter(function(x){ return x.firma !== '(Eşleşmemiş)'; });
+  var firmaBlok = '';
+  if (firmaEsli.length){
+    var frows = firmaArr.map(function(x){
+      return '<tr><td class="b">'+e(x.firma)+'</td><td class="r">'+stFmtTRY(x.ciro)+'</td><td class="r blue">'+stFmtTRY(x.gelir)+'</td><td class="r red">'+stFmtTRY(x.gider)+'</td><td class="r b '+(x.net>=0?'green':'red')+'">'+stFmtTRY(x.net)+'</td><td class="r '+(x.marj>=0?'green':'red')+'">%'+stFmtNum(x.marj)+'</td></tr>';
+    }).join('');
+    firmaBlok = '<h2>Firma Bazında Analiz</h2><table><thead><tr><th>Firma</th><th class="r">Ciro (KDV dahil)</th><th class="r">Gelir (KDV hariç)</th><th class="r">Gider</th><th class="r">Net</th><th class="r">Marj</th></tr></thead><tbody>'+frows+'</tbody></table>';
+  } else {
+    var akt = stFirmaAktivite(ay);
+    if (akt && akt.length){
+      var arows = akt.slice(0,40).map(function(x){
+        return '<tr><td class="b">'+e(x.firma)+'</td><td class="r">'+x.adet+'</td><td class="r green">'+x.onayli+'</td><td class="r blue">'+x.faturali+'</td></tr>';
       }).join('');
-      aylikBlok = '<h2>Aylık Trend (Ciro · Gider · Net)</h2><table><thead><tr><th>Ay</th><th class="r">Ciro (KDV dahil)</th><th class="r">Gider</th><th class="r">Net (KDV hariç)</th></tr></thead><tbody>'+satir+'</tbody></table>';
+      firmaBlok = '<h2>Firma Bazında Analiz (Servis Aktivitesi)</h2>'
+        + '<div class="note">Fatura–firma eşleşmesi bulunamadığı için firma bazlı ciro/gider hesaplanamadı; aşağıda Servis Plan kayıtlarına göre firma aktivitesi gösterilmektedir. Firma bazlı ciro/gider için Servis Plan ya da Faturalar tablosunda «Fatura No» ve firma (ör. «FİRMA İSMİ») sütunlarının birlikte dolu olması gerekir.</div>'
+        + '<table><thead><tr><th>Firma</th><th class="r">Servis Kaydı</th><th class="r">Onaylı</th><th class="r">Faturalı</th></tr></thead><tbody>'+arows+'</tbody></table>';
+    } else {
+      firmaBlok = '<h2>Firma Bazında Analiz</h2><div class="note">Firma bilgisi bulunamadı. Servis Plan tablosundaki firma sütununu (ör. «FİRMA İSMİ») doldurun; firma bazlı ciro/gider için ayrıca «Fatura No» sütununu ekleyin.</div>';
     }
   }
 
@@ -13431,6 +13539,7 @@ window.stOpenAnalizPDF = function(ay){
   + '.hi{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 4px}'
   + '.hix{border:1px solid #e6e6e6;border-left:4px solid #16a085;border-radius:6px;padding:8px 11px;background:#f7fbfa;display:flex;flex-direction:column;gap:2px}'
   + '.hl{font-size:10px;color:#888;font-weight:700}.hv{font-size:13px;font-weight:800}'
+  + '.note{background:#fff8e1;border:1px solid #f0e0a0;border-left:4px solid #e0a800;border-radius:6px;padding:8px 11px;color:#7a5c00;font-size:10.5px;margin:6px 0;line-height:1.5}'
   + '.foot{margin-top:24px;border-top:1px solid #ddd;padding-top:8px;color:#999;font-size:10px;display:flex;justify-content:space-between}'
   + '.two{display:flex;gap:18px}.two>div{flex:1}'
   + '@media print{body{padding:12px}h2{break-after:avoid}table{break-inside:auto}tr{break-inside:avoid}}'
@@ -13453,7 +13562,8 @@ window.stOpenAnalizPDF = function(ay){
   + '</div>'
   + '<h2>En Çok Satılan Malzemeler (İlk 15)</h2><table><thead><tr><th class="c">#</th><th>Ürün</th><th class="r">Toplam Miktar</th><th class="r">Toplam Tutar</th></tr></thead><tbody>'+urunTablo+'</tbody></table>'
   + '<h2>Fatura Bazında Kârlılık (İlk 25)</h2><table><thead><tr><th>Fatura No</th><th class="r">Ciro (KDV dahil)</th><th class="r">Gider</th><th class="r">Net (KDV hariç)</th></tr></thead><tbody>'+karTablo+'</tbody></table>'
-  + aylikBlok
+  + aylikDetayBlok
+  + firmaBlok
   + '<div class="foot"><span>ORİMAK Makina · Servis Takip Sistemi — analiz otomatik üretilmiştir</span><span>Oluşturma: '+e(bugun)+'</span></div>'
   + '<script>window.onload=function(){setTimeout(function(){window.print();},450);}<\/script>'
   + '</body></html>';
