@@ -12811,7 +12811,7 @@ window.stOnayHeaderClick = function(e) {
 // (eski "Raporlar" sekmesinin yerine)
 // ═══════════════════════════════════════════════════════════
 var stMalAySecili = '';
-var ST_MAL_HEADERS = ['Fatura No', 'Gider Türü', 'Açıklama', 'Tutar (TL)', 'Tarih', 'Ay'];
+var ST_MAL_HEADERS = ['Fatura No', 'Firma', 'Gider Türü', 'Açıklama', 'Tutar (TL)', 'Tarih', 'Ay'];
 var ST_MAL_TURLER = ['Yemek', 'Yol Ücreti', 'Yakıt', 'Amortisman', 'Konaklama', 'Sarf Malzeme', 'İşçilik', 'Kargo/Nakliye', 'Diğer'];
 var ST_MAL_RENK = {
   'Yemek':'#f5a623', 'Yol Ücreti':'#c49ef5', 'Yakıt':'#ff6b6b', 'Amortisman':'#5ab8f5',
@@ -12842,7 +12842,47 @@ function stEnsureMaliyet(){
   if (!info || typeof info !== 'object') { ST_DATA['Maliyet.html'] = {headers: ST_MAL_HEADERS.slice(), data: []}; return; }
   if (!info.headers || !info.headers.length) info.headers = ST_MAL_HEADERS.slice();
   if (!info.data) info.data = [];
+  // 'Firma' sütununu 'Fatura No'dan hemen sonra ekle — eski kayıtlar için satırları da kaydır
+  if (info.headers.indexOf('Firma') < 0){
+    var fpos = info.headers.indexOf('Fatura No');
+    var insertAt = fpos >= 0 ? fpos + 1 : info.headers.length;
+    info.headers.splice(insertAt, 0, 'Firma');
+    info.data.forEach(function(r){ if (Array.isArray(r)) r.splice(insertAt, 0, ''); });
+  }
   ST_MAL_HEADERS.forEach(function(h){ if (info.headers.indexOf(h) < 0) info.headers.push(h); });
+}
+
+// Fatura no'ya göre firma adını bul (Servis Plan + Faturalar eşleşmesinden)
+function stFaturaFirma(fno){
+  fno = String(fno||'').trim();
+  if (!fno) return '';
+  var map = stFaturaFirmaMap();
+  return map[fno] || '';
+}
+
+// Fatura no'ya göre servis tarihini bul (önce Servis Plan'ın SERVİS TARİHİ, yoksa Fatura Tarihi)
+function stFaturaServisTarih(fno){
+  fno = String(fno||'').trim();
+  if (!fno) return '';
+  var sp = ST_DATA['Servis Plan.html'] || {headers:[], data:[]};
+  var sh = sp.headers || [];
+  var sni = stFnoColIdx(sh);
+  var sti = sh.indexOf('SERVİS TARİHİ'); if (sti < 0) sti = sh.indexOf('SERVİS TALEP TARİHİ');
+  if (sni >= 0 && sti >= 0){
+    for (var i=0;i<(sp.data||[]).length;i++){
+      if (String(sp.data[i][sni]||'').trim()===fno){ var t=String(sp.data[i][sti]||'').trim(); if(t) return t; }
+    }
+  }
+  var fat = ST_DATA['Faturalar.html'] || {headers:[], data:[]};
+  var fh = fat.headers || [];
+  var fni = stFnoColIdx(fh);
+  var fti = fh.indexOf('Fatura Tarihi');
+  if (fni >= 0 && fti >= 0){
+    for (var j=0;j<(fat.data||[]).length;j++){
+      if (String(fat.data[j][fni]||'').trim()===fno){ var t2=String(fat.data[j][fti]||'').trim(); if(t2) return t2; }
+    }
+  }
+  return '';
 }
 
 // Bir faturanın ait olduğu ayı (YYYY-MM) Faturalar / Fatura Detayları'ndan bul
@@ -13024,26 +13064,64 @@ window.stMalAyChange = function(){
   stRenderContent();
 };
 
+// Fatura No girildiğinde firma + servis tarihi + ay'ı otomatik doldur (Fatura No alanının oninput'u)
+window.stMalFaturaAutoFill = function(){
+  stEnsureMaliyet();
+  var h = ST_DATA['Maliyet.html'].headers;
+  var fnoEl = document.getElementById('stMalF_'+h.indexOf('Fatura No'));
+  var frmEl = document.getElementById('stMalF_'+h.indexOf('Firma'));
+  var tarEl = document.getElementById('stMalF_'+h.indexOf('Tarih'));
+  var fno = fnoEl ? fnoEl.value.trim() : '';
+  if (fno){
+    if (frmEl){ var frm = stFaturaFirma(fno); if (frm) frmEl.value = frm; }
+    if (tarEl){ var st = stFaturaServisTarih(fno); if (st) tarEl.value = st; }
+  }
+  stMalAutoAy(); // ay + ciro ipucunu tazele
+};
+
 window.stMalAutoAy = function(){
-  var h = ST_MAL_HEADERS;
+  stEnsureMaliyet();
+  var h = ST_DATA['Maliyet.html'].headers;
   var fnoEl = document.getElementById('stMalF_'+h.indexOf('Fatura No'));
   var tarEl = document.getElementById('stMalF_'+h.indexOf('Tarih'));
   var ayEl  = document.getElementById('stMalF_'+h.indexOf('Ay'));
-  if (!ayEl) return;
+  var fno = fnoEl ? fnoEl.value.trim() : '';
   var ay = '';
-  if (fnoEl && fnoEl.value.trim()) ay = stFaturaAy(fnoEl.value.trim());
-  if (!ay && tarEl && tarEl.value.trim()){
-    var p = tarEl.value.trim().split(/[.\/-]/);
-    if (p.length===3){ if (p[2].length===4) ay=p[2]+'-'+String(p[1]).padStart(2,'0'); else if (p[0].length===4) ay=p[0]+'-'+String(p[1]).padStart(2,'0'); }
+  if (ayEl){
+    if (fno) ay = stFaturaAy(fno);
+    if (!ay && tarEl && tarEl.value.trim()){
+      var p = tarEl.value.trim().split(/[.\/-]/);
+      if (p.length===3){ if (p[2].length===4) ay=p[2]+'-'+String(p[1]).padStart(2,'0'); else if (p[0].length===4) ay=p[0]+'-'+String(p[1]).padStart(2,'0'); }
+    }
+    if (ay) ayEl.value = ay;
   }
-  if (ay) ayEl.value = ay;
   // fatura no girildiyse cironun küçük ipucunu göster
   var hint = document.getElementById('stMalCiroHint');
-  if (hint && fnoEl){
-    var fno = fnoEl.value.trim();
+  if (hint){
     if (fno){ var c = stFaturaCiro(fno); hint.style.display=''; hint.innerHTML = '📄 <b>'+stEsc(fno)+'</b> — Ciro (KDV dahil): <b style="color:#7fda9e;">'+stFmtTRY(c.gen)+'</b>'+(ay?(' &nbsp;·&nbsp; Ay: <b>'+stAyAdi(ay)+'</b>'):''); }
     else hint.style.display='none';
   }
+};
+
+// Kayıtlı bir gider satırındaki Fatura No / Tarih değişince firma+tarih (boşsa) + ay'ı tazele
+window.stMalRowRefresh = function(rowIdx){
+  stEnsureMaliyet();
+  var info = ST_DATA['Maliyet.html'];
+  var h = info.headers;
+  var r = info.data[rowIdx]; if (!r) return;
+  var fnoI=h.indexOf('Fatura No'), frmI=h.indexOf('Firma'), tarI=h.indexOf('Tarih'), ayI=h.indexOf('Ay');
+  var fno = String(r[fnoI]||'').trim();
+  if (fno){
+    if (frmI>=0 && !String(r[frmI]||'').trim()){ var frm=stFaturaFirma(fno); if(frm) r[frmI]=frm; }
+    if (tarI>=0 && !String(r[tarI]||'').trim()){ var st=stFaturaServisTarih(fno); if(st) r[tarI]=st; }
+  }
+  if (ayI>=0){
+    var ay = fno ? stFaturaAy(fno) : '';
+    if (!ay && tarI>=0){ var t=String(r[tarI]||'').trim(); if(t){ var p=t.split(/[.\/-]/); if(p.length===3){ if(p[2].length===4) ay=p[2]+'-'+String(p[1]).padStart(2,'0'); else if(p[0].length===4) ay=p[0]+'-'+String(p[1]).padStart(2,'0'); } } }
+    if (ay) r[ayI]=ay;
+  }
+  stFireSave();
+  stRenderContent();
 };
 
 window.stAddMaliyet = function(){
@@ -13107,6 +13185,9 @@ function stRenderMaliyet(box){
     + '.stMalBtn{transition:transform .12s,box-shadow .12s,filter .12s}'
     + '.stMalBtn:hover{transform:translateY(-1px);filter:brightness(1.12)}'
     + '.stMalBtn:active{transform:translateY(0)}'
+    + '.stMalEditRow td[contenteditable]{transition:background .15s,box-shadow .15s;cursor:text;}'
+    + '.stMalEditRow td[contenteditable]:hover{background:rgba(245,166,35,.07);}'
+    + '.stMalEditRow td[contenteditable]:focus{background:rgba(245,166,35,.12);box-shadow:inset 0 0 0 1px rgba(245,166,35,.55);border-radius:3px;}'
     + '</style>';
 
   var html = css + '<div style="font-family:Barlow Condensed,sans-serif;">';
@@ -13180,8 +13261,11 @@ function stRenderMaliyet(box){
       form += '<div style="flex:1;min-width:130px;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#ff9b9b;margin-bottom:4px;">'+stEsc(hd)+' *</div>'
         + '<input id="stMalF_'+ci+'" type="text" placeholder="örn. 1.250,00" style="width:100%;background:#1e1e1e;border:1px solid #333;border-radius:5px;padding:8px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;" /></div>';
     } else if (hd === 'Fatura No'){
-      form += '<div style="flex:1;min-width:120px;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#555;margin-bottom:4px;">'+stEsc(hd)+'</div>'
-        + '<input id="stMalF_'+ci+'" type="text" placeholder="Fatura No" oninput="stMalAutoAy()" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:8px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;" /></div>';
+      form += '<div style="flex:1;min-width:120px;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#555;margin-bottom:4px;">'+stEsc(hd)+' <span style="color:#444;font-weight:600;">(opsiyonel)</span></div>'
+        + '<input id="stMalF_'+ci+'" type="text" placeholder="Girersen firma & tarih otomatik gelir" title="Fatura no girildiğinde firma ismi ve servis tarihi otomatik dolar" oninput="stMalFaturaAutoFill()" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:8px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;" /></div>';
+    } else if (hd === 'Firma'){
+      form += '<div style="flex:2;min-width:150px;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#555;margin-bottom:4px;">'+stEsc(hd)+'</div>'
+        + '<input id="stMalF_'+ci+'" type="text" placeholder="Firma ismi" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:8px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;" /></div>';
     } else if (hd === 'Tarih'){
       form += '<div style="flex:1;min-width:120px;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#555;margin-bottom:4px;">'+stEsc(hd)+'</div>'
         + '<input id="stMalF_'+ci+'" type="text" placeholder="GG.AA.YYYY" oninput="stMalAutoAy()" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:8px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;" /></div>';
@@ -13238,7 +13322,7 @@ function stRenderMaliyet(box){
   var rows = stMalRows(ay);
   var turI=h.indexOf('Gider Türü');
   html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">'
-    + '<div style="font-size:12px;font-weight:800;letter-spacing:1.5px;color:#bbb;">GİDER KAYITLARI <span style="color:#666;font-weight:600;">('+rows.length+' satır)</span></div>'
+    + '<div style="font-size:12px;font-weight:800;letter-spacing:1.5px;color:#bbb;">GİDER KAYITLARI <span style="color:#666;font-weight:600;">('+rows.length+' satır)</span> <span style="color:#f5a623;font-weight:600;font-size:10.5px;letter-spacing:.5px;">✏️ hücrelere tıklayıp düzenleyebilirsiniz</span></div>'
     + '<button class="stMalBtn" onclick="stExportMaliyet()" style="background:#1e1e1e;border:1px solid #333;color:#888;border-radius:5px;padding:7px 12px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">📥 EXCELE AKTAR</button>'
   + '</div>';
   var thh = 'background:#0e0e0e;color:#666;font-size:11px;font-weight:700;letter-spacing:1px;padding:8px 10px;text-align:left;white-space:nowrap;position:sticky;top:0;';
@@ -13254,10 +13338,13 @@ function stRenderMaliyet(box){
       var isNumCol = (hd==='Tutar (TL)');
       var col = isNumCol ? '#ff9b9b' : '#ccc';
       var wt = isNumCol ? 'font-weight:800;' : '';
-      var refresh = (hd==='Tutar (TL)'||hd==='Fatura No'||hd==='Ay') ? ' onblur="stRenderContent()"' : '';
+      var refresh;
+      if (hd==='Fatura No' || hd==='Tarih') refresh = ' onblur="stMalRowRefresh('+actualIdx+')"';
+      else if (hd==='Tutar (TL)' || hd==='Ay') refresh = ' onblur="stRenderContent()"';
+      else refresh = '';
       return '<td contenteditable="true" oninput="stEdit('+actualIdx+','+ci+',this)"'+refresh+' style="padding:7px 10px;border-bottom:1px solid #1a1a1a;color:'+col+';font-size:12px;'+wt+'max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;outline:none;cursor:text;" title="'+stEsc(val)+'">'+stEsc(val)+'</td>';
     }).join('');
-    return '<tr style="background:'+(i%2?'rgba(255,255,255,.012)':'transparent')+';">'
+    return '<tr class="stMalEditRow" style="background:'+(i%2?'rgba(255,255,255,.012)':'transparent')+';">'
       + '<td style="padding:7px 4px;border-bottom:1px solid #1a1a1a;color:#555;font-size:10px;text-align:center;">'+(i+1)+'</td>'
       + tds
       + '<td style="padding:7px 4px;border-bottom:1px solid #1a1a1a;text-align:center;"><button onclick="stDel('+actualIdx+')" title="Sil" style="background:rgba(200,0,0,.12);border:1px solid rgba(200,0,0,.3);color:#ff6666;border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;">✕</button></td>'
