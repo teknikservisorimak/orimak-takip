@@ -1392,6 +1392,11 @@ tr.group-hidden{display:none !important;}
 .sayfa-cb input{accent-color:var(--orange);width:14px;height:14px;cursor:pointer;flex-shrink:0;}
 .edit-save-btn{margin-top:12px;padding:8px 20px;background:var(--orange);color:#1a1a1a;border:none;border-radius:5px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;letter-spacing:1px;cursor:pointer;}
 .edit-save-btn:hover{opacity:.85;}
+.yetki-matris{width:100%;border-collapse:collapse;font-family:'Barlow',sans-serif;font-size:12px;}
+.yetki-matris th{background:#1c1c1c;color:#999;font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:.5px;font-size:11px;padding:7px 8px;text-align:center;white-space:nowrap;border-bottom:1px solid #2f2f2f;}
+.yetki-matris td{padding:6px 8px;text-align:center;border-bottom:1px solid #232323;font-size:11px;}
+.yetki-matris tbody tr:hover{background:rgba(245,166,35,.05);}
+.yetki-matris input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:#F5A623;}
 .admin-section-title{font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:2px;color:#666;text-transform:uppercase;margin-bottom:12px;}
 .user-list{display:flex;flex-direction:column;gap:8px;margin-bottom:24px;}
 .user-item{display:flex;align-items:center;gap:10px;background:#222;border:1px solid #2e2e2e;border-radius:7px;padding:10px 14px;}
@@ -1611,7 +1616,8 @@ async function doLogin() {
         user: rows[0].kullanici_adi,
         role: rows[0].rol,
         id: rows[0].id,
-        sayfalar: rows[0].sayfalar ? rows[0].sayfalar.split(',').map(s => s.trim()).filter(Boolean) : []
+        sayfalar: rows[0].sayfalar ? rows[0].sayfalar.split(',').map(s => s.trim()).filter(Boolean) : [],
+        yetkiler: rows[0].yetkiler || null
       };
       localStorage.setItem(SESSION_KEY, JSON.stringify(match));
       document.getElementById('loginOverlay').classList.add('hidden');
@@ -1650,6 +1656,7 @@ function onLoggedIn(u) {
   window._currentRole = role;
   window._currentUser = u.user || '';
   window._currentSayfalar = u.sayfalar || [];
+  window._currentYetkiler = parseYetkiler(u.yetkiler);
 
   if (role === 'admin') {
     document.getElementById('siteYonetimBtn').style.display = 'inline-flex';
@@ -1696,6 +1703,7 @@ function reapplySession() {
     window._currentRole = role;
     window._currentUser = u.user || '';
     window._currentSayfalar = u.sayfalar || [];
+    window._currentYetkiler = parseYetkiler(u.yetkiler);
 
     // Kullanıcı chip
     const chip = document.getElementById('userChip');
@@ -1754,6 +1762,58 @@ function reapplySession() {
   } catch(e) {}
 }
 window.reapplySession = reapplySession;
+
+// ══════════════════════════════════════════════════════════════
+//  SAYFA BAZLI YETKİ SİSTEMİ
+//  Rolden bağımsız olarak, her kullanıcıya her sayfada tek tek
+//  yetki verilebilir. admin her zaman tam yetkilidir. Kişiye özel
+//  ayar yoksa rolün eski varsayılan davranışı geçerli kalır.
+// ══════════════════════════════════════════════════════════════
+const ORIMAK_ORDER_PAGES = [
+  'BC Malzeme Sipariş Listesi',
+  'BC TALAŞLI İMALAT',
+  'QS HAZIR MALZEMELER',
+  'QSBOX TALAŞLI İMALAT',
+  'QBOX Malzeme Sipariş Listesi',
+  'QBOX TALAŞLI İMALAT'
+];
+const ORIMAK_YETKI_KEYS = [
+  { key:'makine_sayisi', label:'Makine Sayısı' },
+  { key:'yetkili_onay',  label:'Yetkili Onayı' },
+  { key:'satir_ekle',    label:'Satır Ekle' },
+  { key:'satir_duzenle', label:'Satır Düzenle / Sil' }
+];
+window.ORIMAK_ORDER_PAGES = ORIMAK_ORDER_PAGES;
+window.ORIMAK_YETKI_KEYS = ORIMAK_YETKI_KEYS;
+
+// Supabase'den gelen ham yetki verisini {sayfa:[key,...]} nesnesine çevirir
+function parseYetkiler(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try { const o = JSON.parse(raw); return (o && typeof o === 'object') ? o : {}; }
+  catch(e) { return {}; }
+}
+window.parseYetkiler = parseYetkiler;
+
+// Rolün eski (kişiye özel ayar yokken) varsayılan davranışı
+function rolVarsayilan(role, key) {
+  // Eski sistemde bu yetkiler yalnızca manager (ve admin) içindi
+  if (role === 'manager') return true;
+  return false; // operator / viewer
+}
+window.rolVarsayilan = rolVarsayilan;
+
+// Asıl kontrol: bu kullanıcı, bu sayfada, bu işlemi yapabilir mi?
+function yetkiVar(sayfa, key) {
+  const role = window._currentRole || 'viewer';
+  if (role === 'admin') return true;                 // admin = tam yetki
+  const y = window._currentYetkiler || {};
+  if (y[sayfa] && Array.isArray(y[sayfa])) {         // kişiye özel açık ayar
+    return y[sayfa].indexOf(key) !== -1;
+  }
+  return rolVarsayilan(role, key);                   // geriye dönük uyumluluk
+}
+window.yetkiVar = yetkiVar;
 
 function applySayfaKisitlama(sayfalar) {
   if (!sayfalar || sayfalar.length === 0) return;
@@ -1846,6 +1906,7 @@ async function renderUserList() {
     list.innerHTML = '';
     users.forEach(u => {
       const sayfalar = u.sayfalar ? u.sayfalar.split(',').map(s => s.trim()) : [];
+      const yObj = parseYetkiler(u.yetkiler);
       // Normal SHEETS sayfaları + özel paneller (yönetici rolleri için)
       const tumSayfalar = [
         ...SHEETS.filter(s => s.type !== 'siparis' && s.type !== 'teslim' && s.type !== 'satis').map(s => s.name),
@@ -1880,7 +1941,7 @@ async function renderUserList() {
           <div class="edit-panel-title">✏️ ${u.kullanici_adi} — Sayfa Erişimi & Rol</div>
           <div style="margin-bottom:10px;">
             <label style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#777;display:block;margin-bottom:6px;font-family:'Barlow Condensed',sans-serif;">Rol</label>
-            <select id="editrol_${u.id}" style="background:#1a1a1a;border:1px solid #3a3a3a;border-radius:5px;padding:7px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;width:100%;">
+            <select id="editrol_${u.id}" onchange="refreshYetkiMatrix(${u.id}, this.value)" style="background:#1a1a1a;border:1px solid #3a3a3a;border-radius:5px;padding:7px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;width:100%;">
               <option value="viewer" ${u.rol==='viewer'?'selected':''}>👁 Viewer — Sadece görüntüler</option>
               <option value="operator" ${u.rol==='operator'?'selected':''}>⚙️ Operator — Onay/adet güncelleyebilir (satır ekleyemez, makine sayısı değiştiremez)</option>
               <option value="manager" ${u.rol==='manager'?'selected':''}>📋 Manager — Satır ekle, makine sayısı, parti, arşiv</option>
@@ -1906,6 +1967,34 @@ async function renderUserList() {
                 🔧 ${s}
               </label>`).join('')}
           </div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;color:#F5A623;text-transform:uppercase;margin:14px 0 6px;border-top:1px solid #333;padding-top:12px;">
+            ⚡ Sayfa Bazlı Yetkiler <span style="color:#666;font-weight:400;text-transform:none;letter-spacing:0;">— her sayfada ayrı ayrı işaretle</span>
+          </div>
+          <div style="overflow-x:auto;border:1px solid #2a2a2a;border-radius:7px;">
+            <table class="yetki-matris">
+              <thead>
+                <tr>
+                  <th style="text-align:left;">Sayfa</th>
+                  ${ORIMAK_YETKI_KEYS.map(k => `<th>${k.label}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${ORIMAK_ORDER_PAGES.map(pg => {
+                  const acik = Array.isArray(yObj[pg]) ? yObj[pg] : null; // null => rol varsayılanı
+                  return `<tr>
+                    <td style="text-align:left;font-weight:600;color:#cfe;">${pg}</td>
+                    ${ORIMAK_YETKI_KEYS.map(k => {
+                      const isChecked = acik ? acik.includes(k.key) : rolVarsayilan(u.rol, k.key);
+                      return `<td><input type="checkbox" data-uid="${u.id}" data-ypage="${pg}" data-ykey="${k.key}" ${isChecked ? 'checked' : ''}></td>`;
+                    }).join('')}
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div style="font-size:10px;color:#666;margin-top:5px;line-height:1.5;">
+            💡 admin her sayfada tam yetkilidir (bu tablo admin'i etkilemez). Rol değiştirdiğinde tablo o rolün varsayılanına döner — sonra istediğini elle aç/kapat.
+          </div>
           <div style="display:flex;gap:8px;margin-top:12px;">
             <button class="edit-save-btn" onclick="saveUserEdit(${u.id}, '${u.kullanici_adi}')">💾 Kaydet</button>
             <button onclick="toggleEditPanel(${u.id})" style="padding:8px 16px;background:#2a2a2a;border:1px solid #3a3a3a;color:#888;border-radius:5px;font-family:'Barlow Condensed',sans-serif;font-size:13px;cursor:pointer;">İptal</button>
@@ -1930,23 +2019,59 @@ function toggleEditPanel(uid) {
 }
 window.toggleEditPanel = toggleEditPanel;
 
+// Rol değişince yetki matrisini o rolün varsayılanına döndür
+function refreshYetkiMatrix(uid, role) {
+  document.querySelectorAll(`input[data-uid="${uid}"][data-ykey]`).forEach(cb => {
+    cb.checked = (role === 'admin') ? true : rolVarsayilan(role, cb.dataset.ykey);
+  });
+}
+window.refreshYetkiMatrix = refreshYetkiMatrix;
+
 async function saveUserEdit(uid, username) {
   const rol = document.getElementById(`editrol_${uid}`).value;
-  const checkboxes = document.querySelectorAll(`input[data-uid="${uid}"]`);
+  // Yalnızca sayfa erişimi checkbox'ları (data-sayfa) — yetki matrisiyle karışmasın
+  const checkboxes = document.querySelectorAll(`input[data-uid="${uid}"][data-sayfa]`);
   const secili = [];
   checkboxes.forEach(cb => { if (cb.checked) secili.push(cb.dataset.sayfa); });
   // Tüm sayfalar seçiliyse boş bırak (tümüne erişim)
-  // Checkbox sayısını dinamik say — SHEETS yüklenip yüklenmediğinden bağımsız
   const toplamCheckbox = checkboxes.length;
   const sayfalarVal = (secili.length === toplamCheckbox) ? '' : secili.join(',');
 
+  // Sayfa bazlı yetki matrisi → { "Sayfa": ["makine_sayisi", ...] }
+  const yObj = {};
+  ORIMAK_ORDER_PAGES.forEach(pg => { yObj[pg] = []; });
+  document.querySelectorAll(`input[data-uid="${uid}"][data-ykey]`).forEach(cb => {
+    if (cb.checked) {
+      const p = cb.dataset.ypage;
+      if (!yObj[p]) yObj[p] = [];
+      yObj[p].push(cb.dataset.ykey);
+    }
+  });
+  const yetkilerVal = JSON.stringify(yObj);
+
+  const url = `${SB_URL}/rest/v1/${SB_TBL}?id=eq.${uid}`;
   try {
-    const r = await fetch(`${SB_URL}/rest/v1/${SB_TBL}?id=eq.${uid}`, {
+    let r = await fetch(url, {
       method: 'PATCH',
       headers: { ...sbHeaders(), 'Prefer': 'return=representation' },
-      body: JSON.stringify({ rol, sayfalar: sayfalarVal })
+      body: JSON.stringify({ rol, sayfalar: sayfalarVal, yetkiler: yetkilerVal })
     });
-    if (!r.ok) throw new Error(await r.text());
+    if (!r.ok) {
+      const t = await r.text();
+      // "yetkiler" sütunu henüz yoksa: yetki olmadan kaydet + net uyarı ver
+      if (/yetkiler/i.test(t) || /column/i.test(t) || /schema cache/i.test(t)) {
+        r = await fetch(url, {
+          method: 'PATCH',
+          headers: { ...sbHeaders(), 'Prefer': 'return=representation' },
+          body: JSON.stringify({ rol, sayfalar: sayfalarVal })
+        });
+        if (!r.ok) throw new Error(await r.text());
+        showAdminMsg('Rol ve sayfa erişimi kaydedildi — ancak sayfa bazlı yetkiler kaydedilemedi. Supabase kullanıcı tablosuna "yetkiler" (text) sütununu ekleyin.', 'err');
+        renderUserList();
+        return;
+      }
+      throw new Error(t);
+    }
     showAdminMsg(`"${username}" güncellendi!`, 'ok');
     renderUserList();
   } catch(e) {
@@ -5263,7 +5388,10 @@ function openRowEdit(si, ri) {
   const reYetkili = document.getElementById('re_yetkili');
   reYetkili.value = r._yetkili || r.yetkili || '';
   const roleCheck = window._currentRole || 'viewer';
-  reYetkili.disabled = (roleCheck !== 'admin' && roleCheck !== 'manager');
+  const _rePg = (SHEETS[si] && SHEETS[si].name) || '';
+  reYetkili.disabled = !yetkiVar(_rePg, 'yetkili_onay');
+  const reMakine = document.getElementById('re_makine');
+  if (reMakine) reMakine.disabled = !yetkiVar(_rePg, 'makine_sayisi');
   // Onaylayan kişiyi modal içinde göster
   let reYetkiliKisiEl = document.getElementById('re_yetkiliKisi');
   if (!reYetkiliKisiEl) {
@@ -10193,13 +10321,14 @@ function switchTab(idx) {
   const addRowBtn = document.getElementById('addRowBtn');
   const isSpecialPage = SHEETS[idx] && (SHEETS[idx].type === 'siparis' || SHEETS[idx].type === 'teslim' || SHEETS[idx].type === 'satis');
   const role = window._currentRole || 'viewer';
-  const canAddRow = (role === 'admin' || role === 'manager');
+  const _pgName = (SHEETS[idx] && SHEETS[idx].name) || '';
+  const canAddRow = yetkiVar(_pgName, 'satir_ekle');
   if (addRowBtn) {
     addRowBtn.style.display = (isSpecialPage || !canAddRow) ? 'none' : '';
   }
   const gmWrap = document.getElementById('globalMakineWrap');
   if (gmWrap) {
-    const canMakine = (role === 'admin' || role === 'manager') && !isSpecialPage;
+    const canMakine = yetkiVar(_pgName, 'makine_sayisi') && !isSpecialPage;
     gmWrap.style.display = canMakine ? 'flex' : 'none';
   }
   const toBtn = document.getElementById('topluOnayBtn');
@@ -10495,8 +10624,7 @@ function makeRow(si, ri, row) {
       const td = document.createElement('td');
       if (c.cls) td.className = c.cls;
       if (c.type === 'makine') {
-        const role = window._currentRole || 'viewer';
-        const canEditMakine = (role === 'admin' || role === 'manager');
+        const canEditMakine = yetkiVar((SHEETS[si] && SHEETS[si].name) || '', 'makine_sayisi');
         if (canEditMakine) {
           const inp = mkInput('number', row._makine, v => {
             state[si].rows[ri]._makine = v;
@@ -10521,6 +10649,7 @@ function makeRow(si, ri, row) {
       } else if (c.type === 'yetkili') {
         const yetkiliWrap = document.createElement('div');
         yetkiliWrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+        const _canYetkili = yetkiVar((SHEETS[si] && SHEETS[si].name) || '', 'yetkili_onay');
         const yetkiliSel = mkSelect(['', 'Onaylandı', 'Beklemede'], row._yetkili, v => {
           state[si].rows[ri]._yetkili = v;
           if (v === 'Onaylandı') {
@@ -10547,7 +10676,7 @@ function makeRow(si, ri, row) {
           }
           refreshRow(si, ri); updateStats(si);
           apiUpdate(si, ri, 7, v);
-        }, true);
+        }, _canYetkili);
         yetkiliWrap.appendChild(yetkiliSel);
         const yetkiliKisiEl = document.createElement('div');
         yetkiliKisiEl.className = 'onaylayan-kisi';
@@ -10669,8 +10798,10 @@ function makeRow(si, ri, row) {
       } else if (c.type === 'actions') {
         const div = document.createElement('div');
         div.className = 'row-actions';
-        // Düzenleme butonu — sadece admin ve manager görebilir
-        if (window._currentRole === 'admin' || window._currentRole === 'manager') {
+        const _actPg = (SHEETS[si] && SHEETS[si].name) || '';
+        const _canDuzenle = yetkiVar(_actPg, 'satir_duzenle');
+        // Düzenleme butonu — sayfa bazlı yetkiye göre
+        if (_canDuzenle) {
           const editBtn = document.createElement('button');
           editBtn.className = 'btn-edit-row'; editBtn.title = 'Satırı Düzenle'; editBtn.textContent = '✏️';
           editBtn.onclick = () => openRowEdit(si, ri);
@@ -10679,7 +10810,7 @@ function makeRow(si, ri, row) {
         const del = document.createElement('button');
         del.className = 'btn-del'; del.title = 'Satırı Sil'; del.textContent = '✕';
         del.onclick = () => deleteRow(si, ri);
-        if (window._currentRole === 'viewer' || window._currentRole === 'operator') {
+        if (!_canDuzenle) {
           del.style.display = 'none';
         }
         div.appendChild(del);
@@ -10736,12 +10867,12 @@ function mkInput(type, val, onChange) {
   inp.onchange = () => onChange(inp.value);
   return inp;
 }
-function mkSelect(options, value, onChange, isYetkili = false) {
+function mkSelect(options, value, onChange, canEdit) {
   const sel = document.createElement('select');
   sel.className = 'onay-select';
-  // Yetkili onayı: sadece admin ve manager değiştirebilir
-  const role = window._currentRole || 'viewer';
-  if (isYetkili && role !== 'admin' && role !== 'manager') {
+  // canEdit yalnızca açıkça false ise kilitle (yetki kontrolü çağıran tarafta yapılır).
+  // 4. parametre verilmezse (gelis onayı gibi) düzenlenebilir kalır.
+  if (canEdit === false) {
     sel.disabled = true;
   }
   options.forEach(opt => {
