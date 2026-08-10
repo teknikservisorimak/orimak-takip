@@ -2484,6 +2484,7 @@ async function yeniPartiBaslat() {
           delete temiz.gelenAdet;
           delete temiz.makine; delete temiz.sipTarihi; delete temiz.terminTarihi;
           delete temiz.teslimTarihi;
+          delete temiz.sipDurumu; delete temiz._sipDurumu;
           // Malzeme adı (3), kodu (2) ve adet (5) her zaman korunur
           if (row['2'] !== undefined) temiz['2'] = row['2'];
           if (row['3'] !== undefined) temiz['3'] = row['3'];
