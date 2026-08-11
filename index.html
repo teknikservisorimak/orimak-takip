@@ -2416,6 +2416,7 @@ async function yeniPartiBaslat() {
     // Teslim edilmemiş VEYA geliş onayı "Onaylandı" olmayan siparişler ve
     // onlara bağlı teslim kayıtları yeni partiye AYNEN taşınır — veri kaybı olmaz.
     ensureSiparisSids(); // her sipariş satırına kalıcı _sid garanti et
+    ensureTeslimTids();  // her teslim kaydına kalıcı _tid garanti et
 
     // Eski (index bazlı) teslim bağlantılarını kalıcı _siparisId'ye yükselt.
     // Böylece sipariş satırları filtrelenip index kaysa bile bağ kopmaz.
@@ -2720,6 +2721,7 @@ async function jsonYedekYukle(input) {
     }
 
     ensureSiparisSids();
+    ensureTeslimTids();
     // Buluta kaydet + arayüzü baştan kur (sekme/satır sayısı değişmiş olabilir)
     if (typeof fbSaveAll === 'function') { try { await fbSaveAll(); } catch (eS) { console.warn('Firestore kaydı:', eS); } }
     if (typeof buildUI === 'function') buildUI();
@@ -2829,6 +2831,44 @@ function ensureSiparisSids() {
   return changed;
 }
 window.ensureSiparisSids = ensureSiparisSids;
+
+// Her teslim kaydına benzersiz kalıcı kimlik (_tid) garantiler.
+// Düzenleme/silme işlemleri artık index yerine bu kimlikle yapılır — böylece
+// arka planda başka kullanıcı kayıt ekleyip index kaysa bile yanlış satır
+// düzenlenmez/silinmez. Değişiklik olduysa true döner.
+function ensureTeslimTids() {
+  const ti = getTeslimIdx();
+  if (ti < 0 || !SHEETS[ti] || !Array.isArray(SHEETS[ti].rows)) return false;
+  let changed = false;
+  SHEETS[ti].rows.forEach(function (t) {
+    if (t && !t._tid) {
+      t._tid = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      changed = true;
+    }
+  });
+  return changed;
+}
+window.ensureTeslimTids = ensureTeslimTids;
+
+// Sipariş satırında bir alanı GÜVENLE günceller: önce sunucudan taze veri çeker,
+// satırı kalıcı kimliğiyle (_sid) bulur, değişikliği uygular, sonra kaydeder.
+// Böylece operatör/yetkilinin bayat kopyası TÜM sayfayı ezip başka kullanıcıların
+// yeni eklediği siparişleri/teslim bağlarını (_sid) yok etmez.
+async function saveSiparisFieldBySid(sid, applyFn) {
+  try { await refreshSheetsFromServer(); } catch (e) { /* çevrimdışıysa yerelle devam */ }
+  const rows = getSiparisRows();
+  const row = sid ? rows.find(r => r._sid === sid) : null;
+  if (!row) { // satır bu arada başkasınca silinmiş — sessizce vazgeç
+    if (typeof renderSiparisRows === 'function') renderSiparisRows();
+    return;
+  }
+  try { applyFn(row); } catch (e) { console.warn('saveSiparisFieldBySid uygula hatası:', e); }
+  SHEETS[getSiparisIdx()].rows = rows;
+  await fbSaveAll();
+  if (typeof renderSiparisRows === 'function') renderSiparisRows();
+}
+window.saveSiparisFieldBySid = saveSiparisFieldBySid;
+
 function getTeslimRows() { const si = getTeslimIdx(); return SHEETS[si] ? (SHEETS[si].rows || []) : []; }
 
 // ── SUNUCUDAN TAZE VERİ ÇEK ──
@@ -2850,6 +2890,7 @@ async function refreshSheetsFromServer() {
       SHEETS = fresh;
       _sheetsAppliedTime = snap.data().updatedAt || 0;
       ensureSiparisSids();
+      ensureTeslimTids();
       return true;
     }
   } catch(e) { console.warn('Sunucudan tazeleme başarısız (yerel kopya kullanılacak):', e); }
@@ -2998,28 +3039,26 @@ function renderSiparisRows() {
     const yetkiliDiv = document.createElement('div');
     yetkiliDiv.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
     const yetkiliSipSel = mkSiparisSelect(['','Onaylandı','Beklemede'], r.yetkiliOnay, v => {
+      const _sid = r._sid; // satırı kimliğiyle bul — bayat kopya başkasının verisini ezmesin
+      const kisi = window._currentUser || '?';
+      const tarih = new Date().toLocaleDateString('tr-TR');
+      const _onayKisi = (v === 'Onaylandı') ? (kisi + ' · ' + tarih) : '';
+      // Anlık ekran geri bildirimi (kayıt taze veri üzerinde yapılacak)
       rows[i].yetkiliOnay = v;
-      if (v === 'Onaylandı') {
-        const kisi = window._currentUser || '?';
-        const tarih = new Date().toLocaleDateString('tr-TR');
-        rows[i].yetkiliOnayKisi = kisi + ' · ' + tarih;
-        // Bildirim gönder
-        if (window.orimakSendPush) {
-          const siparisNo = rows[i].siparisNo || rows[i].no || (i+1);
-          const makine = rows[i].makine || rows[i].makineAdi || '';
-          const urun = rows[i].urunAdi || rows[i].urunKodu || '';
-          window.orimakSendPush(
-            '✅ Yetkili Onayı Verildi',
-            kisi + ' · ' + (makine ? makine + ' · ' : '') + (urun ? urun + ' · ' : '') + 'Sipariş #' + siparisNo,
-            'onay', '/',
-            'Satır ' + (i+1),
-            'Sipariş'
-          );
-        }
-      } else {
-        rows[i].yetkiliOnayKisi = '';
+      rows[i].yetkiliOnayKisi = _onayKisi;
+      if (v === 'Onaylandı' && window.orimakSendPush) {
+        const siparisNo = rows[i].siparisNo || rows[i].no || (i+1);
+        const makine = rows[i].makine || rows[i].makineAdi || '';
+        const urun = rows[i].urunAdi || rows[i].urunKodu || '';
+        window.orimakSendPush(
+          '✅ Yetkili Onayı Verildi',
+          kisi + ' · ' + (makine ? makine + ' · ' : '') + (urun ? urun + ' · ' : '') + 'Sipariş #' + siparisNo,
+          'onay', '/',
+          'Satır ' + (i+1),
+          'Sipariş'
+        );
       }
-      saveSiparisRows(); renderSiparisRows();
+      saveSiparisFieldBySid(_sid, row => { row.yetkiliOnay = v; row.yetkiliOnayKisi = _onayKisi; });
     }, true);
     yetkiliDiv.appendChild(yetkiliSipSel);
     const yetkiliKisiSip = document.createElement('div');
@@ -3031,7 +3070,7 @@ function renderSiparisRows() {
     tr.appendChild(mkTd(r.olusturmaTarihi||'', 'font-size:11px;color:#333;'));
     tr.appendChild(mkTd(r.terminTarihi||'', 'font-size:11px;' + (isTerminYakin(r.terminTarihi)?'color:#e36400;font-weight:700;':'color:#333;')));
     tr.appendChild(mkTd(gelisTarihi, 'font-size:11px;color:#333;'));
-    tr.appendChild(mkTdEl(mkSiparisSelect(['','Onaylandı','Beklemede'], r.gelisOnay, v => { rows[i].gelisOnay=v; saveSiparisRows(); renderSiparisRows(); })));
+    tr.appendChild(mkTdEl(mkSiparisSelect(['','Onaylandı','Beklemede'], r.gelisOnay, v => { const _sid=r._sid; rows[i].gelisOnay=v; saveSiparisFieldBySid(_sid, row => { row.gelisOnay = v; }); })));
     tr.appendChild(mkTd(String(gelisAdet||''), 'text-align:center;'));
 
     // Gelen adet vs sipariş adeti karşılaştırması
@@ -3076,9 +3115,11 @@ function renderSiparisRows() {
     }
     _styleSipDur(sipDurSel, r.sipDurumu || '');
     sipDurSel.onchange = () => {
-      rows[i].sipDurumu = sipDurSel.value;
-      _styleSipDur(sipDurSel, sipDurSel.value);
-      saveSiparisRows();
+      const _sid = r._sid;
+      const _val = sipDurSel.value;
+      rows[i].sipDurumu = _val;
+      _styleSipDur(sipDurSel, _val);
+      saveSiparisFieldBySid(_sid, row => { row.sipDurumu = _val; });
     };
     sipDurTd.appendChild(sipDurSel);
     tr.appendChild(sipDurTd);
@@ -3603,9 +3644,15 @@ async function mailPopupGonder(siparis, idx) {
 
   btn.textContent = '⏳ Gönderiliyor...'; btn.disabled = true;
 
-  // Seçilen yetkiliyi sipariş ile ilişkilendir
+  // Seçilen yetkiliyi sipariş ile ilişkilendir (satırı _sid ile bul — bayat kopya ezmesin)
   const rows = getSiparisRows();
-  if (rows[idx]) { rows[idx].yetkiliMailIdx = parseInt(sel.value); const si = getSiparisIdx(); SHEETS[si].rows = rows; fbSaveAll(); }
+  if (rows[idx]) {
+    const _sid = rows[idx]._sid;
+    const _mIdx = parseInt(sel.value);
+    rows[idx].yetkiliMailIdx = _mIdx;
+    if (_sid) saveSiparisFieldBySid(_sid, row => { row.yetkiliMailIdx = _mIdx; });
+    else { const si = getSiparisIdx(); SHEETS[si].rows = rows; fbSaveAll(); }
+  }
 
   const siparisKopi = Object.assign({}, siparis, { yetkiliMailIdx: parseInt(sel.value) });
   if (not) siparisKopi._ekNot = not;
@@ -4578,75 +4625,110 @@ function autoFillTeslimAdi() {
 window.autoFillTeslimAdi = autoFillTeslimAdi;
 
 async function saveTeslim(editIdx) {
-  const si = getTeslimIdx();
-  if (si < 0) { alert('Teslim sayfası bulunamadı!'); return; }
-  const rows = getTeslimRows();
+  if (getTeslimIdx() < 0) { alert('Teslim sayfası bulunamadı!'); return; }
+
+  // 1) MODAL DEĞERLERİNİ ÖNCE OKU — tazeleme sonrası DOM kapanabilir.
   const _teslimAlanVal = document.getElementById('tk_alan').value.trim();
   if (!_teslimAlanVal) {
     alert('⚠️ "Teslim Alan" alanı boş bırakılamaz!');
     document.getElementById('tk_alan').focus();
     return;
   }
-  const siparisRows = getSiparisRows();
   const kodSelVal = document.getElementById('tk_kod').value;
-
   // Seçim zorunlu: ne sipariş seçilmiş ne de manuel işaretlenmişse engelle
   if (kodSelVal === '') {
     alert('⚠️ Lütfen listeden bir sipariş seçin ya da "Siparişsiz / manuel giriş"i seçin.');
     return;
   }
   const _isManual = (kodSelVal === '__manual__');
+  const _adetVal   = document.getElementById('tk_adet').value.trim();
+  const _tarihVal  = document.getElementById('tk_tarih').value.trim();
+  let _manuelKod = '', _manuelAd = '';
+  if (_isManual) {
+    _manuelKod = document.getElementById('tk_kod_m').value.trim();
+    _manuelAd  = document.getElementById('tk_ad_m').value.trim();
+    if (!_manuelKod) {
+      alert('⚠️ Manuel girişte "Ürün Kodu" boş bırakılamaz!');
+      document.getElementById('tk_kod_m').focus();
+      return;
+    }
+  }
 
-  // Siparişi bul (manuel değilse): _sid ile, yoksa index ile geriye dönük uyumluluk
-  let siparis = null;
-  let siparisIdx = -1;
-  let _siparisId = '';
+  // 2) DÜZENLENEN KAYDIN KALICI KİMLİĞİNİ (tazeleme öncesi) yakala.
+  const _editTid = (editIdx >= 0) ? (getTeslimRows()[editIdx] ? getTeslimRows()[editIdx]._tid : null) : null;
+
+  document.getElementById('teslimModal').remove();
+
+  // 3) SUNUCUDAN TAZE VERİ ÇEK — böylece bayat kopya, başka kullanıcıların yeni
+  //    eklediği sipariş/teslim kayıtlarını ve _sid bağlarını EZMEZ. (Eskiden
+  //    saveTeslim doğrudan yerel kopyayı yazıyordu; operatörün ekrandaki liste
+  //    bayatsa teslim kaydı yanlış/eski _sid'ye bağlanıp sipariş formunda "gelen
+  //    adet / teslim alan" boş görünüyordu — kök neden buydu.)
+  try { await refreshSheetsFromServer(); } catch (e) { /* çevrimdışıysa yerelle devam */ }
+  ensureSiparisSids();   // taze sipariş satırlarının hepsinde _sid garanti
+  ensureTeslimTids();    // taze teslim kayıtlarının hepsinde _tid garanti
+
+  const si = getTeslimIdx();
+  const rows = getTeslimRows();
+  const siparisRows = getSiparisRows();
+
+  // 4) BAĞLANTIYI TAZE SİPARİŞ VERİSİNE GÖRE ÇÖZ — _siparisId her zaman
+  //    sunucudaki gerçek, güncel _sid'ye eşit olur → sipariş formu bağı kopmaz.
+  let siparis = null, siparisIdx = -1, _siparisId = '';
   if (!_isManual) {
     siparis = siparisRows.find((s, i) => { if (s._sid === kodSelVal) { siparisIdx = i; _siparisId = s._sid; return true; } return false; });
-    if (!siparis) { // geriye dönük: sayısal index
+    if (!siparis) { // geriye dönük: sayısal index (çok eski, _sid'siz kayıtlar)
       const numIdx = parseInt(kodSelVal);
       if (!isNaN(numIdx) && siparisRows[numIdx]) { siparis = siparisRows[numIdx]; siparisIdx = numIdx; _siparisId = siparis._sid || ''; }
+    }
+    if (!siparis) {
+      // Seçilen sipariş bu arada başka kullanıcı tarafından silinmiş/taşınmış.
+      // Kaydı kaybetmemek için manuel kayda düşürüp uyarıyoruz.
+      alert('ℹ Seçtiğiniz sipariş bu sırada listede bulunamadı (silinmiş ya da yeni partiye taşınmış olabilir). Kayıt "siparişsiz" olarak eklendi; gerekirse düzenleyip doğru siparişe bağlayabilirsiniz.');
     }
   }
 
   // Kod ve ad: sipariş seçildiyse siparişten (elle yazılmaz), manuelde kullanıcıdan
   let kod, urunAdiVal;
-  if (_isManual) {
-    kod = document.getElementById('tk_kod_m').value.trim();
-    const adM = document.getElementById('tk_ad_m').value.trim();
-    if (!kod) {
-      alert('⚠️ Manuel girişte "Ürün Kodu" boş bırakılamaz!');
-      document.getElementById('tk_kod_m').focus();
-      return;
-    }
-    urunAdiVal = adM || kod;
+  if (_isManual || !siparis) {
+    kod = _isManual ? _manuelKod : '';
+    urunAdiVal = (_isManual ? (_manuelAd || _manuelKod) : (kod || ''));
   } else {
-    kod = siparis ? siparis.urunKodu : '';
-    urunAdiVal = (siparis && siparis.urunAdi && siparis.urunAdi.trim()) ? siparis.urunAdi.trim() : kod;
+    kod = siparis.urunKodu || '';
+    urunAdiVal = (siparis.urunAdi && siparis.urunAdi.trim()) ? siparis.urunAdi.trim() : kod;
   }
+
+  // 5) DÜZENLEME HEDEFİNİ TAZE VERİDE KİMLİKLE BUL (index'e güvenme).
+  let hedefIdx = -1;
+  if (editIdx >= 0) {
+    if (_editTid) hedefIdx = rows.findIndex(t => t._tid === _editTid);
+    if (hedefIdx < 0 && editIdx < rows.length) hedefIdx = editIdx; // _tid'siz çok eski kayıt
+  }
+
+  const _isYeniTeslim = hedefIdx < 0;
   const yeni = {
+    _tid: (!_isYeniTeslim && rows[hedefIdx]._tid) ? rows[hedefIdx]._tid
+          : ('t' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
     urunKodu: kod,
     urunAdi: urunAdiVal,
     _siparisId: _siparisId || undefined, // _sid bazlı eşleşme (kalıcı)
-    siparisIdx: siparisIdx >= 0 ? siparisIdx : undefined, // geriye dönük uyumluluk
-    gelisAdet: document.getElementById('tk_adet').value.trim(),
-    gelisTarihi: document.getElementById('tk_tarih').value.trim(),
+    siparisIdx: (siparisIdx >= 0 && !_siparisId) ? siparisIdx : undefined, // yalnızca _sid yoksa geriye dönük
+    gelisAdet: _adetVal,
+    gelisTarihi: _tarihVal,
     teslimAlan: _teslimAlanVal,
   };
-  const _isYeniTeslim = editIdx < 0;
   // ── KALICI BİLDİRİM: satıra _notif ekle ──
   yeni._notif = {
     type: _isYeniTeslim ? 'new' : 'edit',
     user: window._currentUser || '',
     ts:   Date.now()
   };
-  if (editIdx >= 0) rows[editIdx] = yeni;
+  if (!_isYeniTeslim) rows[hedefIdx] = yeni;
   else rows.push(yeni);
   SHEETS[si].rows = rows;
-  document.getElementById('teslimModal').remove();
   await fbSaveAll(); /* kayıt her zaman denenir — başarısızlıkta uyarır ve bekletir */
   // ── SATIR BELİRTECİ ──
-  const _highlightTeslimIdx = _isYeniTeslim ? rows.length - 1 : editIdx;
+  const _highlightTeslimIdx = _isYeniTeslim ? rows.length - 1 : hedefIdx;
   window.setRowHighlight('teslim', _highlightTeslimIdx, _isYeniTeslim ? 'new' : 'edit');
   renderTeslimRows();
   renderSiparisRows(); // Sipariş formunu da güncelle
@@ -4667,7 +4749,7 @@ async function saveTeslim(editIdx) {
       '✏️ Teslim Kaydı Düzenlendi',
       _kimTD + ': ' + (yeni.urunAdi || yeni.urunKodu || '—') + (yeni.gelisAdet ? ' · ' + yeni.gelisAdet + ' adet' : '') + (yeni.gelisTarihi ? ' / ' + yeni.gelisTarihi : ''),
       'teslim-yeni', '/',
-      'Satır ' + (editIdx + 1),
+      'Satır ' + (hedefIdx + 1),
       'Teslim'
     );
   }
@@ -4679,8 +4761,20 @@ window.editTeslim = editTeslim;
 
 async function deleteTeslim(idx) {
   if (!confirm('Bu kaydı silmek istediğinizden emin misiniz?')) return;
+  // Silinecek kaydın kalıcı kimliğini yakala, sonra sunucudan taze veri çek —
+  // böylece bayat kopya kaydedilip başkasının yeni eklediği kayıtlar ezilmez ve
+  // arka planda index kaydıysa YANLIŞ satır silinmez.
+  const _silTid = getTeslimRows()[idx] ? getTeslimRows()[idx]._tid : null;
+  try { await refreshSheetsFromServer(); } catch (e) { /* çevrimdışıysa yerelle devam */ }
+  ensureTeslimTids();
   const si = getTeslimIdx();
-  SHEETS[si].rows.splice(idx, 1);
+  const rows = getTeslimRows();
+  let hedefIdx = -1;
+  if (_silTid) hedefIdx = rows.findIndex(t => t._tid === _silTid);
+  if (hedefIdx < 0 && !_silTid && idx < rows.length) hedefIdx = idx; // _tid'siz çok eski kayıt
+  if (hedefIdx < 0) { renderTeslimRows(); renderSiparisRows(); return; } // zaten silinmiş
+  rows.splice(hedefIdx, 1);
+  SHEETS[si].rows = rows;
   await fbSaveAll(); /* kayıt her zaman denenir — başarısızlıkta uyarır ve bekletir */
   renderTeslimRows();
   renderSiparisRows();
@@ -11095,8 +11189,11 @@ async function loadData() {
       SHEETS = freshSheets;
       _sheetsAppliedTime = (snap.data().updatedAt) || 0;
       isOnline = true;
-      // Eski siparişlere benzersiz kimlik ver; eklendiyse bir kez kalıcılaştır
-      if (ensureSiparisSids()) { try { await fbSaveAll(); } catch (e) { console.warn('_sid backfill kaydı atlandı:', e); } }
+      // Eski sipariş/teslim kayıtlarına benzersiz kimlik ver; eklendiyse bir kez kalıcılaştır.
+      // (Kalıcılaştırma önemli: aksi halde her oturum farklı rastgele kimlik üretip
+      //  teslim↔sipariş bağını koparabiliyordu.)
+      { const _sidChg = ensureSiparisSids(); const _tidChg = ensureTeslimTids();
+        if (_sidChg || _tidChg) { try { await fbSaveAll(); } catch (e) { console.warn('kimlik backfill kaydı atlandı:', e); } } }
       buildUI();
       reapplySession();
       restoreLastPage();
@@ -11144,6 +11241,7 @@ async function loadData() {
         });
         SHEETS = updated;
         ensureSiparisSids(); // gelen veride eksik kimlik varsa bu oturum için tamamla
+        ensureTeslimTids();
         buildState();
         // Sadece aktif sayfayı değil, DOM'da bulunan TÜM normal sayfaların
         // tablolarını yeniden çiz. Aksi halde başka sekmedeki grup isimleri,
