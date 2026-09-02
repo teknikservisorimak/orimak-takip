@@ -6338,6 +6338,7 @@ function showAdminMsg(text, type) {
   <div class="oriform-toolbar">
     <h3>💰 PARTS QUOTE FORM</h3>
     <button class="oriform-tbtn oriform-tbtn-pdf" onclick="window.printOrimakForm('partsFormPrint')">🖨 PDF / Print</button>
+    <button class="oriform-tbtn oriform-tbtn-open" onclick="window.ormOpenFromPdf('parts')" title="Open a previously saved PDF and edit it">📂 Open from PDF</button>
     <button class="oriform-tbtn oriform-tbtn-close" onclick="window.closePartsQuoteForm()">✕ Close</button>
   </div>
   <div id="partsFormPrint" class="oriform-page">
@@ -16641,6 +16642,7 @@ window.applyTopluOnay = function(){
   <div class="oriform-toolbar">
     <h3>📋 SERVİS TALEP FORMU</h3>
     <button class="oriform-tbtn oriform-tbtn-pdf" onclick="window.printOrimakForm('servisFormPrint')">🖨 PDF / Yazdır</button>
+    <button class="oriform-tbtn oriform-tbtn-open" onclick="window.ormOpenFromPdf('servis')" title="Daha önce kaydettiğiniz PDF'i açıp düzenleyin">📂 PDF'den Aç</button>
     <button class="oriform-tbtn oriform-tbtn-close" onclick="window.closeServisTalepFormu()">✕ Kapat</button>
   </div>
   <div id="servisFormPrint" class="oriform-page">
@@ -16743,6 +16745,7 @@ window.applyTopluOnay = function(){
   <div class="oriform-toolbar">
     <h3>💰 PARÇA TEKLİF FORMU</h3>
     <button class="oriform-tbtn oriform-tbtn-pdf" onclick="window.printOrimakForm('parcaFormPrint')">🖨 PDF / Yazdır</button>
+    <button class="oriform-tbtn oriform-tbtn-open" onclick="window.ormOpenFromPdf('parca')" title="Daha önce kaydettiğiniz PDF'i açıp düzenleyin">📂 PDF'den Aç</button>
     <button class="oriform-tbtn oriform-tbtn-close" onclick="window.closeParcaTeklifFormu()">✕ Kapat</button>
   </div>
   <div id="parcaFormPrint" class="oriform-page">
@@ -16994,6 +16997,7 @@ function pqfRenderRows() {
   tbody.innerHTML = html;
   window.pqfCalculate();
 }
+window.pqfRenderRows = pqfRenderRows;
 
 window.pqfCalculate = function() {
   var subtotal = 0, mainCur = 'USD';
@@ -17059,6 +17063,7 @@ function pfRenderRows() {
   });
   pfHesapla();
 }
+window.pfRenderRows = pfRenderRows;
 
 function pfFmt(n) { return n.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
@@ -17840,6 +17845,24 @@ window.addEventListener('firebaseReady', function(){ setTimeout(flLoad, 500); },
 .pk-items-table .td-del{text-align:center;width:28px;}
 .pk-items-table .del-btn{background:none;border:none;color:#c04040;cursor:pointer;font-size:16px;line-height:1;padding:0;}
 
+/* ── TABLO TAŞMA FİXİ ──────────────────────────────────────────
+   Global "table{min-width:1400px}" kuralı bu modallerdeki tabloları
+   860px'lik pencerenin dışına taşırıyordu (BİRİM FİYAT / TOPLAM
+   sütunları ekranın sağında kalıyordu). Modal içinde sıfırlanıyor. */
+#invoiceModal table,#proformaModal table{min-width:0!important;box-shadow:none!important;border-radius:0!important;}
+.inv-tblwrap{width:100%;max-width:100%;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;}
+.inv-items-table{table-layout:fixed;min-width:480px!important;}
+.pk-items-table{table-layout:fixed;min-width:640px!important;}
+.pfm-items-table{table-layout:fixed;min-width:600px!important;}
+.inv-items-table td,.pk-items-table td,.pfm-items-table td,
+.inv-items-table th,.pk-items-table th,.pfm-items-table th{overflow:hidden;}
+.inv-items-table td input,.pk-items-table td input,.pfm-items-table td input{box-sizing:border-box;min-width:0;max-width:100%;}
+.inv-totals-value,.pfm-totals-value{white-space:nowrap;}
+.inv-items-table th,.pk-items-table th,.pfm-items-table th{white-space:nowrap;}
+.inv-items-table th:nth-child(1){width:74px;}
+.inv-items-table th:nth-child(3){width:98px;}
+.inv-items-table th:nth-child(4){width:92px;}
+
 /* PDF print styles */
 @media print{
   body > *:not(#invPrintFrame){display:none!important;}
@@ -17894,7 +17917,7 @@ window.addEventListener('firebaseReady', function(){ setTimeout(flLoad, 500); },
         </div>
         <div class="inv-section">
           <div class="inv-section-title">Kalemler</div>
-          <table class="inv-items-table" id="ci-items-table">
+          <div class="inv-tblwrap"><table class="inv-items-table" id="ci-items-table">
             <thead>
               <tr>
                 <th style="width:60px">MİKTAR</th>
@@ -17905,7 +17928,7 @@ window.addEventListener('firebaseReady', function(){ setTimeout(flLoad, 500); },
               </tr>
             </thead>
             <tbody id="ci-tbody"></tbody>
-          </table>
+          </table></div>
           <button class="inv-add-row" onclick="ciAddRow()">＋ Kalem Ekle</button>
           <div class="inv-totals">
             <div class="inv-totals-row">
@@ -17958,7 +17981,7 @@ window.addEventListener('firebaseReady', function(){ setTimeout(flLoad, 500); },
         </div>
         <div class="inv-section">
           <div class="inv-section-title">Kalemler</div>
-          <table class="pk-items-table" id="pl-items-table">
+          <div class="inv-tblwrap"><table class="pk-items-table" id="pl-items-table">
             <thead>
               <tr>
                 <th style="width:70px">QUANTITY</th>
@@ -17972,7 +17995,7 @@ window.addEventListener('firebaseReady', function(){ setTimeout(flLoad, 500); },
               </tr>
             </thead>
             <tbody id="pl-tbody"></tbody>
-          </table>
+          </table></div>
           <button class="inv-add-row" onclick="plAddRow()">＋ Kalem Ekle</button>
           <div class="inv-totals">
             <div class="inv-totals-row">
@@ -18018,7 +18041,7 @@ window.addEventListener('firebaseReady', function(){ setTimeout(flLoad, 500); },
         </div>
         <div class="inv-section">
           <div class="inv-section-title">Kalemler</div>
-          <table class="pk-items-table" id="cl-items-table">
+          <div class="inv-tblwrap"><table class="pk-items-table" id="cl-items-table">
             <thead>
               <tr>
                 <th style="width:70px">MİKTAR</th>
@@ -18032,7 +18055,7 @@ window.addEventListener('firebaseReady', function(){ setTimeout(flLoad, 500); },
               </tr>
             </thead>
             <tbody id="cl-tbody"></tbody>
-          </table>
+          </table></div>
           <button class="inv-add-row" onclick="clAddRow()">＋ Kalem Ekle</button>
           <div class="inv-totals">
             <div class="inv-totals-row">
@@ -18054,6 +18077,7 @@ window.addEventListener('firebaseReady', function(){ setTimeout(flLoad, 500); },
     </div><!-- end inv-body -->
     <div class="inv-footer">
       <button class="hbtn hbtn-dark" onclick="closeInvoiceModal()">✕ Kapat</button>
+      <button class="hbtn" style="background:linear-gradient(135deg,#1d3a5e,#16304f);color:#9ecbff;border:1px solid #2b6cb0!important;" onclick="window.ormOpenFromPdf('invoice')" title="Daha önce kaydettiğiniz PDF'i açıp düzenleyin">📂 PDF'den Aç</button>
       <button class="hbtn" style="background:linear-gradient(135deg,#1d3a5e,#16304f);color:#7ab8f5;border:1px solid #2a5a8e!important;" onclick="invSyncFields()">🔄 Alanları Senkronize Et</button>
       <button class="hbtn" style="background:linear-gradient(135deg,#1d5c3a,#155230);color:#7fda9e;border:1px solid #2a6e4a!important;" onclick="invPDFIndir()">📥 PDF İndir</button>
     </div>
@@ -18462,7 +18486,7 @@ window.invPDFIndir = function(){
 
       <div class="pfm-section">
         <div class="pfm-section-title">Kalemler</div>
-        <table class="pfm-items-table">
+        <div class="inv-tblwrap"><table class="pfm-items-table">
           <thead>
             <tr>
               <th>MAKİNE / AÇIKLAMA</th>
@@ -18474,7 +18498,7 @@ window.invPDFIndir = function(){
             </tr>
           </thead>
           <tbody id="pfm-tbody"></tbody>
-        </table>
+        </table></div>
         <button class="pfm-add-row" onclick="pfmAddRow()">ï¼‹ Kalem Ekle</button>
         <div class="pfm-totals">
           <div class="pfm-totals-row"><span class="pfm-totals-label">TUTAR</span><span class="pfm-totals-value" id="pfm-subtotal">0.00</span></div>
@@ -18504,6 +18528,7 @@ window.invPDFIndir = function(){
     </div>
     <div class="pfm-footer">
       <button class="hbtn hbtn-dark" onclick="closeProformaModal()">X Kapat</button>
+      <button class="hbtn" style="background:linear-gradient(135deg,#1d3a5e,#16304f);color:#9ecbff;border:1px solid #2b6cb0!important;" onclick="window.ormOpenFromPdf('proforma')" title="Daha önce kaydettiğiniz PDF'i açıp düzenleyin">📂 PDF'den Aç</button>
       <button class="hbtn" style="background:linear-gradient(135deg,#1d5c3a,#155230);color:#92D050;border:1px solid rgba(146,208,80,.5)!important;" onclick="pfmPDFIndir()">PDF İndir</button>
     </div>
   </div>
@@ -18737,6 +18762,541 @@ window.pfmPDFIndir = function(){
 
 })();
 </script>
+<!-- ══════════════════════════════════════════════════════════════
+     PDF'DEN AÇ / YENİDEN DÜZENLE  (ORM PDF ROUND-TRIP)
+     · Üretilen her PDF'in içine formun verisi görünmez bir metin
+       bloğu olarak gömülür ([[ORMDATA]] ... [[/ORMDATA]])
+     · "PDF'den Aç" butonu PDF'i okur, veriyi geri yükler
+     · Gömülü verisi olmayan ESKİ PDF'ler için metin/etiket
+       tabanlı yedek çözümleyici çalışır
+══════════════════════════════════════════════════════════════ -->
+<style>
+#ormPdfOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:40000;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;}
+#ormPdfOverlay.open{display:flex;}
+.ormpdf-card{background:#161616;border:1px solid #2e2e2e;border-top:3px solid #f5a623;border-radius:12px;width:440px;max-width:94vw;padding:22px 24px;box-shadow:0 24px 70px rgba(0,0,0,.7);}
+.ormpdf-card h4{margin:0 0 10px;font-size:15px;letter-spacing:1.5px;color:#f5a623;font-weight:800;}
+.ormpdf-msg{font-size:13px;color:#bbb;line-height:1.7;white-space:pre-wrap;max-height:46vh;overflow:auto;}
+.ormpdf-msg b{color:#eee;}
+.ormpdf-bar{height:5px;background:#242424;border-radius:4px;overflow:hidden;margin-top:14px;}
+.ormpdf-bar i{display:block;height:100%;width:35%;background:linear-gradient(90deg,#f5a623,#ffd591);animation:ormpdfrun 1.1s infinite ease-in-out;}
+@keyframes ormpdfrun{0%{margin-left:-35%}100%{margin-left:100%}}
+.ormpdf-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;}
+.ormpdf-btn{border:none;border-radius:6px;padding:8px 16px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;background:#2a2a2a;color:#aaa;border:1px solid #3a3a3a;}
+.ormpdf-btn-ok{background:#f5a623;color:#161616;border-color:#f5a623;}
+.ormpdf-btn:hover{opacity:.86;}
+.oriform-tbtn-open{background:#2b6cb0;color:#fff;}
+.orm-embed{font-size:2px;line-height:2.6px;color:#efe7db;word-break:break-all;font-family:monospace;letter-spacing:0;margin-top:8px;user-select:none;}
+@media print{.orm-embed{color:#f2ece2 !important;}}
+</style>
+
+<div id="ormPdfOverlay">
+  <div class="ormpdf-card">
+    <h4 id="ormPdfTitle">PDF OKUNUYOR</h4>
+    <div class="ormpdf-msg" id="ormPdfMsg">Dosya işleniyor...</div>
+    <div class="ormpdf-bar" id="ormPdfBar"><i></i></div>
+    <div class="ormpdf-actions" id="ormPdfActions" style="display:none;">
+      <button class="ormpdf-btn" id="ormPdfCancel">VAZGEÇ</button>
+      <button class="ormpdf-btn ormpdf-btn-ok" id="ormPdfOk">TAMAM</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* Uygulamada fonksiyon adı "openServistTalepFormu" (yazım hatası) — takma ad */
+if(!window.openServisTalepFormu && window.openServistTalepFormu){
+  window.openServisTalepFormu = window.openServistTalepFormu;
+}
+
+/* ─────────── Form kayıtları ─────────── */
+var ORM_FORMS = {
+  servis  : { label:'Servis Talep Formu', root:'servisFormPrint', open:'openServisTalepFormu', sig:['SERVİS TALEP FORMU'] },
+  parca   : { label:'Parça Teklif Formu', root:'parcaFormPrint',  open:'openParcaTeklifFormu', rows:'pf',  sig:['TEKLİF FORMU'] },
+  parts   : { label:'Parts Quote Form',   root:'partsFormPrint',  open:'openPartsQuoteForm',   rows:'pqf', sig:['PARTS QUOTE','QUOTATION FORM'] },
+  invoice : { label:'Invoice / Packing',  root:'invoiceModal',    open:'openInvoiceModal',     rows:'inv', sig:['COMMERCIAL INVOICE','PACKING LIST'] },
+  proforma: { label:'Proforma Fatura',    root:'proformaModal',   open:'openProformaModal',    rows:'pfm', sig:['PROFORMA'] }
+};
+var ORM_TBODY_ADD = { 'ci-tbody':'ciAddRow', 'pl-tbody':'plAddRow', 'cl-tbody':'clAddRow', 'pfm-tbody':'pfmAddRow' };
+
+/* ─────────── Yardımcılar ─────────── */
+function q(id){ return document.getElementById(id); }
+function b64enc(str){ return btoa(unescape(encodeURIComponent(str))); }
+function b64dec(str){ return decodeURIComponent(escape(atob(str))); }
+function ctrlValue(el){
+  if(el.type==='checkbox'||el.type==='radio') return el.checked ? 1 : 0;
+  return el.value;
+}
+function setCtrlValue(el,v){
+  if(el.type==='checkbox'||el.type==='radio'){ el.checked = !!v && v!=='0'; return; }
+  if(el.tagName==='SELECT'){
+    var hit=-1, t=String(v==null?'':v).trim();
+    for(var i=0;i<el.options.length;i++){
+      var o=el.options[i];
+      if(o.value===t || o.text.trim()===t){ hit=i; break; }
+    }
+    if(hit<0){ for(var j=0;j<el.options.length;j++){ if(el.options[j].text.trim().toUpperCase()===t.toUpperCase()){ hit=j; break; } } }
+    if(hit>=0) el.selectedIndex=hit;
+    return;
+  }
+  el.value = (v==null?'':v);
+}
+
+/* ─────────── Snapshot (form → veri) ─────────── */
+function ormSnapshot(key){
+  var def = ORM_FORMS[key]; if(!def) return null;
+  var root = q(def.root); if(!root) return null;
+  var snap = { v:1, form:key, ts:new Date().toISOString(), fields:{}, rows:{} };
+  root.querySelectorAll('input[id],select[id],textarea[id]').forEach(function(el){
+    if(el.type==='file'||el.type==='button') return;
+    snap.fields[el.id] = ctrlValue(el);
+  });
+  if(def.rows==='pf')  snap.rows.pf  = (window.pfRows||[]).map(function(r){ return {urun:r.urun,miktar:r.miktar,fiyat:r.fiyat,pb:r.pb}; });
+  if(def.rows==='pqf') snap.rows.pqf = (window.pqfRows||[]).map(function(r){ return {product:r.product,qty:r.qty,price:r.price,currency:r.currency}; });
+  if(def.rows==='inv'||def.rows==='pfm'){
+    Object.keys(ORM_TBODY_ADD).forEach(function(tid){
+      var tb=q(tid); if(!tb||!root.contains(tb)) return;
+      snap.rows[tid] = Array.prototype.map.call(tb.querySelectorAll('tr'), function(tr){
+        var o={};
+        tr.querySelectorAll('input,select,textarea').forEach(function(el,i){
+          var k=(el.className||'').split(' ')[0] || ('c'+i);
+          o[k]=ctrlValue(el);
+        });
+        return o;
+      });
+    });
+  }
+  return snap;
+}
+
+/* ─────────── Restore (veri → form) ─────────── */
+function ormRestore(key, snap){
+  var def = ORM_FORMS[key]; if(!def||!snap) return 0;
+  try{ if(window[def.open]) window[def.open](); }catch(e){}
+  var root = q(def.root); if(!root) return 0;
+  var n = 0;
+  Object.keys(snap.fields||{}).forEach(function(id){
+    var el = q(id);
+    if(el && root.contains(el)){ setCtrlValue(el, snap.fields[id]); n++; }
+  });
+  var rows = snap.rows||{};
+  if(def.rows==='pf' && rows.pf){
+    window.pfRows = rows.pf.map(function(r){ return {urun:r.urun||'',miktar:r.miktar||'',fiyat:r.fiyat||'',pb:r.pb||'TL'}; });
+    window.pfInitDone = true;
+    if(window.pfRenderRows) window.pfRenderRows();
+    n += rows.pf.length;
+  }
+  if(def.rows==='pqf' && rows.pqf){
+    window.pqfRows = rows.pqf.map(function(r){ return {product:r.product||'',qty:r.qty||'',price:r.price||'',currency:r.currency||'USD'}; });
+    window.pqfInitDone = true;
+    if(window.pqfRenderRows) window.pqfRenderRows();
+    n += rows.pqf.length;
+  }
+  Object.keys(ORM_TBODY_ADD).forEach(function(tid){
+    if(!rows[tid]) return;
+    var tb=q(tid); if(!tb||!root.contains(tb)) return;
+    tb.innerHTML='';
+    var addFn = window[ORM_TBODY_ADD[tid]];
+    rows[tid].forEach(function(o){
+      if(addFn) addFn();
+      var tr = tb.lastElementChild; if(!tr) return;
+      tr.querySelectorAll('input,select,textarea').forEach(function(el,i){
+        var k=(el.className||'').split(' ')[0] || ('c'+i);
+        if(k in o) setCtrlValue(el, o[k]);
+      });
+      n++;
+    });
+  });
+  /* toplamları tazele */
+  ['ciCalc','plCalc','clCalc','pfHesapla','pqfCalculate','pfmCalc'].forEach(function(f){
+    try{ if(window[f]) window[f](); }catch(e){}
+  });
+  return n;
+}
+
+/* ─────────── PDF'e gömülecek blok ─────────── */
+function ormPayloadHTML(key){
+  var snap = ormSnapshot(key);
+  if(!snap) return '';
+  var b64;
+  try{ b64 = b64enc(JSON.stringify(snap)); }catch(e){ return ''; }
+  var chunks = b64.match(/.{1,110}/g) || [];
+  /* Görünmez veri bloğu: 2px punto, zemine yakın renk — çıktıda fark edilmez,
+     ancak PDF metin katmanında kaldığı için geri okunabilir. */
+  return '<div class="orm-embed" style="font-size:2px;line-height:2.6px;color:#f4efe8;'+
+         'word-break:break-all;font-family:monospace;letter-spacing:0;margin-top:8px;'+
+         'user-select:none;overflow:hidden;">[[ORMDATA]]' + chunks.join('<br>') + '[[/ORMDATA]]</div>';
+}
+
+/* ─────────── Yazdırma fonksiyonlarına gömme ─────────── */
+var ROOT2KEY = {};
+Object.keys(ORM_FORMS).forEach(function(k){ ROOT2KEY[ORM_FORMS[k].root]=k; });
+
+var _origPrintOrimakForm = window.printOrimakForm;
+if(typeof _origPrintOrimakForm === 'function'){
+  window.printOrimakForm = function(areaId){
+    var key = ROOT2KEY[areaId], holder=null, area=q(areaId);
+    if(key && area){
+      try{
+        holder = document.createElement('div');
+        holder.innerHTML = ormPayloadHTML(key);
+        area.appendChild(holder);
+      }catch(e){ holder=null; }
+    }
+    try{ return _origPrintOrimakForm.apply(this, arguments); }
+    finally{ if(holder && holder.parentNode) holder.parentNode.removeChild(holder); }
+  };
+}
+
+/* invPDFIndir / pfmPDFIndir kendi HTML'ini üretip window.open ile yazıyor:
+   window.open'ı geçici sarmalayıp </body> öncesine veriyi enjekte ediyoruz */
+function wrapWindowPrinter(fnName, key){
+  var orig = window[fnName];
+  if(typeof orig !== 'function') return;
+  window[fnName] = function(){
+    var payload = '';
+    try{ payload = ormPayloadHTML(key); }catch(e){}
+    var realOpen = window.open;
+    window.open = function(){
+      var w = realOpen.apply(window, arguments);
+      try{
+        if(w && w.document && payload){
+          var d = w.document, ow = d.write.bind(d);
+          d.write = function(html){
+            if(typeof html==='string' && html.indexOf('</body>')>=0){
+              html = html.replace('</body>', payload + '</body>');
+            }
+            return ow(html);
+          };
+        }
+      }catch(e){}
+      return w;
+    };
+    try{ return orig.apply(this, arguments); }
+    finally{ window.open = realOpen; }
+  };
+}
+wrapWindowPrinter('invPDFIndir','invoice');
+wrapWindowPrinter('pfmPDFIndir','proforma');
+
+/* ─────────── Diyalog ─────────── */
+function dlg(title, msg, opts){
+  opts = opts||{};
+  q('ormPdfTitle').textContent = title;
+  q('ormPdfMsg').innerHTML = msg;
+  q('ormPdfBar').style.display = opts.busy ? '' : 'none';
+  q('ormPdfActions').style.display = opts.busy ? 'none' : 'flex';
+  q('ormPdfOk').textContent = opts.okText || 'TAMAM';
+  q('ormPdfCancel').style.display = opts.onCancel ? '' : 'none';
+  q('ormPdfOk').onclick = function(){ closeDlg(); if(opts.onOk) opts.onOk(); };
+  q('ormPdfCancel').onclick = function(){ closeDlg(); if(opts.onCancel) opts.onCancel(); };
+  q('ormPdfOverlay').classList.add('open');
+}
+function closeDlg(){ q('ormPdfOverlay').classList.remove('open'); }
+
+/* ─────────── pdf.js yükleyici ─────────── */
+var PDFJS_SETS = [
+  ['https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'],
+  ['https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
+   'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'],
+  ['https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js',
+   'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js']
+];
+var pdfjsReady = null;
+function loadScript(src){
+  return new Promise(function(res, rej){
+    var s=document.createElement('script');
+    s.src=src; s.async=true;
+    s.onload=function(){ res(); };
+    s.onerror=function(){ rej(new Error('yüklenemedi: '+src)); };
+    document.head.appendChild(s);
+  });
+}
+function ensurePdfJs(){
+  if(pdfjsReady) return pdfjsReady;
+  pdfjsReady = (function(){
+    var chain = Promise.reject();
+    PDFJS_SETS.forEach(function(set){
+      chain = chain.catch(function(){
+        return loadScript(set[0]).then(function(){
+          var lib = window.pdfjsLib || (window.pdfjsDistBuildPdf);
+          if(!lib) throw new Error('pdfjsLib yok');
+          lib.GlobalWorkerOptions.workerSrc = set[1];
+          return lib;
+        });
+      });
+    });
+    return chain;
+  })();
+  pdfjsReady.catch(function(){ pdfjsReady = null; });
+  return pdfjsReady;
+}
+
+/* ─────────── PDF metni → satırlar ─────────── */
+var LINE_TOL = 4;   /* aynı satır sayılacak dikey tolerans (pt) */
+function extractLines(pdf){
+  var tasks=[];
+  for(var i=1;i<=pdf.numPages;i++) tasks.push(pdf.getPage(i).then(function(pg){ return pg.getTextContent(); }));
+  return Promise.all(tasks).then(function(contents){
+    var lines=[], raw='';
+    contents.forEach(function(tc){
+      var its=[];
+      tc.items.forEach(function(it){
+        if(!it.str) return;
+        raw += it.str;
+        if(!it.str.trim()) return;
+        its.push({ y: it.transform?it.transform[5]:0, x: it.transform?it.transform[4]:0, s: it.str.replace(/\s+/g,' ').trim() });
+      });
+      its.sort(function(a,b){ return b.y - a.y; });
+      var cur=[], prevY=null;
+      its.forEach(function(o){
+        if(prevY!==null && Math.abs(prevY-o.y) > LINE_TOL){
+          if(cur.length) lines.push(cur);
+          cur=[];
+        }
+        cur.push(o); prevY=o.y;
+      });
+      if(cur.length) lines.push(cur);
+    });
+    lines = lines.map(function(arr){
+      return arr.sort(function(a,b){ return a.x-b.x; }).map(function(o){ return o.s; });
+    });
+    return { lines: lines, compact: raw.replace(/\s+/g,'') };
+  });
+}
+
+/* ─────────── Gömülü veriyi çöz ─────────── */
+function readEmbedded(compact){
+  var m = compact.match(/\[\[ORMDATA\]\]([\s\S]*?)\[\[\/ORMDATA\]\]/);
+  if(!m) return null;
+  var b64 = m[1].replace(/[^A-Za-z0-9+/=]/g,'');
+  try{ return JSON.parse(b64dec(b64)); }catch(e){ return null; }
+}
+
+/* ─────────── Yedek çözümleyici (eski PDF'ler) ─────────── */
+var LABELS = {
+  servis: {'FİRMA İSMİ':'sf_firma','ADRESİ':'sf_adres','İLGİLİ KİŞİ':'sf_ilgili','TELEFON':'sf_tel',
+           'MAKİNE SERİ NO':'sf_seriNo','TALEP TARİHİ':'sf_tarih','ARIZA TANIMI':'sf_ariza',
+           'GÜNLÜK SERVİS BEDELİ=':'sf_servisBedel','YOL =':'sf_yolBedel','İSİM:':'sf_musteriIsim'},
+  parca:  {'MÜŞTERİ ADI':'pf_musteri','TEKLİF NO:':'pf_no2','FİRMA YETKİLİSİ':'pf_yetkili',
+           'TEKLİF TARİHİ':'pf_tarih2','TELEFON':'pf_tel','ÖDEME':'pf_odeme','ARIZA TANIMI':'pf_ariza',
+           'TESLİM TARİHİ:':'pf_teslim','ADI - SOYADI:':'pf_musteriOnayAdi'},
+  parts:  {'CUSTOMER NAME':'pqf_customer','QUOTE NO:':'pqf_no2','CONTACT PERSON':'pqf_contact',
+           'QUOTE DATE':'pqf_date2','PHONE':'pqf_phone','PAYMENT':'pqf_payment',
+           'FAULT DESCRIPTION':'pqf_fault','DELIVERY DATE:':'pqf_delivery','NAME - SURNAME:':'pqf_custApprName'},
+  invoice:{'INVOICE NO':'ci-invno'},
+  proforma:{}
+};
+function norm(s){ return String(s||'').replace(/\s+/g,' ').replace(/[:：]\s*$/,'').trim().toUpperCase(); }
+function isNum(s){ return /^-?[\d.,]+$/.test(String(s).trim()) && /\d/.test(s); }
+function numClean(s){ return String(s||'').replace(/[^\d.,-]/g,'').trim(); }
+function symToCur(s){
+  if(/€/.test(s)) return 'EUR'; if(/\$/.test(s)) return 'USD';
+  if(/£/.test(s)) return 'GBP'; if(/₺|TL/.test(s)) return 'TL';
+  return '';
+}
+
+function fallbackParse(key, lines){
+  var out = { fields:{}, rows:[] }, map = LABELS[key]||{};
+  var wanted = {}; Object.keys(map).forEach(function(l){ wanted[norm(l)] = map[l]; });
+  function put(id,val){
+    val = String(val==null?'':val).trim();
+    if(!id || !val) return;
+    if(out.fields[id]===undefined) out.fields[id]=val;
+  }
+  lines.forEach(function(segs){
+    for(var i=0;i<segs.length;i++){
+      /* a) "ETİKET" | "değer"  */
+      var id = wanted[norm(segs[i])];
+      if(id && segs[i+1]!==undefined && !wanted[norm(segs[i+1])]){ put(id, segs[i+1]); continue; }
+      /* b) "ETİKET: değer" tek parça */
+      var m = segs[i].match(/^([^:]{2,42}):\s*(.+)$/);
+      if(m){
+        var id2 = wanted[norm(m[1])];
+        if(id2){ put(id2, m[2]); continue; }
+        if(!id2 && wanted[norm(m[1])+' :']) put(wanted[norm(m[1])+' :'], m[2]);
+      }
+      /* c) "ETİKET:" | "değer" */
+      if(id===undefined && /:$/.test(segs[i])){
+        var id3 = wanted[norm(segs[i])];
+        if(id3 && segs[i+1]!==undefined) put(id3, segs[i+1]);
+      }
+    }
+  });
+  /* kalem satırları */
+  if(key==='parca' || key==='parts'){
+    var reIdx = key==='parca' ? /^\d{1,2}\.$/ : /^\d{1,2}$/;
+    lines.forEach(function(segs){
+      if(segs.length < 3 || !reIdx.test(segs[0])) return;
+      var nums=[], name=[], cur='';
+      for(var i=1;i<segs.length;i++){
+        var s=segs[i];
+        if(/^[€$£₺]$/.test(s)){ if(!cur) cur=symToCur(s); continue; }
+        if(isNum(s)) nums.push(s);
+        else if(nums.length===0) name.push(s);
+        else { var c=symToCur(s); if(c && !cur) cur=c; }
+      }
+      if(!name.length || !nums.length) return;
+      out.rows.push({ name:name.join(' ').trim(), qty:numClean(nums[0]||''), price:numClean(nums[1]||''), cur:cur||'' });
+    });
+  }
+  if(key==='invoice'){
+    lines.forEach(function(segs){
+      if(segs.length>=4 && isNum(segs[0]) && !isNum(segs[1]) && isNum(numClean(segs[2])) && isNum(numClean(segs[3]))){
+        out.rows.push({ qty:segs[0], desc:segs[1], uprice:numClean(segs[2]), total:numClean(segs[3]) });
+      }
+    });
+  }
+  return out;
+}
+
+function applyFallback(key, parsed){
+  var def=ORM_FORMS[key];
+  try{ if(window[def.open]) window[def.open](); }catch(e){}
+  var n=0;
+  Object.keys(parsed.fields).forEach(function(id){
+    var el=q(id); if(!el) return;
+    setCtrlValue(el, parsed.fields[id]); n++;
+    if(id==='pf_no2' && q('pf_no')) q('pf_no').value = parsed.fields[id];
+    if(id==='pf_tarih2' && q('pf_tarih')) q('pf_tarih').value = parsed.fields[id];
+    if(id==='pqf_no2' && q('pqf_no')) q('pqf_no').value = parsed.fields[id];
+    if(id==='pqf_date2' && q('pqf_date')) q('pqf_date').value = parsed.fields[id];
+  });
+  if(key==='parca' && parsed.rows.length){
+    window.pfRows = parsed.rows.map(function(r){ return {urun:r.name,miktar:r.qty,fiyat:r.price,pb:r.cur||'TL'}; });
+    while(window.pfRows.length < 14) window.pfRows.push({urun:'',miktar:'',fiyat:'',pb:'TL'});
+    window.pfInitDone = true;
+    if(window.pfRenderRows) window.pfRenderRows();
+    n += parsed.rows.length;
+  }
+  if(key==='parts' && parsed.rows.length){
+    window.pqfRows = parsed.rows.map(function(r){ return {product:r.name,qty:r.qty,price:r.price,currency:(r.cur==='TL'?'TRY':r.cur)||'USD'}; });
+    while(window.pqfRows.length < 14) window.pqfRows.push({product:'',qty:'',price:'',currency:'USD'});
+    window.pqfInitDone = true;
+    if(window.pqfRenderRows) window.pqfRenderRows();
+    n += parsed.rows.length;
+  }
+  if(key==='invoice' && parsed.rows.length){
+    var tb=q('ci-tbody');
+    if(tb){
+      tb.innerHTML='';
+      parsed.rows.forEach(function(r){
+        window.ciAddRow();
+        var tr=tb.lastElementChild; if(!tr) return;
+        tr.querySelector('.ci-qty').value    = r.qty;
+        tr.querySelector('.ci-desc').value   = r.desc;
+        tr.querySelector('.ci-uprice').value = r.price || r.uprice;
+        n++;
+      });
+      window.ciCalc();
+    }
+  }
+  ['ciCalc','pfHesapla','pqfCalculate'].forEach(function(f){ try{ if(window[f]) window[f](); }catch(e){} });
+  return n;
+}
+
+/* ─────────── Ana akış ─────────── */
+var fileInput = null;
+window.ormOpenFromPdf = function(key){
+  if(!ORM_FORMS[key]) return;
+  if(!fileInput){
+    fileInput = document.createElement('input');
+    fileInput.type='file'; fileInput.accept='application/pdf,.pdf';
+    fileInput.style.display='none';
+    document.body.appendChild(fileInput);
+  }
+  fileInput.value='';
+  fileInput.onchange = function(){
+    var f = fileInput.files && fileInput.files[0];
+    if(f) handleFile(key, f);
+  };
+  fileInput.click();
+};
+
+function handleFile(key, file){
+  dlg('PDF OKUNUYOR', '<b>'+file.name+'</b><br>Dosya çözümleniyor, lütfen bekleyin...', {busy:true});
+  var reader = new FileReader();
+  reader.onload = function(){
+    var buf = new Uint8Array(reader.result);
+    ensurePdfJs().then(function(lib){
+      return lib.getDocument({data:buf}).promise;
+    }).then(extractLines).then(function(res){
+      finish(key, file, res);
+    }).catch(function(err){
+      dlg('OKUNAMADI',
+        'PDF açılamadı.<br><span style="color:#888">'+(err && err.message ? err.message : err)+'</span><br><br>' +
+        'İnternet bağlantısı gerekiyor (PDF okuyucu kütüphanesi ilk kullanımda indirilir). ' +
+        'Taranmış / resim tabanlı PDF\'lerde metin bulunmadığı için okuma yapılamaz.', {});
+    });
+  };
+  reader.onerror = function(){ dlg('HATA','Dosya okunamadı.',{}); };
+  reader.readAsArrayBuffer(file);
+}
+
+function finish(key, file, res){
+  var emb = readEmbedded(res.compact);
+  if(emb && emb.form){
+    var target = ORM_FORMS[emb.form] ? emb.form : key;
+    if(target !== key){
+      dlg('FARKLI FORM',
+        'Bu PDF bir <b>'+ORM_FORMS[target].label+'</b> belgesi.<br>O formu açıp verileri yükleyeyim mi?',
+        { okText:'EVET, AÇ', onCancel:function(){}, onOk:function(){ doRestore(target, emb, file); } });
+      return;
+    }
+    doRestore(key, emb, file);
+    return;
+  }
+  /* gömülü veri yok → yedek çözümleyici */
+  var detected = key;
+  Object.keys(ORM_FORMS).forEach(function(k){
+    (ORM_FORMS[k].sig||[]).forEach(function(sig){
+      if(res.compact.toUpperCase().indexOf(sig.replace(/\s+/g,'').toUpperCase())>=0) detected = k;
+    });
+  });
+  if(detected !== key){
+    var dk = detected;
+    dlg('FARKLI FORM',
+      'Bu PDF bir <b>'+ORM_FORMS[dk].label+'</b> belgesine benziyor.<br>O formu açıp okunabilen alanları aktarayım mı?',
+      { okText:'EVET, AÇ', onCancel:function(){ runFallback(key, res, file); }, onOk:function(){ runFallback(dk, res, file); } });
+    return;
+  }
+  runFallback(key, res, file);
+}
+
+function doRestore(key, snap, file){
+  var n = ormRestore(key, snap);
+  var when = snap.ts ? new Date(snap.ts).toLocaleString('tr-TR') : '';
+  dlg('YÜKLENDİ ✓',
+    '<b>'+ORM_FORMS[key].label+'</b> PDF\'ten birebir geri yüklendi.<br>' +
+    (when ? 'PDF tarihi: '+when+'<br>' : '') +
+    n+' alan dolduruldu. Şimdi düzenleyip tekrar PDF alabilirsiniz.', {});
+}
+
+function runFallback(key, res, file){
+  var parsed = fallbackParse(key, res.lines);
+  var n = applyFallback(key, parsed);
+  if(!n){
+    dlg('VERİ BULUNAMADI',
+      'Bu PDF\'te okunabilir form verisi bulunamadı.<br><br>' +
+      '<span style="color:#888">Not: Bu özellik eklendikten <b>sonra</b> alınan PDF\'ler, ' +
+      'içine gömülen veri sayesinde birebir geri yüklenir. Daha eski PDF\'lerde yalnızca ' +
+      'metin okunabildiği kadar aktarılabilir; taranmış (resim) PDF\'lerde ise hiç metin bulunmaz.</span>', {});
+    return;
+  }
+  dlg('KISMİ AKTARIM',
+    '<b>'+ORM_FORMS[key].label+'</b> — bu PDF eski formatta (gömülü veri yok).<br>' +
+    'Metinden okunabilen <b>'+n+'</b> alan aktarıldı' +
+    (parsed.rows.length ? ' ('+parsed.rows.length+' kalem satırı dahil)' : '') + '.<br><br>' +
+    '<span style="color:#888">Lütfen alanları kontrol edin. Bu PDF\'i yeniden kaydettiğinizde ' +
+    'veri gömülür ve bundan sonra birebir açılır.</span>', {});
+}
+
+/* Kaydedilmiş taslak yoksa bile hızlı erişim: klavye kısayolu yok, buton yeterli */
+})();
+</script>
+
 <script>
 // Dosya en sona kadar yüklendikten sonra UI'yi başlat
 try{ if(window.__orimakStartUI) window.__orimakStartUI(); }catch(e){ console.error('UI başlatılamadı:', e); }
