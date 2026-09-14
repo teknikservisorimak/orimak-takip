@@ -17836,6 +17836,15 @@ window.addEventListener('firebaseReady', function(){ setTimeout(flLoad, 500); },
 .inv-totals-grand{font-size:15px;border-top:1px solid #2a6e4a;padding-top:6px;margin-top:4px;}
 /* Footer actions */
 .inv-footer{display:flex;gap:10px;justify-content:flex-end;padding:16px 28px;border-top:1px solid #2a2a2a;}
+/* ── Banka Bilgileri bloğu ── */
+.inv-bank-section{background:linear-gradient(135deg,rgba(127,218,158,.05),rgba(127,218,158,.015));border:1px solid rgba(127,218,158,.22);border-left:3px solid #7fda9e;border-radius:8px;padding:14px 16px 16px;box-shadow:0 0 0 rgba(127,218,158,0);transition:box-shadow .3s;}
+.inv-bank-section:focus-within{box-shadow:0 0 18px rgba(127,218,158,.13);}
+.inv-bank-section .inv-section-title{color:#7fda9e;border-bottom-color:rgba(127,218,158,.25);display:flex;align-items:center;flex-wrap:wrap;gap:8px;}
+.inv-bank-hint{font-size:10px;font-weight:400;letter-spacing:.5px;color:#5d7a67;text-transform:none;}
+.inv-bank-status{margin-left:auto;font-size:10px;letter-spacing:1px;color:#7fda9e;opacity:0;transition:opacity .35s;}
+.inv-bank-status.show{opacity:1;}
+.inv-bank-section .inv-field input{background:#0d0d0d;border-color:rgba(127,218,158,.18);}
+.inv-bank-section .inv-field input:focus{border-color:#7fda9e;}
 /* Packing/Çeki specific */
 .pk-items-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px;}
 .pk-items-table th{background:#111;color:#7fda9e;font-weight:700;letter-spacing:1px;padding:7px 8px;text-align:left;border:1px solid #2a2a2a;font-size:11px;}
@@ -17901,6 +17910,20 @@ window.addEventListener('firebaseReady', function(){ setTimeout(flLoad, 500); },
             <div class="inv-field"><label>WEB / E-POSTA</label><input id="ci-seller-web" value="www.orimak.com — muhasebe@orimak.com"></div>
             <div class="inv-field"><label>VKN</label><input id="ci-seller-vkn" value="6470572044"></div>
             <div class="inv-field"><label>MERSİS NO</label><input id="ci-seller-mersis" value="0647057204400001"></div>
+          </div>
+        </div>
+        <div class="inv-section inv-bank-section">
+          <div class="inv-section-title">🏦 Banka Bilgileri / Bank Details
+            <span class="inv-bank-hint">Bu bilgiler kaydedilir ve çıktıda SELLER bölümünde gösterilir</span>
+            <span class="inv-bank-status" id="ci-bank-status">✓ Kaydedildi</span>
+          </div>
+          <div class="inv-grid">
+            <div class="inv-field full"><label>BANKA ADI / BANK NAME</label><input id="ci-bank-name" placeholder="Örn: TÜRKİYE İŞ BANKASI A.Ş." oninput="invBankSave()"></div>
+            <div class="inv-field"><label>ŞUBE / BRANCH</label><input id="ci-bank-branch" placeholder="Örn: İNEGÖL ŞUBESİ" oninput="invBankSave()"></div>
+            <div class="inv-field"><label>HESAP NO / ACCOUNT NO</label><input id="ci-bank-acc" placeholder="Hesap No" oninput="invBankSave()"></div>
+            <div class="inv-field full"><label>IBAN</label><input id="ci-bank-iban" placeholder="TR00 0000 0000 0000 0000 0000 00" oninput="invBankSave()" style="letter-spacing:.5px;font-weight:700;"></div>
+            <div class="inv-field"><label>SWIFT / BIC CODE</label><input id="ci-bank-swift" placeholder="Örn: ISBKTRIS" oninput="invBankSave()" style="text-transform:uppercase;font-weight:700;"></div>
+            <div class="inv-field"><label>HESAP PARA BİRİMİ</label><input id="ci-bank-cur" placeholder="Örn: EUR / USD / TRY" oninput="invBankSave()"></div>
           </div>
         </div>
         <div class="inv-section">
@@ -18101,6 +18124,39 @@ window.openInvoiceModal = function(){
   if(!document.getElementById('ci-tbody').children.length) ciAddRow();
   if(!document.getElementById('pl-tbody').children.length) plAddRow();
   if(!document.getElementById('cl-tbody').children.length) clAddRow();
+  invBankLoad();
+};
+
+/* ── Banka bilgileri: kalıcı saklama (localStorage) ── */
+var INV_BANK_IDS = ['ci-bank-name','ci-bank-branch','ci-bank-acc','ci-bank-iban','ci-bank-swift','ci-bank-cur'];
+var invBankTimer = null;
+function invBankLoad(){
+  try{
+    var raw = localStorage.getItem('orm_inv_bank');
+    if(!raw) return;
+    var d = JSON.parse(raw)||{};
+    INV_BANK_IDS.forEach(function(id){
+      var el = document.getElementById(id);
+      if(el && !el.value && d[id]) el.value = d[id];
+    });
+  }catch(e){}
+}
+window.invBankLoad = invBankLoad;
+window.invBankSave = function(){
+  try{
+    var d = {};
+    INV_BANK_IDS.forEach(function(id){
+      var el = document.getElementById(id);
+      if(el) d[id] = el.value;
+    });
+    localStorage.setItem('orm_inv_bank', JSON.stringify(d));
+    var s = document.getElementById('ci-bank-status');
+    if(s){
+      s.classList.add('show');
+      clearTimeout(invBankTimer);
+      invBankTimer = setTimeout(function(){ s.classList.remove('show'); }, 1600);
+    }
+  }catch(e){}
 };
 window.closeInvoiceModal = function(){
   document.getElementById('invoiceModal').classList.remove('open');
@@ -18282,6 +18338,20 @@ window.invPDFIndir = function(){
   var ciSellerWeb = g('ci-seller-web');
   var ciSellerVkn = g('ci-seller-vkn');
 
+  /* ── Banka bilgileri (SELLER kutusunda gösterilir) ── */
+  var bkName   = g('ci-bank-name'),   bkBranch = g('ci-bank-branch'),
+      bkAcc    = g('ci-bank-acc'),    bkIban   = g('ci-bank-iban'),
+      bkSwift  = (g('ci-bank-swift')||'').toUpperCase(), bkCur = g('ci-bank-cur');
+  var bankHTML = '';
+  if(bkName || bkIban || bkSwift || bkAcc){
+    bankHTML = '<div class="bank-blk"><div class="bank-ttl">BANK DETAILS / BANKA BİLGİLERİ</div>'+
+      (bkName  ? '<div><strong>'+bkName+'</strong>'+(bkBranch?' — '+bkBranch:'')+'</div>' : '')+
+      (bkAcc   ? '<div>ACCOUNT NO: '+bkAcc+(bkCur?' ('+bkCur+')':'')+'</div>' : (bkCur?'<div>CURRENCY: '+bkCur+'</div>':''))+
+      (bkIban  ? '<div>IBAN: <strong class="bank-hi">'+bkIban+'</strong></div>' : '')+
+      (bkSwift ? '<div>SWIFT / BIC: <strong class="bank-hi">'+bkSwift+'</strong></div>' : '')+
+      '</div>';
+  }
+
   var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">'+
     '<title>'+invno+'</title>'+
     '<style>'+
@@ -18299,6 +18369,9 @@ window.invPDFIndir = function(){
     '.total-row td{font-weight:700;border-top:2px solid #222;background:#f0f0f0!important;}'+
     '.right{text-align:right;}'+
     '.header-meta{display:flex;justify-content:space-between;margin-bottom:10px;font-size:11px;}'+
+    '.bank-blk{margin-top:6px;padding-top:6px;border-top:1px dashed #b5b5b5;font-size:10.5px;line-height:1.55;}'+
+    '.bank-ttl{font-size:8.5px;font-weight:700;letter-spacing:1.5px;color:#888;margin-bottom:3px;}'+
+    '.bank-hi{letter-spacing:.4px;}'+
     '.inv-stamp{margin-top:3mm;text-align:right;opacity:.95;}'+
     '.inv-stamp img{height:22mm;width:auto;filter:drop-shadow(0 2px 6px rgba(0,0,0,.12));}'+
     '@page{size:A4;margin:10mm;}'+
@@ -18313,7 +18386,7 @@ window.invPDFIndir = function(){
   html += '<div class="info-box"><div class="lbl">SELLER</div>'+
     '<strong>'+g('ci-seller-name')+'</strong><br>'+g('ci-seller-addr')+'<br>'+
     'Tel: '+ciSellerTel+'<br>'+ciSellerWeb+'<br>VKN: '+ciSellerVkn+
-    '<br>MERSİS: '+g('ci-seller-mersis')+'</div>';
+    '<br>MERSİS: '+g('ci-seller-mersis')+bankHTML+'</div>';
   html += '<div class="info-box"><div class="lbl">BUYER</div>'+
     '<strong>'+g('ci-buyer-name')+'</strong><br>'+g('ci-buyer-reg')+'<br>'+
     g('ci-buyer-addr')+'<br>'+g('ci-buyer-city')+' / '+g('ci-buyer-country')+
