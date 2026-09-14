@@ -19113,7 +19113,7 @@ function extractLines(pdf){
   var tasks=[];
   for(var i=1;i<=pdf.numPages;i++) tasks.push(pdf.getPage(i).then(function(pg){ return pg.getTextContent(); }));
   return Promise.all(tasks).then(function(contents){
-    var lines=[], raw='';
+    var lines=[], pages=[], raw='';
     contents.forEach(function(tc){
       var its=[];
       tc.items.forEach(function(it){
@@ -19123,20 +19123,21 @@ function extractLines(pdf){
         its.push({ y: it.transform?it.transform[5]:0, x: it.transform?it.transform[4]:0, s: it.str.replace(/\s+/g,' ').trim() });
       });
       its.sort(function(a,b){ return b.y - a.y; });
-      var cur=[], prevY=null;
+      var pageLines=[], cur=[], prevY=null;
       its.forEach(function(o){
         if(prevY!==null && Math.abs(prevY-o.y) > LINE_TOL){
-          if(cur.length) lines.push(cur);
+          if(cur.length) pageLines.push(cur);
           cur=[];
         }
         cur.push(o); prevY=o.y;
       });
-      if(cur.length) lines.push(cur);
+      if(cur.length) pageLines.push(cur);
+      pageLines.forEach(function(arr){ arr.sort(function(a,b){ return a.x-b.x; }); });
+      pages.push(pageLines);
+      pageLines.forEach(function(arr){ lines.push(arr); });
     });
-    lines = lines.map(function(arr){
-      return arr.sort(function(a,b){ return a.x-b.x; }).map(function(o){ return o.s; });
-    });
-    return { lines: lines, compact: raw.replace(/\s+/g,'') };
+    var flat = lines.map(function(arr){ return arr.map(function(o){ return o.s; }); });
+    return { lines: flat, pages: pages, compact: raw.replace(/\s+/g,'') };
   });
 }
 
@@ -19171,7 +19172,196 @@ function symToCur(s){
   return '';
 }
 
-function fallbackParse(key, lines){
+/* ── Invoice / Packing / Çeki: konum tabanlı (iki sütunlu) çözümleyici ──
+   SELLER ve BUYER kutuları yan yana olduğu için satırlar x koordinatına göre
+   sol/sağ sütuna ayrılır; ardından etiket ve sıra mantığıyla alanlar eşlenir. */
+function sqz(s){ return String(s||'').replace(/\s+/g,'').toUpperCase(); }
+function joinX(items){ return items.map(function(o){ return o.s; }).join(' ').replace(/\s+/g,' ').trim(); }
+function striP(s, re){ return String(s||'').replace(re,'').trim(); }
+function looksAddr(s){ return s.length>28 || (/\d/.test(s) && /\s/.test(s) && s.length>13); }
+
+function fbInvoicePages(pages){
+  var out = { fields:{}, rows:[], plRows:[], clRows:[] };
+  function put(id,v){
+    v = String(v==null?'':v).trim();
+    if(!id || !v) return;
+    if(out.fields[id]===undefined) out.fields[id]=v;
+  }
+
+  (pages||[]).forEach(function(L){
+    /* 1) sayfa tipi */
+    var kind='', tIdx=-1;
+    for(var i=0;i<L.length && i<14;i++){
+      var t = sqz(joinX(L[i]));
+      if(t.indexOf('COMMERCIALINVOICE')>=0){ kind='ci'; tIdx=i; break; }
+      if(t.indexOf('PACKINGLIST')>=0){ kind='pl'; tIdx=i; break; }
+      if(t.indexOf('ÇEKİLİSTESİ')>=0 || t.indexOf('ÇEKILISTESI')>=0 || t.indexOf('CEKILISTESI')>=0){ kind='cl'; tIdx=i; break; }
+    }
+    if(!kind) return;
+
+    /* 2) üst bilgi: belge no + tarih */
+    if(tIdx>0){
+      var h = L[tIdx-1];
+      var hs = h.map(function(o){ return o.s; });
+      var dm = hs.join(' ').match(/(\d{4}-\d{2}-\d{2})/);
+      if(dm) put(kind+'-date', dm[1]);
+      for(var hi=0;hi<hs.length;hi++){
+        var cand = hs[hi].replace(/[^\wÇĞİÖŞÜçğıöşü\/\-\.]/g,'').trim();
+        if(cand.length>=4 && !/^\d{4}-\d{2}-\d{2}$/.test(cand) && !/^\d{4}-\d{2}$/.test(cand)){ put(kind+'-invno', cand); break; }
+      }
+    }
+
+    /* 3) SELLER / BUYER etiket satırı + sütun ayıracı */
+    var sIdx=-1, mid=null;
+    for(var j=tIdx+1;j<L.length;j++){
+      var u = sqz(joinX(L[j]));
+      if(u.indexOf('SELLER')>=0 || u.indexOf('SATICI')>=0){ sIdx=j; break; }
+    }
+    if(sIdx<0) return;
+    for(var jj=sIdx; jj<Math.min(sIdx+3,L.length) && mid===null; jj++){
+      L[jj].forEach(function(o){
+        var us=sqz(o.s);
+        if(mid===null && (us==='BUYER'||us==='ALICI'||us.indexOf('BUYER')===0||us.indexOf('ALICI')===0)) mid=o.x;
+      });
+    }
+    if(mid===null){
+      /* etiket bulunamadıysa sayfa ortasını kullan */
+      var maxX=0; L.forEach(function(ln){ ln.forEach(function(o){ if(o.x>maxX) maxX=o.x; }); });
+      mid = maxX*0.52;
+    }
+
+    /* 4) kutuların bittiği yer = kalem tablosu başlığı */
+    var eIdx=L.length;
+    for(var k=sIdx+1;k<L.length;k++){
+      var uk=sqz(joinX(L[k]));
+      if(uk.indexOf('QUANTITY')>=0 || uk.indexOf('TYPEOFGOODS')>=0 || uk.indexOf('MİKTAR')>=0 || uk.indexOf('MIKTAR')>=0 || uk.indexOf('MALCİNSİ')>=0){ eIdx=k; break; }
+    }
+
+    /* 5) sol / sağ sütun metinleri */
+    var left=[], right=[];
+    for(var m2=sIdx+1;m2<eIdx;m2++){
+      var lt = joinX(L[m2].filter(function(o){ return o.x <  mid-6; }));
+      var rt = joinX(L[m2].filter(function(o){ return o.x >= mid-6; }));
+      if(lt) left.push(lt);
+      if(rt) right.push(rt);
+    }
+
+    /* 6) SATICI */
+    if(left.length){
+      put(kind+'-seller-name', left[0]);
+      var addr=[], p=1, bankAt=-1;
+      for(; p<left.length; p++){
+        var s=left[p], us2=sqz(s);
+        if(/^TEL\s*[:.]/i.test(s) || us2.indexOf('VKN')===0 || us2.indexOf('MERSİS')===0 || us2.indexOf('MERSIS')===0 ||
+           us2.indexOf('BANKDETAILS')>=0 || us2.indexOf('BANKABİLGİLERİ')>=0 || /@|www\./i.test(s)) break;
+        addr.push(s);
+      }
+      put(kind+'-seller-addr', addr.join(' '));
+      if(kind==='ci'){
+        for(; p<left.length; p++){
+          var s2=left[p], u2=sqz(s2);
+          if(u2.indexOf('BANKDETAILS')>=0 || u2.indexOf('BANKABİLGİLERİ')>=0){ bankAt=p+1; break; }
+          if(/^TEL\s*[:.]/i.test(s2))            put('ci-seller-tel',    striP(s2,/^TEL\s*[:.]\s*/i));
+          else if(/^VKN\s*[:.]/i.test(s2))       put('ci-seller-vkn',    striP(s2,/^VKN\s*[:.]\s*/i));
+          else if(/^MERS[İI]S\s*[:.]/i.test(s2)) put('ci-seller-mersis', striP(s2,/^MERS[İI]S\s*[:.]\s*/i));
+          else if(/@|www\./i.test(s2))           put('ci-seller-web',    s2);
+        }
+        if(bankAt>=0){
+          for(var bq=bankAt; bq<left.length; bq++){
+            var bs=left[bq];
+            if(/^IBAN\s*[:.]/i.test(bs))               put('ci-bank-iban',  striP(bs,/^IBAN\s*[:.]\s*/i));
+            else if(/^SWIFT/i.test(bs))                put('ci-bank-swift', striP(bs,/^SWIFT\s*(\/\s*BIC)?\s*[:.]\s*/i));
+            else if(/^ACCOUNT\s*NO\s*[:.]/i.test(bs)){
+              var av = striP(bs,/^ACCOUNT\s*NO\s*[:.]\s*/i);
+              var am = av.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+              if(am){ put('ci-bank-acc', am[1]); put('ci-bank-cur', am[2]); } else put('ci-bank-acc', av);
+            }
+            else if(/^CURRENCY\s*[:.]/i.test(bs))      put('ci-bank-cur',   striP(bs,/^CURRENCY\s*[:.]\s*/i));
+            else if(out.fields['ci-bank-name']===undefined){
+              var bp = bs.split(/\s+[—–-]\s+/);
+              put('ci-bank-name', bp[0]);
+              if(bp.length>1) put('ci-bank-branch', bp.slice(1).join(' — '));
+            }
+          }
+        }
+      }
+    }
+
+    /* 7) ALICI */
+    if(right.length){
+      put(kind+'-buyer-name', right[0]);
+      var rest = right.slice(1), clean=[], tel='', off='';
+      rest.forEach(function(s){
+        if(/^TEL\s*[:.]/i.test(s)){ tel = striP(s,/^TEL\s*[:.]\s*/i); return; }
+        if(/^RESM[İI]\s*[:.]/i.test(s)){ off = striP(s,/^RESM[İI]\s*[:.]\s*/i); return; }
+        if(/^OFFICIAL\s*[:.]/i.test(s)){ off = striP(s,/^OFFICIAL\s*[:.]\s*/i); return; }
+        clean.push(s);
+      });
+      if(kind==='ci'){ put('ci-buyer-tel', tel); put('ci-buyer-official', off); }
+      /* "ŞEHİR / ÜLKE" satırı: boşluk-eğik-boşluk kalıbı (adresteki "İNEGÖL/ BURSA"
+         gibi bitişik eğik çizgiler eşleşmez). Şehir veya ülke boşsa da yakalanır. */
+      var ccRe = /(^|\s)\/(\s|$)/, ccIdx=-1;
+      for(var ci2=clean.length-1; ci2>=0; ci2--){ if(ccRe.test(clean[ci2])){ ccIdx=ci2; break; } }
+      if(ccIdx>=0){
+        var cc = clean[ccIdx].split(/\s*\/\s*/);
+        put(kind+'-buyer-city',    (cc[0]||'').trim());
+        put(kind+'-buyer-country', cc.slice(1).join(' / ').trim());
+        clean = clean.slice(0, ccIdx);
+      }
+      if(clean.length>=2 && !looksAddr(clean[0])){
+        put(kind+'-buyer-reg',  clean[0]);
+        put(kind+'-buyer-addr', clean.slice(1).join(' '));
+      } else if(clean.length>=2){
+        put(kind+'-buyer-addr', clean.join(' '));
+      } else if(clean.length===1){
+        if(looksAddr(clean[0])) put(kind+'-buyer-addr', clean[0]);
+        else                    put(kind+'-buyer-reg',  clean[0]);
+      }
+    }
+
+    /* 8) para birimi (tablo başlığından) */
+    if(kind==='ci' && eIdx<L.length){
+      var hm = joinX(L[eIdx]).match(/\(([A-Z]{3})\)/);
+      if(hm) put('ci-currency', hm[1]);
+    }
+
+    /* 9) kalem satırları */
+    for(var r=eIdx+1;r<L.length;r++){
+      var segs = L[r].map(function(o){ return o.s; });
+      var flatU = sqz(segs.join(''));
+      if(flatU.indexOf('ORMDATA')>=0) break;
+      if(/^TOTAL|^TOPLAM/.test(flatU)){
+        if(kind==='ci'){
+          if(segs.length>=3 && !isNum(numClean(segs[1]))) put('ci-payment', segs[1]);
+          var cm = segs[segs.length-1].match(/([A-Z]{3})\s*$/);
+          if(cm) put('ci-currency', cm[1]);
+          /* TOTAL satırından sonraki tek parçalı satır = not */
+          if(L[r+1]){
+            var nseg = L[r+1].map(function(o){ return o.s; });
+            var nj = nseg.join(' ').trim();
+            if(nj && !isNum(numClean(nj)) && sqz(nj).indexOf('ORMDATA')<0) put('ci-note', nj);
+          }
+        }
+        break;
+      }
+      if(segs.length<3 || !isNum(segs[0])) continue;
+      var lastS = segs[segs.length-1], prevS = segs[segs.length-2];
+      if(!isNum(numClean(lastS)) || !isNum(numClean(prevS))) continue;
+      if(kind==='ci'){
+        out.rows.push({ qty:segs[0], desc:segs.slice(1,segs.length-2).join(' '), uprice:numClean(prevS), total:numClean(lastS) });
+      } else if(segs.length>=6){
+        var rec = { qty:segs[0], unit:segs[1], packs:segs[2], packtype:segs[3],
+                    desc:segs.slice(4,segs.length-2).join(' '), gross:numClean(prevS), net:numClean(lastS) };
+        if(kind==='pl') out.plRows.push(rec); else out.clRows.push(rec);
+      }
+    }
+  });
+
+  return out;
+}
+
+function fallbackParse(key, lines, pages){
+  if(key==='invoice') return fbInvoicePages(pages||[]);
   var out = { fields:{}, rows:[] }, map = LABELS[key]||{};
   var wanted = {}; Object.keys(map).forEach(function(l){ wanted[norm(l)] = map[l]; });
   function put(id,val){
@@ -19251,20 +19441,37 @@ function applyFallback(key, parsed){
     if(window.pqfRenderRows) window.pqfRenderRows();
     n += parsed.rows.length;
   }
-  if(key==='invoice' && parsed.rows.length){
-    var tb=q('ci-tbody');
-    if(tb){
-      tb.innerHTML='';
-      parsed.rows.forEach(function(r){
-        window.ciAddRow();
-        var tr=tb.lastElementChild; if(!tr) return;
-        tr.querySelector('.ci-qty').value    = r.qty;
-        tr.querySelector('.ci-desc').value   = r.desc;
-        tr.querySelector('.ci-uprice').value = r.price || r.uprice;
+  if(key==='invoice'){
+    if(parsed.rows.length){
+      var tb=q('ci-tbody');
+      if(tb){
+        tb.innerHTML='';
+        parsed.rows.forEach(function(r){
+          window.ciAddRow();
+          var tr=tb.lastElementChild; if(!tr) return;
+          tr.querySelector('.ci-qty').value    = r.qty;
+          tr.querySelector('.ci-desc').value   = r.desc;
+          tr.querySelector('.ci-uprice').value = r.price || r.uprice;
+          n++;
+        });
+        window.ciCalc();
+      }
+    }
+    [['pl', parsed.plRows, 'plAddRow', 'plCalc'], ['cl', parsed.clRows, 'clAddRow', 'clCalc']].forEach(function(cfg){
+      var pfx=cfg[0], list=cfg[1]||[], add=window[cfg[2]], calc=window[cfg[3]];
+      if(!list.length || typeof add!=='function') return;
+      var tbx=q(pfx+'-tbody'); if(!tbx) return;
+      tbx.innerHTML='';
+      list.forEach(function(r){
+        add();
+        var tr=tbx.lastElementChild; if(!tr) return;
+        function sv(cls,val){ var el=tr.querySelector('.'+pfx+'-'+cls); if(el) el.value = val==null?'':val; }
+        sv('qty',r.qty); sv('unit',r.unit); sv('packs',r.packs); sv('packtype',r.packtype);
+        sv('desc',r.desc); sv('gross',r.gross); sv('net',r.net);
         n++;
       });
-      window.ciCalc();
-    }
+      if(typeof calc==='function') calc();
+    });
   }
   ['ciCalc','pfHesapla','pqfCalculate'].forEach(function(f){ try{ if(window[f]) window[f](); }catch(e){} });
   return n;
@@ -19348,8 +19555,9 @@ function doRestore(key, snap, file){
 }
 
 function runFallback(key, res, file){
-  var parsed = fallbackParse(key, res.lines);
+  var parsed = fallbackParse(key, res.lines, res.pages);
   var n = applyFallback(key, parsed);
+  var nRows = (parsed.rows||[]).length + (parsed.plRows||[]).length + (parsed.clRows||[]).length;
   if(!n){
     dlg('VERİ BULUNAMADI',
       'Bu PDF\'te okunabilir form verisi bulunamadı.<br><br>' +
@@ -19361,7 +19569,7 @@ function runFallback(key, res, file){
   dlg('KISMİ AKTARIM',
     '<b>'+ORM_FORMS[key].label+'</b> — bu PDF eski formatta (gömülü veri yok).<br>' +
     'Metinden okunabilen <b>'+n+'</b> alan aktarıldı' +
-    (parsed.rows.length ? ' ('+parsed.rows.length+' kalem satırı dahil)' : '') + '.<br><br>' +
+    (nRows ? ' ('+nRows+' kalem satırı dahil)' : '') + '.<br><br>' +
     '<span style="color:#888">Lütfen alanları kontrol edin. Bu PDF\'i yeniden kaydettiğinizde ' +
     'veri gömülür ve bundan sonra birebir açılır.</span>', {});
 }
