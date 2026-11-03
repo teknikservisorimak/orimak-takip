@@ -12574,9 +12574,9 @@ var SN_ICONS = {'BC410 PRO':'⚙️','H-CUT':'✂️','Q-BOX':'📦','Qs-BOX':'�
 var SN_COLS = {
   'BC410 PRO': [['seriNo','Seri No'],['firmaAdi','Firma Adı'],['makine','Model'],['yon','Yön'],['ulke','Ülke'],['il','İl'],['aciklama','Açıklama']],
   'H-CUT':     [['seriNo','Seri No'],['firmaAdi','Firma Adı'],['makine','Model'],['il','İl'],['ulke','Ülke']],
-  'Q-BOX':     [['seriNo','Seri No'],['firmaAdi','Firma Adı'],['il','İl'],['model','Model']],
-  'Qs-BOX':    [['seriNo','Seri No'],['firmaAdi','Firma Adı'],['il','İl'],['model','Model'],['tarih','Tarih']],
-  'ORİTEQ2':   [['seriNo','Seri No'],['firmaAdi','Firma Adı'],['yetkili','Yetkili / İl'],['telefon','Telefon']],
+  'Q-BOX':     [['seriNo','Seri No'],['firmaAdi','Firma Adı'],['il','İl'],['model','Model'],['ozellikler','Özellikler']],
+  'Qs-BOX':    [['seriNo','Seri No'],['firmaAdi','Firma Adı'],['il','İl'],['model','Model'],['tarih','Tarih'],['ozellikler','Özellikler']],
+  'ORİTEQ2':   [['seriNo','Seri No'],['firmaAdi','Firma Adı'],['yetkili','Yetkili / İl'],['telefon','Telefon'],['ozellikler','Özellikler']],
   'C-1300':    [['seriNo','Seri No'],['firmaAdi','Firma Adı'],['makine','Model'],['il','İl'],['ulke','Ülke'],['tarih','Tarih'],['aciklama','Açıklama']],
   'AKSESUAR':  [['seriNo','Seri No'],['firmaAdi','Firma Adı'],['aksesuar','Aksesuar'],['makineSeriNo','Makine Seri No'],['il','İl'],['ulke','Ülke'],['tarih','Tarih'],['aciklama','Açıklama']]
 };
@@ -12672,7 +12672,9 @@ function snRenderContent() {
     var tdStyle = 'padding:8px 12px;border-bottom:1px solid #1a1a1a;color:#ccc;font-size:12px;';
     var seriTd = '<td style="'+tdStyle+'font-weight:700;color:#00c8c8;white-space:nowrap;">'+snEsc(r.seriNo||'—')+'</td>';
     var restTds = cols.filter(function(c){return c[0]!=='seriNo';}).map(function(c){
-      return '<td style="'+tdStyle+'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;" title="'+snEsc(r[c[0]]||'')+'">'+snEsc(r[c[0]]||'')+'</td>';
+      var mw = c[0]==='ozellikler' ? 320 : 180;
+      var txt = String(r[c[0]]||'').replace(/\s*\n\s*/g,' · ');
+      return '<td style="'+tdStyle+'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:'+mw+'px;" title="'+snEsc(r[c[0]]||'')+'">'+snEsc(txt)+'</td>';
     }).join('');
     return '<tr onmouseover="this.style.background=\'rgba(0,200,200,.04)\'" onmouseout="this.style.background=\'\'">'+
       '<td style="'+tdStyle+'color:#444;">'+(dispIdx+1)+'</td>'+
@@ -12693,6 +12695,9 @@ function snRenderContent() {
       inp = '<input id="snF_'+c[0]+'" list="snDL_'+c[0]+'" type="text" placeholder="Seç veya yaz" autocomplete="off" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:7px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;"/>'+
         '<datalist id="snDL_'+c[0]+'">'+
         Object.keys(opts).sort().map(function(o){return '<option value="'+snEsc(o)+'"></option>';}).join('')+'</datalist>';
+    } else if (c[0]==='ozellikler') {
+      inp = '<textarea id="snF_'+c[0]+'" rows="3" placeholder="Makinenin özellikleri (ör. kesim genişliği, motor gücü, opsiyonlar...)" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:7px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;resize:vertical;line-height:1.45;"></textarea>';
+      return '<div style="flex:1 1 100%;min-width:0;"><div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#555;font-family:Barlow Condensed,sans-serif;margin-bottom:4px;">'+c[1]+'</div>'+inp+'</div>';
     } else if (c[0]==='yon') {
       inp = '<select id="snF_'+c[0]+'" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:7px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;"><option value=""></option><option>SAĞ MAKİNE</option><option>SOL MAKİNE</option></select>';
     } else {
@@ -12758,7 +12763,12 @@ window.snEditRow = function(origIdx) {
   body.innerHTML = cols.map(function(c){
     var val = snEsc(r[c[0]]||'');
     var inp;
-    if (c[0]==='yon') {
+    if (c[0]==='ozellikler') {
+      inp = '<textarea id="snE_'+c[0]+'" rows="5" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:8px 10px;color:#eee;font-size:13px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;resize:vertical;line-height:1.45;">'+val+'</textarea>';
+      return '<div style="flex:1 1 100%;min-width:0;">'+
+        '<div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#666;font-family:Barlow Condensed,sans-serif;margin-bottom:5px;text-transform:uppercase;">'+c[1]+'</div>'+
+        inp+'</div>';
+    } else if (c[0]==='yon') {
       inp = '<select id="snE_'+c[0]+'" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:8px 10px;color:#eee;font-size:13px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;">'+
         ['','SAĞ MAKİNE','SOL MAKİNE'].map(function(o){return '<option'+(o===r[c[0]]?' selected':'')+'>'+o+'</option>';}).join('')+'</select>';
     } else {
