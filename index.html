@@ -1775,7 +1775,9 @@ const ORIMAK_ORDER_PAGES = [
   'QS HAZIR MALZEMELER',
   'QSBOX TALAŞLI İMALAT',
   'QBOX Malzeme Sipariş Listesi',
-  'QBOX TALAŞLI İMALAT'
+  'QBOX TALAŞLI İMALAT',
+  'HCUT TALAŞLI İMALAT',
+  'HCUT HAZIR MALZEMELER'
 ];
 const ORIMAK_YETKI_KEYS = [
   { key:'makine_sayisi', label:'Makine Sayısı' },
@@ -2887,6 +2889,7 @@ async function refreshSheetsFromServer() {
           if (ex) fresh.push(ex);
         }
       });
+      if (typeof ensureMachineSheets === 'function') ensureMachineSheets(fresh, SHEETS);
       SHEETS = fresh;
       _sheetsAppliedTime = snap.data().updatedAt || 0;
       ensureSiparisSids();
@@ -10163,8 +10166,33 @@ const OFFLINE_DATA = [
     "name": "SATIŞ TAKİP",
     "type": "satis",
     "rows": []
+  },
+  {
+    "name": "HCUT TALAŞLI İMALAT",
+    "rows": []
+  },
+  {
+    "name": "HCUT HAZIR MALZEMELER",
+    "rows": []
   }
 ];
+
+// ── Makine sayfaları: bulutta yoksa listenin SONUNA eklenir ──
+// (Sona eklenir ki mevcut sayfaların sıra numarası ve verisi değişmesin.)
+var ORIMAK_EK_MAKINE_SAYFALARI = ['HCUT TALAŞLI İMALAT', 'HCUT HAZIR MALZEMELER'];
+function ensureMachineSheets(arr, mevcut) {
+  if (!Array.isArray(arr)) return false;
+  var eklendi = false;
+  ORIMAK_EK_MAKINE_SAYFALARI.forEach(function(ad) {
+    if (arr.some(function(x){ return x && x.name === ad; })) return;
+    // Önce bu oturumdaki kopyayı koru (henüz buluta yazılmamış satırlar kaybolmasın)
+    var ex = Array.isArray(mevcut) ? mevcut.find(function(x){ return x && x.name === ad; }) : null;
+    arr.push(ex ? ex : { name: ad, rows: [] });
+    eklendi = true;
+  });
+  return eklendi;
+}
+window.ensureMachineSheets = ensureMachineSheets;
 
 const HEADERS = ['NO','MALZEME KODU','MALZEME ADI','ÖLÇÜLER','ADET','MAKİNE SAYISI','GEREKEN ADET','YETKİLİ ONAYI','SİPARİŞ TARİHİ','TERMİN TARİHİ','TESLİM TARİHİ','GELEN ADET','GELİŞ ONAYI','TESLİMAT DURUMU','SİPARİŞ DURUMU','İŞLEMLER'];
 
@@ -10253,6 +10281,7 @@ function buildUI() {
 // Makine grubu eşlemesi — sayfa adından ana makine adını çıkar
 function getMachineGroup(sheetName) {
   const n = sheetName.toUpperCase();
+  if (n.includes('HCUT') || n.includes('H-CUT')) return 'HCUT';
   if (n.includes('QSBOX') || n.includes('QS HAZIR')) return 'QSBOX';
   if (n.includes('QBOX')) return 'QBOX';
   if (n.includes('BC ') || n.startsWith('BC')) return 'BC410PRO';
@@ -10284,7 +10313,8 @@ function buildTabs() {
   }
 
   // Makine gruplarını oluştur
-  const groupOrder = ['BC410PRO', 'QSBOX', 'QBOX'];
+  const groupOrder = ['BC410PRO', 'QSBOX', 'QBOX', 'HCUT'];
+  const groupLabel = { HCUT: 'H-CUT' };
   groupOrder.forEach(grpName => {
     const items = machineGroups[grpName];
     if (!items || items.length === 0) return;
@@ -10296,7 +10326,7 @@ function buildTabs() {
     const header = document.createElement('button');
     header.className = 'tab-machine-header';
     header.dataset.group = grpName;
-    header.innerHTML = `🏭 ${grpName} <span class="tab-machine-arrow">▶</span>`;
+    header.innerHTML = `🏭 ${groupLabel[grpName] || grpName} <span class="tab-machine-arrow">▶</span>`;
     header.onclick = function() {
       const children = grpDiv.querySelector('.tab-machine-children');
       const isOpen = children.classList.toggle('open');
@@ -11187,9 +11217,11 @@ async function loadData() {
           if (template) freshSheets.push(JSON.parse(JSON.stringify(template)));
         }
       });
+      const _ekSayfa = ensureMachineSheets(freshSheets, null);
       SHEETS = freshSheets;
       _sheetsAppliedTime = (snap.data().updatedAt) || 0;
       isOnline = true;
+      if (_ekSayfa) { try { await fbSaveAll(); } catch (e) { console.warn('H-CUT sayfa ekleme kaydı atlandı:', e); } }
       // Eski sipariş/teslim kayıtlarına benzersiz kimlik ver; eklendiyse bir kez kalıcılaştır.
       // (Kalıcılaştırma önemli: aksi halde her oturum farklı rastgele kimlik üretip
       //  teslim↔sipariş bağını koparabiliyordu.)
@@ -11240,6 +11272,7 @@ async function loadData() {
             if (existing) updated.push(existing);
           }
         });
+        ensureMachineSheets(updated, SHEETS);
         SHEETS = updated;
         ensureSiparisSids(); // gelen veride eksik kimlik varsa bu oturum için tamamla
         ensureTeslimTids();
@@ -19600,5 +19633,440 @@ function runFallback(key, res, file){
 // Dosya en sona kadar yüklendikten sonra UI'yi başlat
 try{ if(window.__orimakStartUI) window.__orimakStartUI(); }catch(e){ console.error('UI başlatılamadı:', e); }
 </script>
+<style>
+#xiOverlay{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:21000;display:none;align-items:center;justify-content:center;padding:16px;}
+#xiOverlay.open{display:flex;}
+.xi-box{background:#161616;border:1px solid #2a2a2a;border-top:3px solid var(--orange,#F5A623);border-radius:12px;width:1100px;max-width:100%;max-height:94vh;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.9);animation:xiIn .25s ease;}
+@keyframes xiIn{from{opacity:0;transform:translateY(14px) scale(.98);}to{opacity:1;transform:none;}}
+.xi-head{padding:15px 20px;border-bottom:1px solid #252525;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.xi-head h3{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;letter-spacing:2px;color:var(--orange,#F5A623);margin:0;}
+.xi-x{background:none;border:none;color:#777;font-size:20px;cursor:pointer;}
+.xi-body{padding:16px 20px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px;}
+.xi-step{background:#1b1b1b;border:1px solid #262626;border-radius:9px;padding:13px 15px;}
+.xi-step-t{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:800;letter-spacing:1.5px;color:#bbb;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+.xi-step-t b{background:var(--orange,#F5A623);color:#111;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;}
+.xi-row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;}
+.xi-f{display:flex;flex-direction:column;gap:4px;min-width:150px;flex:1;max-width:240px;}
+.xi-f label{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1px;color:#777;text-transform:uppercase;}
+.xi-f label i{color:#ff7b7b;font-style:normal;}
+.xi-f select,.xi-f input{background:#222;border:1px solid #3a3a3a;border-radius:5px;padding:7px 9px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;}
+.xi-f select:focus,.xi-f input:focus{border-color:var(--orange,#F5A623);}
+.xi-f select.xi-set{border-color:rgba(146,208,80,.55);background:#1d2418;}
+.xi-drop{border:2px dashed #3a3a3a;border-radius:9px;padding:22px;text-align:center;color:#888;font-family:'Barlow Condensed',sans-serif;letter-spacing:1px;cursor:pointer;transition:all .2s;}
+.xi-drop:hover,.xi-drop.drag{border-color:var(--orange,#F5A623);color:var(--orange,#F5A623);background:rgba(245,166,35,.05);}
+.xi-drop .big{font-size:30px;display:block;margin-bottom:6px;}
+.xi-chk{display:flex;align-items:center;gap:6px;font-size:12px;color:#aaa;font-family:Barlow,sans-serif;cursor:pointer;}
+.xi-tbl-wrap{max-height:330px;overflow:auto;border:1px solid #262626;border-radius:7px;}
+.xi-tbl{width:100%;min-width:0 !important;border-collapse:collapse;font-size:12px;}
+.xi-tbl th{position:sticky;top:0;background:#0f0f0f;color:#888;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;padding:8px;text-align:left;border-bottom:1px solid #2a2a2a;z-index:1;}
+.xi-tbl td{padding:6px 8px;border-bottom:1px solid #1f1f1f;color:#ddd;white-space:nowrap;max-width:280px;overflow:hidden;text-overflow:ellipsis;}
+.xi-tbl tr.xi-grp td{background:#231d10;color:var(--orange,#F5A623);font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:2px;}
+.xi-tbl tr.xi-dup td{color:#777;}
+.xi-tbl tr.xi-off td{opacity:.45;}
+.xi-badge{display:inline-block;font-size:10px;font-weight:700;padding:1px 7px;border-radius:9px;font-family:'Barlow Condensed',sans-serif;letter-spacing:.5px;}
+.xi-b-dup{background:rgba(255,120,0,.15);color:#ff9a3c;border:1px solid rgba(255,120,0,.3);}
+.xi-b-new{background:rgba(146,208,80,.12);color:#92D050;border:1px solid rgba(146,208,80,.3);}
+.xi-b-bad{background:rgba(255,80,80,.12);color:#ff7b7b;border:1px solid rgba(255,80,80,.3);}
+.xi-foot{padding:13px 20px;border-top:1px solid #252525;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.xi-sum{flex:1;font-family:'Barlow Condensed',sans-serif;font-size:13px;color:#999;letter-spacing:.5px;}
+.xi-sum b{color:#92D050;}
+.xi-btn{border:none;border-radius:6px;padding:10px 20px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;letter-spacing:1px;cursor:pointer;}
+.xi-btn-c{background:#252525;border:1px solid #333;color:#888;}
+.xi-btn-ok{background:linear-gradient(135deg,#92D050,#5fae2e);color:#111;box-shadow:0 4px 18px rgba(146,208,80,.25);}
+.xi-btn-ok:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;}
+.xi-msg{font-size:12px;font-family:Barlow,sans-serif;padding:8px 12px;border-radius:6px;}
+.xi-msg.err{background:rgba(255,80,80,.1);color:#ff8a8a;border:1px solid rgba(255,80,80,.25);}
+.xi-msg.info{background:rgba(91,200,232,.08);color:#7fd3ec;border:1px solid rgba(91,200,232,.2);}
+#excelImportBtn{display:none;align-items:center;gap:6px;background:linear-gradient(135deg,rgba(33,115,70,.35),rgba(33,115,70,.15));border:1px solid rgba(60,170,100,.55);border-radius:6px;padding:7px 14px;color:#7fe0a5;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:13px;letter-spacing:1px;cursor:pointer;transition:all .2s;}
+#excelImportBtn:hover{background:linear-gradient(135deg,rgba(33,115,70,.6),rgba(33,115,70,.3));transform:translateY(-1px);}
+</style>
+<div id="xiOverlay" onclick="if(event.target===this)window.xiClose()">
+  <div class="xi-box">
+    <div class="xi-head"><h3>📥 EXCEL'DEN MALZEME AKTAR</h3><button class="xi-x" onclick="window.xiClose()">✕</button></div>
+    <div class="xi-body">
+      <div class="xi-step">
+        <div class="xi-step-t"><b>1</b> DOSYA VE HEDEF SAYFA</div>
+        <div class="xi-row">
+          <div class="xi-f" style="max-width:300px;"><label>Aktarılacak sayfa <i>*</i></label><select id="xiTarget" onchange="window.xiRefresh()"></select></div>
+          <div class="xi-f" style="max-width:340px;flex:2;"><label>Excel dosyası (.xlsx / .xls / .csv)</label>
+            <div class="xi-drop" id="xiDrop" onclick="document.getElementById('xiFile').click()"><span class="big">📄</span><span id="xiFileName">Dosya seçmek için tıkla veya buraya sürükle</span></div>
+            <input type="file" id="xiFile" accept=".xlsx,.xls,.xlsm,.csv" style="display:none" onchange="window.xiPickFile(this.files[0])"/>
+          </div>
+          <div class="xi-f" id="xiWsWrap" style="display:none;"><label>Excel çalışma sayfası</label><select id="xiWs" onchange="window.xiLoadWs()"></select></div>
+          <div class="xi-f" id="xiHdrWrap" style="display:none;max-width:130px;"><label>Başlık satırı</label><input id="xiHdr" type="number" min="1" value="1" onchange="window.xiApplyHeader()"/></div>
+        </div>
+      </div>
+      <div class="xi-step" id="xiMapStep" style="display:none;">
+        <div class="xi-step-t"><b>2</b> SÜTUN EŞLEŞTİRME <span style="color:#555;font-weight:500;letter-spacing:.5px;">— Excel'deki hangi sütun sitedeki hangi alana gidecek?</span></div>
+        <div class="xi-row" id="xiMap"></div>
+        <div class="xi-row" style="margin-top:12px;gap:18px;">
+          <label class="xi-chk"><input type="checkbox" id="xiGrpRows" checked onchange="window.xiRefresh()"/> Sadece tek hücresi dolu satırları <b style="color:var(--orange,#F5A623);">grup başlığı</b> say</label>
+          <label class="xi-chk"><input type="checkbox" id="xiSkipDup" checked onchange="window.xiRefresh()"/> Sayfada zaten olan malzemeleri seçme</label>
+        </div>
+      </div>
+      <div class="xi-step" id="xiPosStep" style="display:none;">
+        <div class="xi-step-t"><b>3</b> NEREYE EKLENSİN?</div>
+        <div class="xi-row">
+          <div class="xi-f" style="max-width:420px;"><label>Grubu olmayan satırlar</label><select id="xiPos" onchange="window.xiRefresh()"></select></div>
+          <div style="font-size:11px;color:#666;font-family:Barlow,sans-serif;max-width:520px;line-height:1.5;">Grubu olan satırlar: sayfada aynı isimde grup varsa o grubun sonuna, yoksa sayfanın sonuna <b style="color:#aaa;">yeni grup</b> olarak eklenir.</div>
+        </div>
+      </div>
+      <div class="xi-step" id="xiPrevStep" style="display:none;">
+        <div class="xi-step-t" style="justify-content:space-between;"><span style="display:flex;align-items:center;gap:8px;"><b>4</b> AKTARILACAK SATIRLARI SEÇ</span>
+          <span style="display:flex;gap:8px;"><button class="xi-btn xi-btn-c" style="padding:4px 10px;font-size:11px;" onclick="window.xiSelAll(true)">Tümünü seç</button><button class="xi-btn xi-btn-c" style="padding:4px 10px;font-size:11px;" onclick="window.xiSelAll(false)">Hiçbirini seçme</button></span></div>
+        <div class="xi-tbl-wrap"><table class="xi-tbl"><thead><tr><th style="width:30px;"><input type="checkbox" id="xiAllChk" onchange="window.xiSelAll(this.checked)"/></th><th>DURUM</th><th>GRUP</th><th>MALZEME KODU</th><th>MALZEME ADI</th><th>ÖLÇÜLER</th><th>ADET</th><th>MAKİNE SAYISI</th></tr></thead><tbody id="xiPrev"></tbody></table></div>
+      </div>
+      <div id="xiMsg"></div>
+    </div>
+    <div class="xi-foot">
+      <div class="xi-sum" id="xiSum">Excel dosyası seçin.</div>
+      <button class="xi-btn xi-btn-c" onclick="window.xiClose()">İptal</button>
+      <button class="xi-btn xi-btn-ok" id="xiGo" disabled onclick="window.xiImport()">📥 AKTAR</button>
+    </div>
+  </div>
+</div>
+<script>
+// ═══════════════════════════════════════════════════════════
+// EXCEL'DEN MALZEME AKTAR — sütun eşleştirmeli toplu ekleme
+// Satırlar mevcut "Yeni Satır Ekle" ile aynı yapıda eklenir.
+// Kaydetmeden önce buluttaki güncel liste çekilir (başkasının
+// eklediği satırlar ezilmesin).
+// ═══════════════════════════════════════════════════════════
+(function(){
+'use strict';
+var XI = { wb:null, aoa:[], headers:[], dataRows:[], map:{}, items:[], fileName:'' };
+var FIELDS = [
+  { k:'grup',    label:'Grup adı',       re:/grup|group|kategori|b[öo]l[üu]m/ },
+  { k:'kod',     label:'Malzeme kodu',   re:/kod|code|stok|par[çc]a ?no|part ?no|referans/ },
+  { k:'ad',      label:'Malzeme adı',    re:/malzeme ?ad|^ad[ıi]?$|isim|tan[ıi]m|a[çc][ıi]klama|name|desc|malzeme$/, req:true },
+  { k:'olcu',    label:'Ölçüler',        re:/[öo]l[çc][üu]|ebat|boyut|dimens|size/ },
+  { k:'gereken', label:'Gereken adet',   re:/gereken|toplam ?adet|total/ },
+  { k:'adet',    label:'Adet',           re:/^adet|adet$|miktar|qty|quant|birim ?adet/ },
+  { k:'makine',  label:'Makine sayısı',  re:/makine ?say/ }
+];
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function norm(s){ return String(s==null?'':s).toLocaleLowerCase('tr').replace(/\s+/g,' ').trim(); }
+function cell(r,i){ return (i==null||i<0) ? '' : String(r[i]==null?'':r[i]).trim(); }
+function isSpecial(sh){ return !sh || sh.type==='siparis' || sh.type==='teslim' || sh.type==='satis'; }
+function num(v){ var n=parseFloat(String(v||'').replace(',','.')); return isNaN(n)?null:n; }
+function fmtNum(n){ return (Math.round(n*1000)/1000).toString(); }
+function msg(t,cls){ var m=document.getElementById('xiMsg'); m.innerHTML = t ? '<div class="xi-msg '+(cls||'info')+'">'+t+'</div>' : ''; }
+
+// ── SheetJS (yalnızca gerektiğinde yüklenir) ──
+var _xlsxP = null;
+function loadXLSX(){
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (_xlsxP) return _xlsxP;
+  var urls = ['https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js','https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js','https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js'];
+  _xlsxP = new Promise(function(res, rej){
+    (function next(i){
+      if (i >= urls.length) { _xlsxP = null; rej(new Error('Excel okuyucu yüklenemedi (internet bağlantısını kontrol edin).')); return; }
+      var s = document.createElement('script'); s.src = urls[i];
+      s.onload = function(){ window.XLSX ? res(window.XLSX) : next(i+1); };
+      s.onerror = function(){ next(i+1); };
+      document.head.appendChild(s);
+    })(0);
+  });
+  return _xlsxP;
+}
+
+// ── Aç / kapa ──
+window.xiOpen = function(){
+  var si = (typeof activeSheet==='number') ? activeSheet : -1;
+  var sel = document.getElementById('xiTarget'); sel.innerHTML = '';
+  SHEETS.forEach(function(sh, i){
+    if (isSpecial(sh)) return;
+    if (typeof yetkiVar==='function' && !yetkiVar(sh.name,'satir_ekle')) return;
+    var o = document.createElement('option'); o.value = sh.name; o.textContent = sh.name;
+    if (i === si) o.selected = true;
+    sel.appendChild(o);
+  });
+  if (!sel.options.length) { alert('Satır ekleme yetkiniz olan bir malzeme sayfası yok.'); return; }
+  XI = { wb:null, aoa:[], headers:[], dataRows:[], map:{}, items:[], fileName:'' };
+  document.getElementById('xiFile').value = '';
+  document.getElementById('xiFileName').textContent = 'Dosya seçmek için tıkla veya buraya sürükle';
+  ['xiWsWrap','xiHdrWrap','xiMapStep','xiPosStep','xiPrevStep'].forEach(function(id){ document.getElementById(id).style.display='none'; });
+  document.getElementById('xiPrev').innerHTML = '';
+  document.getElementById('xiSum').textContent = 'Excel dosyası seçin.';
+  document.getElementById('xiGo').disabled = true;
+  msg('');
+  document.getElementById('xiOverlay').classList.add('open');
+};
+window.xiClose = function(){ document.getElementById('xiOverlay').classList.remove('open'); };
+
+// ── Dosya oku ──
+window.xiPickFile = function(file){
+  if (!file) return;
+  XI.fileName = file.name;
+  document.getElementById('xiFileName').textContent = '⏳ ' + file.name + ' okunuyor...';
+  msg('');
+  loadXLSX().then(function(X){
+    return file.arrayBuffer().then(function(buf){
+      var isCsv = /\.csv$/i.test(file.name);
+      if (isCsv) {
+        var txt = new TextDecoder('utf-8').decode(buf);
+        if (txt.indexOf('�') >= 0) { try { txt = new TextDecoder('windows-1254').decode(buf); } catch(e){} }
+        XI.wb = X.read(txt, { type:'string', raw:false });
+      } else {
+        XI.wb = X.read(buf, { type:'array', cellDates:true });
+      }
+      var ws = document.getElementById('xiWs'); ws.innerHTML = '';
+      XI.wb.SheetNames.forEach(function(n){ var o=document.createElement('option'); o.value=n; o.textContent=n; ws.appendChild(o); });
+      document.getElementById('xiWsWrap').style.display = XI.wb.SheetNames.length > 1 ? '' : 'none';
+      document.getElementById('xiFileName').textContent = '✅ ' + file.name;
+      window.xiLoadWs();
+    });
+  }).catch(function(e){
+    document.getElementById('xiFileName').textContent = 'Dosya seçmek için tıkla veya buraya sürükle';
+    msg('Dosya okunamadı: ' + esc(e.message || e), 'err');
+  });
+};
+
+window.xiLoadWs = function(){
+  var name = document.getElementById('xiWs').value || XI.wb.SheetNames[0];
+  var ws = XI.wb.Sheets[name];
+  var aoa = window.XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:false, blankrows:true });
+  XI.aoa = aoa.map(function(r){ return r.map(function(c){ return String(c==null?'':c).trim(); }); });
+  // Başlık satırını tahmin et: ilk 15 satırda en az 2 dolu ve çoğu sayı olmayan hücre
+  var guess = 1, best = -1;
+  for (var i = 0; i < Math.min(15, XI.aoa.length); i++) {
+    var r = XI.aoa[i], filled = r.filter(function(c){ return c; }), txt = filled.filter(function(c){ return isNaN(parseFloat(c)); });
+    var hit = FIELDS.reduce(function(s,f){ return s + (r.some(function(c){ return c && f.re.test(norm(c)); }) ? 1 : 0); }, 0);
+    var score = hit*10 + (filled.length >= 2 && txt.length >= filled.length*0.6 ? filled.length : 0);
+    if (score > best) { best = score; guess = i + 1; }
+  }
+  document.getElementById('xiHdr').value = guess;
+  document.getElementById('xiHdrWrap').style.display = '';
+  window.xiApplyHeader(true);
+};
+
+window.xiApplyHeader = function(autoMap){
+  var h = Math.max(1, parseInt(document.getElementById('xiHdr').value) || 1);
+  var hdr = XI.aoa[h-1] || [];
+  var width = XI.aoa.reduce(function(m,r){ return Math.max(m, r.length); }, 0);
+  XI.headers = [];
+  for (var c = 0; c < width; c++) {
+    var letter = window.XLSX.utils.encode_col(c);
+    XI.headers.push({ i:c, name: hdr[c] ? hdr[c] : '', label: letter + ' — ' + (hdr[c] || '(başlıksız)') });
+  }
+  XI.dataRows = XI.aoa.slice(h);
+  // Otomatik eşleştirme (her sütun en fazla bir alana)
+  XI.map = {};
+  var used = {};
+  FIELDS.forEach(function(f){
+    var hit = XI.headers.find(function(x){ return !used[x.i] && x.name && f.re.test(norm(x.name)); });
+    if (hit) { XI.map[f.k] = hit.i; used[hit.i] = 1; }
+  });
+  // Ad sütunu bulunamadıysa: en çok metin içeren sütun
+  if (XI.map.ad == null) {
+    var bestC = -1, bestN = -1;
+    XI.headers.forEach(function(x){ if (used[x.i]) return; var n = XI.dataRows.filter(function(r){ var v=cell(r,x.i); return v && isNaN(parseFloat(v)); }).length; if (n > bestN) { bestN = n; bestC = x.i; } });
+    if (bestC >= 0) XI.map.ad = bestC;
+  }
+  var box = document.getElementById('xiMap');
+  box.innerHTML = FIELDS.map(function(f){
+    var opts = '<option value="">— Kullanma —</option>' + XI.headers.map(function(x){
+      return '<option value="'+x.i+'"'+(XI.map[f.k]===x.i?' selected':'')+'>'+esc(x.label)+'</option>';
+    }).join('');
+    return '<div class="xi-f"><label>'+f.label+(f.req?' <i>*</i>':'')+'</label><select id="xiM_'+f.k+'" class="'+(XI.map[f.k]!=null?'xi-set':'')+'" onchange="window.xiSetMap(\''+f.k+'\',this)">'+opts+'</select></div>';
+  }).join('');
+  ['xiMapStep','xiPosStep','xiPrevStep'].forEach(function(id){ document.getElementById(id).style.display=''; });
+  window.xiRefresh();
+};
+
+window.xiSetMap = function(k, el){
+  if (el.value === '') delete XI.map[k]; else XI.map[k] = parseInt(el.value);
+  el.classList.toggle('xi-set', el.value !== '');
+  window.xiRefresh();
+};
+
+function targetIdx(){ var n = document.getElementById('xiTarget').value; return SHEETS.findIndex(function(s){ return s.name === n; }); }
+function sheetGroups(si){ return (SHEETS[si].rows||[]).filter(function(r){ return typeof isGroupRow==='function' ? isGroupRow(r) : (r['2'] && !r['3']); }).map(function(r){ return r['2']; }); }
+function dupKey(kod, ad, olcu){ return kod ? 'k:' + norm(kod) : 'a:' + norm(ad) + '|' + norm(olcu); }
+
+// ── Eşleştirmeye göre satırları hazırla ──
+window.xiRefresh = function(){
+  if (!XI.dataRows) return;
+  var si = targetIdx(); if (si < 0) return;
+  // Konum seçenekleri
+  var pos = document.getElementById('xiPos'), prev = pos.value;
+  pos.innerHTML = '<option value="__end__">— Sayfanın en sonuna —</option>' + sheetGroups(si).map(function(g){ return '<option value="'+esc(g)+'">▸ '+esc(g)+' grubunun sonuna</option>'; }).join('');
+  if (prev && Array.prototype.some.call(pos.options, function(o){ return o.value === prev; })) pos.value = prev;
+
+  var existing = {};
+  (SHEETS[si].rows||[]).forEach(function(r){ if (r['3'] || (r['2'] && r['4'])) existing[dupKey(r['2'], r['3'], r['4'])] = 1; });
+  var grpRows = document.getElementById('xiGrpRows').checked, skipDup = document.getElementById('xiSkipDup').checked;
+  var m = XI.map, curGrp = '', seen = {};
+  XI.items = [];
+  XI.dataRows.forEach(function(r, ri){
+    var filled = r.filter(function(c){ return c; });
+    if (!filled.length) return;
+    var kod = cell(r,m.kod), ad = cell(r,m.ad), olcu = cell(r,m.olcu), adet = cell(r,m.adet), ger = cell(r,m.gereken), mak = cell(r,m.makine), grp = cell(r,m.grup);
+    if (grpRows && filled.length === 1 && !kod && !adet && !ger) { curGrp = filled[0]; XI.items.push({ grpHeader:true, name:curGrp }); return; }
+    if (!ad) return; // ad yoksa malzeme değildir (alt toplam, boş satır vb.)
+    // Adet / gereken adet / makine sayısı
+    var a = num(adet), g = num(ger), mk = num(mak), adetOut = adet, makOut = mak;
+    if (a == null && g != null) {
+      if (mk != null && mk > 0) adetOut = fmtNum(g / mk); else { adetOut = fmtNum(g); makOut = makOut || '1'; }
+    } else if (a != null && g != null && mk == null && a > 0) {
+      var k = g / a; if (Math.abs(k - Math.round(k)) < 1e-9) makOut = String(Math.round(k));
+    }
+    var group = m.grup != null ? grp : curGrp;
+    var key = dupKey(kod, ad, olcu);
+    var dupSite = !!existing[key], dupFile = !!seen[key]; seen[key] = 1;
+    var sel = !(skipDup && (dupSite || dupFile));
+    XI.items.push({ key:key + '#' + ri, kod:kod, ad:ad, olcu:olcu, adet:adetOut, makine:makOut, group:group, dupSite:dupSite, dupFile:dupFile, sel:sel, excelRow: ri + 1 + (parseInt(document.getElementById('xiHdr').value)||1) });
+  });
+  renderPrev();
+};
+
+function renderPrev(){
+  var tb = document.getElementById('xiPrev');
+  var mats = XI.items.filter(function(it){ return !it.grpHeader; });
+  if (XI.map.ad == null) { tb.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:#ff7b7b;">Malzeme adı sütununu seçin.</td></tr>'; updSum(); return; }
+  if (!mats.length) { tb.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:#666;">Bu eşleştirmeyle malzeme satırı bulunamadı. Başlık satırını veya sütunları kontrol edin.</td></tr>'; updSum(); return; }
+  var html = '', idx = 0;
+  XI.items.forEach(function(it, i){
+    if (it.grpHeader) { html += '<tr class="xi-grp"><td></td><td colspan="7">▸ '+esc(it.name)+'</td></tr>'; return; }
+    var badge = it.dupSite ? '<span class="xi-badge xi-b-dup" title="Bu malzeme hedef sayfada zaten var">SAYFADA VAR</span>'
+              : it.dupFile ? '<span class="xi-badge xi-b-dup" title="Excel\'de aynı malzeme birden fazla satırda var">TEKRAR</span>'
+              : '<span class="xi-badge xi-b-new">YENİ</span>';
+    html += '<tr class="'+(it.dupSite||it.dupFile?'xi-dup ':'')+(it.sel?'':'xi-off')+'" title="Excel satırı '+it.excelRow+'"><td><input type="checkbox" '+(it.sel?'checked':'')+' onchange="window.xiTog('+i+',this.checked)"/></td><td>'+badge+'</td><td style="color:#c9a25a;">'+esc(it.group||'—')+'</td><td>'+esc(it.kod)+'</td><td title="'+esc(it.ad)+'"><b>'+esc(it.ad)+'</b></td><td>'+esc(it.olcu)+'</td><td>'+esc(it.adet)+'</td><td>'+esc(it.makine)+'</td></tr>';
+  });
+  tb.innerHTML = html;
+  updSum();
+}
+window.xiTog = function(i, v){ if (XI.items[i]) XI.items[i].sel = v; renderPrev(); };
+window.xiSelAll = function(v){ XI.items.forEach(function(it){ if (!it.grpHeader) it.sel = v; }); renderPrev(); };
+function updSum(){
+  var mats = XI.items.filter(function(it){ return !it.grpHeader; });
+  var sel = mats.filter(function(it){ return it.sel; }).length, dup = mats.filter(function(it){ return it.dupSite; }).length;
+  var all = document.getElementById('xiAllChk'); if (all) all.checked = mats.length && sel === mats.length;
+  document.getElementById('xiSum').innerHTML = mats.length ? ('<b>'+sel+'</b> / '+mats.length+' satır seçili' + (dup ? ' · <span style="color:#ff9a3c;">'+dup+' tanesi sayfada zaten var</span>' : '') + ' → <span style="color:#ddd;">'+esc(document.getElementById('xiTarget').value)+'</span>') : 'Aktarılacak satır yok.';
+  document.getElementById('xiGo').disabled = !sel || XI.map.ad == null;
+}
+
+// ── Aktar ──
+function newRow(it){
+  return { '2': it.kod || '', '3': it.ad, '4': it.olcu || '', '5': it.adet || '',
+    _group:false, _rowNo:null, _yetkili:'', _yetkiliKisi:'', _gelis:'', _gelenAdet:'', _makine: it.makine || '', _sipDurumu:'',
+    _notif: { type:'new', user: window._currentUser || '', ts: Date.now() } };
+}
+function groupEnd(rows, gname){
+  var g = norm(gname), start = -1;
+  for (var i = 0; i < rows.length; i++) { if (rows[i]._group && norm(rows[i]['2']) === g) { start = i; break; } }
+  if (start < 0) return -1;
+  var end = rows.length;
+  for (var j = start + 1; j < rows.length; j++) { if (rows[j]._group) { end = j; break; } }
+  return end;
+}
+window.xiImport = async function(){
+  var targetName = document.getElementById('xiTarget').value;
+  var chosen = XI.items.filter(function(it){ return !it.grpHeader && it.sel; });
+  if (!chosen.length) return;
+  if (!confirm('"' + targetName + '" sayfasına ' + chosen.length + ' satır eklenecek.\n\nMevcut satırlara dokunulmaz, sadece yeni satır eklenir. Devam edilsin mi?')) return;
+  var btn = document.getElementById('xiGo'); btn.disabled = true; btn.textContent = '⟳ Aktarılıyor...';
+  try {
+    // 1) Buluttaki en güncel listeyi al — başkasının son eklediği satırlar ezilmesin
+    if (typeof window.refreshSheetsFromServer === 'function') {
+      var ok = await window.refreshSheetsFromServer();
+      if (!ok) { msg('Buluta ulaşılamadı. Veri kaybı olmaması için aktarım YAPILMADI. İnternet bağlantısını kontrol edip tekrar deneyin.', 'err'); return; }
+    }
+    buildState();
+    var si = SHEETS.findIndex(function(s){ return s.name === targetName; });
+    if (si < 0 || isSpecial(SHEETS[si])) { msg('Hedef sayfa bulunamadı: ' + esc(targetName), 'err'); return; }
+    var rows = state[si].rows, defPos = document.getElementById('xiPos').value;
+    // 2) Grup sırasını koruyarak ekle
+    var blocks = [];
+    chosen.forEach(function(it){
+      var g = it.group || '';
+      var last = blocks[blocks.length - 1];
+      if (last && last.g === g) last.items.push(it); else blocks.push({ g:g, items:[it] });
+    });
+    var yeniGrup = 0;
+    blocks.forEach(function(b){
+      var newRows = b.items.map(newRow);
+      if (b.g) {
+        var at = groupEnd(rows, b.g);
+        if (at < 0) {
+          rows.push({ '2': b.g, _group:true, _rowNo:null, _yetkili:'', _yetkiliKisi:'', _gelis:'', _gelenAdet:'', _makine:'', _sipDurumu:'' });
+          yeniGrup++;
+          Array.prototype.push.apply(rows, newRows);
+        } else {
+          Array.prototype.splice.apply(rows, [at, 0].concat(newRows));
+        }
+      } else if (defPos && defPos !== '__end__') {
+        var at2 = groupEnd(rows, defPos);
+        if (at2 < 0) Array.prototype.push.apply(rows, newRows); else Array.prototype.splice.apply(rows, [at2, 0].concat(newRows));
+      } else {
+        Array.prototype.push.apply(rows, newRows);
+      }
+    });
+    // 3) Numaralandır + SHEETS'e yaz ("Yeni Satır Ekle" ile aynı biçim)
+    var no = 0;
+    rows.forEach(function(r){ if (!r._group && (r['3'] || r['2'])) { no++; if (!r['1']) r._rowNo = no; } });
+    SHEETS[si].rows = rows.map(function(r){
+      var rest = {}; Object.keys(r).forEach(function(k){ if (['_group','_rowNo','_yetkili','_gelis','_gelenAdet','_makine'].indexOf(k) < 0) rest[k] = r[k]; });
+      rest.yetkili = r._yetkili; rest.yetkiliKisi = r._yetkiliKisi || ''; rest.gelis = r._gelis; rest.gelenAdet = r._gelenAdet; rest.makine = r._makine;
+      return rest;
+    });
+    await (window.fbSaveAll || fbSaveAll)();
+    // 4) Ekranı tazele
+    buildState();
+    var panelCount = document.querySelectorAll('#sheetsContainer > .sheet-panel').length;
+    if (panelCount !== SHEETS.length && typeof window.buildUI === 'function') {
+      window.buildUI();
+      if (typeof window.reapplySession === 'function') { try { window.reapplySession(); } catch(e){} }
+    } else {
+      SHEETS.forEach(function(s, i){ if (!isSpecial(s) && document.getElementById('tbody-' + i)) { try { rebuildTable(i); } catch(e){} } });
+    }
+    if (typeof switchTab === 'function') (window.switchTab || switchTab)(si);
+    if (typeof updateStats === 'function') updateStats(si);
+    if (window.orimakSendPush) {
+      try { window.orimakSendPush('⚙️ Malzeme Listesine Ekleme', (window._currentUser || 'Kullanıcı') + ': Excel\'den ' + chosen.length + ' satır — ' + targetName, 'malzeme-ekle', '/', chosen.length + ' satır', targetName); } catch(e){}
+    }
+    window.xiClose();
+    alert('✓ ' + chosen.length + ' satır "' + targetName + '" sayfasına eklendi' + (yeniGrup ? ' (' + yeniGrup + ' yeni grup)' : '') + '.');
+  } catch(e) {
+    console.error('Excel aktarım hatası:', e);
+    msg('Aktarım sırasında hata: ' + esc(e.message || e), 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = '📥 AKTAR'; updSum();
+  }
+};
+
+// ── Sürükle-bırak ──
+function bindDrop(){
+  var d = document.getElementById('xiDrop'); if (!d || d._b) return; d._b = 1;
+  ['dragenter','dragover'].forEach(function(ev){ d.addEventListener(ev, function(e){ e.preventDefault(); d.classList.add('drag'); }); });
+  ['dragleave','drop'].forEach(function(ev){ d.addEventListener(ev, function(e){ e.preventDefault(); d.classList.remove('drag'); }); });
+  d.addEventListener('drop', function(e){ var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) window.xiPickFile(f); });
+}
+bindDrop();
+
+// ── Araç çubuğu butonu: "Yeni Satır Ekle" görünürken görünür ──
+function addBtn(){
+  var tb = document.getElementById('toolBar'), add = document.getElementById('addRowBtn');
+  if (!tb || !add) return;
+  var b = document.getElementById('excelImportBtn');
+  if (!b) {
+    b = document.createElement('button');
+    b.id = 'excelImportBtn'; b.type = 'button';
+    b.innerHTML = '📥 EXCEL\'DEN AKTAR';
+    b.title = 'Excel listesinden toplu malzeme ekle (sütun eşleştirmeli)';
+    b.onclick = function(){ window.xiOpen(); };
+    tb.insertBefore(b, add);
+  }
+  var sync = function(){ b.style.display = (add.style.display === 'none') ? 'none' : 'inline-flex'; };
+  sync();
+  if (!add._xiObs) { add._xiObs = new MutationObserver(sync); add._xiObs.observe(add, { attributes:true, attributeFilter:['style'] }); }
+}
+addBtn();
+var _oBUxi = window.buildUI;
+if (_oBUxi) { window.buildUI = function(){ var r = _oBUxi.apply(this, arguments); addBtn(); return r; }; }
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && document.getElementById('xiOverlay').classList.contains('open')) window.xiClose(); });
+})();
+</script>
+
 </body>
 </html>
