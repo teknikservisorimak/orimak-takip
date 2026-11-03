@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Orimak Takip — Orimak</title>
+<!-- Telefon ana ekranı / uygulama simgesi -->
+<link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1A1A1A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Orimak Takip">
+<meta name="application-name" content="Orimak Takip">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="format-detection" content="telephone=no">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
 <!-- ══ PUSH BİLDİRİM SİSTEMİ (Firestore gerçek zamanlı, ücretsiz) ══ -->
 <script>
@@ -12881,9 +12892,14 @@ function snBadge(msg) {
   if (el) { el.textContent = msg; setTimeout(function(){ if(el) el.textContent=''; }, 2500); }
 }
 
+var _snBekleyen = null;
+function _snHemenKaydet() { if (_snBekleyen) { clearTimeout(snSaveTimer); var f = _snBekleyen; _snBekleyen = null; try { f(); } catch(e) {} } }
+document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') _snHemenKaydet(); });
+window.addEventListener('pagehide', _snHemenKaydet);
 function snFireSave() {
   clearTimeout(snSaveTimer);
-  snSaveTimer = setTimeout(function(){
+  snSaveTimer = setTimeout(_snBekleyen = function(){
+    _snBekleyen = null;
     if (!window._db || !window._fsSetDoc || !window._fsDoc) return;
     if (!_snCloudReady) return;
     try {
@@ -15153,6 +15169,11 @@ function stBadge(msg) {
 }
 
 var stSaveTimer = null;
+// Telefonda uygulamadan çıkılır/ekran kilitlenirse bekleyen kaydı beklemeden buluta yaz
+var _stBekleyen = null;
+function _stHemenKaydet() { if (_stBekleyen) { clearTimeout(stSaveTimer); var f = _stBekleyen; _stBekleyen = null; try { f(); } catch(e) {} } }
+document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') _stHemenKaydet(); });
+window.addEventListener('pagehide', _stHemenKaydet);
 var ST_LS_KEY = 'orimak_servis_takip_data';
 // Sayfa basina UYGULANAN son updatedAt. Canli dinleyicide eski (stale) bir
 // snapshot'in, henuz buluta gitmemis yeni yerel veriyi ezmesini onler.
@@ -15222,7 +15243,8 @@ function stFireSave() {
   stLocalSave();
 
   clearTimeout(stSaveTimer);
-  stSaveTimer = setTimeout(function() {
+  stSaveTimer = setTimeout(_stBekleyen = function() {
+    _stBekleyen = null;
     function _doFireSave() {
       if (!window._db || !window._fsSetDoc || !window._fsDoc) {
         stBadge('✓ Yerel olarak kaydedildi');
