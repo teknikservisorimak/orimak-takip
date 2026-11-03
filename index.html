@@ -20364,5 +20364,228 @@ document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && docu
 })();
 </script>
 
+<style id="orimakMobilCSS">
+/* ═══════════════════════════════════════════════════════════
+   MOBİL UYUM — sadece telefon/dar ekranda devreye girer.
+   Masaüstü görünümü değişmez.
+   ═══════════════════════════════════════════════════════════ */
+#mobDrawerBg{display:none;}
+@media (max-width: 820px){
+  html,body{max-width:100%;}
+  body{overflow-x:hidden;}
+  /* iOS: 16px altı yazı alanına dokununca ekran yakınlaşmasın */
+  input,select,textarea{font-size:16px !important;}
+
+  /* ── ÜST BAŞLIK: iki satır — üstte logo/başlık, altta kaydırılabilir butonlar ── */
+  .page-header{height:auto !important;flex-wrap:wrap;padding:8px 10px 0 !important;gap:8px !important;row-gap:6px !important;}
+  .page-header .logo-img{height:32px;padding:3px 7px;}
+  .page-header .header-divider,.page-header .header-text .sub,.page-header .header-date{display:none !important;}
+  .page-header .header-text{flex:1;min-width:0;}
+  .page-header .header-text .title{font-size:17px;letter-spacing:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .page-header .header-right{order:5;flex:0 0 calc(100% + 20px);margin:0 -10px !important;padding:6px 10px 8px;gap:6px !important;
+    overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+    border-top:1px solid #262626;background:linear-gradient(180deg,#171717,#141414);
+    -webkit-mask-image:linear-gradient(90deg,#000 88%,transparent);mask-image:linear-gradient(90deg,#000 88%,transparent);}
+  .page-header .header-right::-webkit-scrollbar{display:none;}
+  .page-header .header-right > *{flex-shrink:0;}
+  .page-header .hbtn{padding:7px 11px !important;font-size:12px !important;white-space:nowrap;}
+  .page-header .burger-btn{width:40px;height:40px;}
+
+  /* ── SOL MENÜ: ekranın üstüne kayan çekmece ── */
+  .layout-with-sidebar{display:block !important;min-height:0 !important;}
+  .tabs-wrap{position:fixed !important;top:0 !important;left:0;bottom:0;height:100vh;height:100dvh;max-height:none !important;
+    width:84vw !important;min-width:0 !important;max-width:320px !important;z-index:9000;
+    transform:translateX(-105%);transition:transform .28s cubic-bezier(.2,.8,.2,1) !important;
+    box-shadow:8px 0 40px rgba(0,0,0,.7);padding:14px 0 30px !important;opacity:1 !important;overflow-y:auto !important;}
+  .tabs-wrap.open{transform:translateX(0);width:84vw !important;}
+  .tabs-wrap .tab-btn,.tabs-wrap .tab-machine-child{padding-top:14px !important;padding-bottom:14px !important;font-size:13px !important;}
+  .tabs-wrap .tab-machine-header{padding-top:14px !important;padding-bottom:10px !important;font-size:14px !important;}
+  #mobDrawerBg{display:block;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:8990;opacity:0;pointer-events:none;transition:opacity .25s;backdrop-filter:blur(2px);}
+  #mobDrawerBg.on{opacity:1;pointer-events:auto;}
+  #sheetsContainer{overflow-x:visible !important;}
+
+  /* ── Sayfa başlığı, istatistik, araç çubuğu, renk açıklaması ── */
+  .page-title-bar{padding:0 12px !important;height:34px !important;}
+  .stats-bar{padding:8px 10px !important;flex-wrap:nowrap !important;overflow-x:auto;scrollbar-width:none;gap:6px !important;}
+  .stats-bar::-webkit-scrollbar{display:none;}
+  .stats-bar > *{flex-shrink:0;}
+  .toolbar{padding:10px !important;gap:8px !important;flex-wrap:wrap;}
+  .toolbar .search-wrap{flex:1 1 100% !important;min-width:0 !important;max-width:none !important;}
+  .toolbar .search-input{width:100% !important;}
+  .toolbar > button,.toolbar > #globalMakineWrap{flex:1 1 auto;justify-content:center;white-space:nowrap;}
+  .toolbar > button{padding:9px 10px !important;font-size:12px !important;}
+  #globalMakineWrap{margin-left:0 !important;}
+  .legend{padding:6px 10px !important;flex-wrap:nowrap !important;overflow-x:auto;scrollbar-width:none;}
+  .legend::-webkit-scrollbar{display:none;}
+  .legend-item{flex-shrink:0;white-space:nowrap;padding:3px 10px !important;}
+
+  /* ── MALZEME TABLOLARI → KART GÖRÜNÜMÜ ── */
+  .sheet-panel .table-wrap{padding:10px 8px 70px !important;overflow-x:visible !important;}
+  table[id^="table-"]{display:block;min-width:0 !important;width:100% !important;box-shadow:none !important;table-layout:auto !important;}
+  table[id^="table-"] thead{display:none;}
+  table[id^="table-"] tbody{display:block;}
+  table[id^="table-"] tr.subheader-row{display:none !important;}
+  table[id^="table-"] tr.group-row{display:block;margin:18px 0 8px;border-radius:9px;overflow:hidden;}
+  table[id^="table-"] tr.group-row td{display:flex !important;width:100% !important;padding:10px 12px !important;font-size:14px !important;letter-spacing:2px !important;}
+  table[id^="table-"] tr.data-row{display:grid;grid-template-columns:1fr 1fr;margin:0 0 12px;border-radius:12px;overflow:hidden;
+    box-shadow:0 4px 18px rgba(0,0,0,.35);border:1px solid rgba(0,0,0,.25);animation:mobKart .35s ease both;}
+  @keyframes mobKart{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+  table[id^="table-"] tr.data-row td{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:4px;
+    width:auto !important;min-width:0;padding:8px 10px !important;text-align:left !important;border-bottom:1px solid rgba(0,0,0,.07) !important;overflow:visible !important;font-size:13px !important;}
+  table[id^="table-"] tr.data-row td::before{content:attr(data-label);font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;opacity:.55;}
+  table[id^="table-"] tr.data-row td[data-label=""]::before{display:none;}
+  /* Kart üst satırı: NO + malzeme kodu; ad ve ölçü tam genişlik; işlemler en altta */
+  table[id^="table-"] tr.data-row td:nth-child(1){flex-direction:row;align-items:center;gap:8px;box-shadow:inset 0 -2px 0 rgba(0,0,0,.08);}
+  table[id^="table-"] tr.data-row td:nth-child(2){font-size:15px !important;font-weight:700;justify-content:center;box-shadow:inset 0 -2px 0 rgba(0,0,0,.08);}
+  table[id^="table-"] tr.data-row td:nth-child(3){grid-column:1 / -1;font-size:16px !important;font-weight:700;}
+  table[id^="table-"] tr.data-row td:nth-child(4){grid-column:1 / -1;}
+  table[id^="table-"] tr.data-row td:nth-child(7),
+  table[id^="table-"] tr.data-row td:nth-child(8),
+  table[id^="table-"] tr.data-row td:nth-child(13),
+  table[id^="table-"] tr.data-row td:nth-child(16){grid-column:1 / -1;}
+  table[id^="table-"] tr.data-row td:nth-child(16){flex-direction:row;justify-content:flex-end;gap:10px;}
+  table[id^="table-"] tr.data-row td:nth-child(16) button{min-width:44px;min-height:40px;font-size:16px;}
+  table[id^="table-"] tr.data-row td input,table[id^="table-"] tr.data-row td select{width:100% !important;max-width:none !important;min-height:38px;}
+  table[id^="table-"] tr.data-row td input[type="checkbox"]{width:22px !important;min-height:22px;height:22px;flex:0 0 auto;}
+
+  /* ── Pencereler (modal) ── */
+  .modal{padding:20px 16px !important;width:100% !important;max-width:100vw !important;max-height:92vh;border-radius:14px 14px 0 0 !important;}
+  .modal-overlay{align-items:flex-end !important;}
+  .form-grid{grid-template-columns:1fr !important;}
+  .siteynt-box{width:100% !important;max-width:100vw !important;max-height:94vh !important;border-radius:14px 14px 0 0 !important;}
+  #siteYonetimOverlay{align-items:flex-end !important;}
+  .sayfa-grid{grid-template-columns:1fr 1fr !important;}
+  .xi-box{max-height:96vh !important;}
+  .xi-f{max-width:none !important;min-width:calc(50% - 6px) !important;}
+  #xiOverlay{padding:0 !important;align-items:flex-end !important;}
+
+  /* Özel panel açıkken malzeme sayfasına ait çubuklar telefonda gizlensin */
+  body.mob-ozel #toolBar,body.mob-ozel #statsBar,body.mob-ozel #legendBar,body.mob-ozel #pageTitleBar{display:none !important;}
+
+  /* ── Seri No tablosu → kart ── */
+  #snPanel table{display:block;min-width:0 !important;}
+  #snPanel table thead{display:none;}
+  #snPanel table tbody{display:block;}
+  #snPanel table tr{display:grid;grid-template-columns:1fr 1fr;background:#171717;border:1px solid #262626;border-radius:11px;margin:0 0 10px;overflow:hidden;}
+  #snPanel table td{display:flex;flex-direction:column;gap:3px;padding:8px 11px !important;max-width:none !important;white-space:normal !important;overflow:visible !important;text-overflow:clip !important;border-bottom:1px solid #202020 !important;font-size:13px !important;word-break:break-word;}
+  #snPanel table td::before{content:attr(data-label);font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#5a5a5a;}
+  #snPanel table td[data-label=""]::before{display:none;}
+  #snPanel table td:first-child{display:none;}
+  #snPanel table td:nth-child(2){font-size:16px !important;}
+  #snPanel table td[data-label="İŞLEMLER"],#snPanel table td[data-label="Özellikler"],#snPanel table td[data-label="Açıklama"],#snPanel table td[colspan]{grid-column:1 / -1;}
+  #snPanel table td[data-label="İŞLEMLER"]{flex-direction:row;justify-content:flex-end;gap:8px;}
+  #snPanel table td[data-label="İŞLEMLER"]::before{display:none;}
+  #snPanel table td[data-label="İŞLEMLER"] button{padding:9px 14px !important;font-size:13px !important;}
+  #snPanel #snSearch{width:100% !important;}
+
+  /* ── Seri No / Servis Takip / Yedek Parça panelleri ── */
+  #snPanel{padding:12px 10px !important;}
+  #snPanel > div:first-child{gap:8px !important;}
+  #stPanel{padding:12px 6px !important;}
+  #stPanel .st-form-btn,#stPanel > div:first-child button{padding:8px 10px !important;font-size:11px !important;}
+  #ypanel{padding:10px 6px 40px !important;min-height:0 !important;}
+  .yp-page{max-width:100% !important;overflow:hidden;}
+  .yp-header{grid-template-columns:1fr !important;}
+  .yp-meta{grid-template-columns:1fr 1fr !important;padding:8px 12px !important;}
+  .yp-table-wrap{overflow-x:auto !important;-webkit-overflow-scrolling:touch;}
+  .yp-table-wrap table{min-width:720px !important;}
+  .yp-table-wrap thead th{position:static !important;}
+  #snPanel div[style*="max-height:460px"]{max-height:none !important;overflow:visible !important;border:none !important;}
+  #stPanel table{min-width:0;}
+  #stPanel div[style*="overflow-x:auto"],#stPanel div[style*="overflow:auto"]{-webkit-overflow-scrolling:touch;}
+
+  /* ── Ana sayfa ── */
+  .home-cards{grid-template-columns:1fr 1fr !important;gap:10px !important;}
+  .home-card{padding:14px !important;}
+  .home-hero{padding:18px 16px 16px !important;}
+  .home-hero-right{display:none !important;}
+  .home-hero-desc,.home-hero p{font-size:13px !important;line-height:1.5 !important;}
+}
+@media (max-width: 380px){
+  table[id^="table-"] tr.data-row{grid-template-columns:1fr;}
+  table[id^="table-"] tr.data-row td:nth-child(1),table[id^="table-"] tr.data-row td:nth-child(2){grid-column:auto;}
+  .home-cards{grid-template-columns:1fr !important;}
+}
+</style>
+<div id="mobDrawerBg"></div>
+<script>
+// ═══════════════════════════════════════════════════════════
+// MOBİL UYUM — kart etiketleri ve menü çekmecesi
+// ═══════════════════════════════════════════════════════════
+(function(){
+'use strict';
+var mq = window.matchMedia('(max-width: 820px)');
+function mobil(){ return mq.matches; }
+
+// Kart görünümünde her hücreye sütun başlığını etiket olarak yaz
+var ETIKET = (typeof HEADERS !== 'undefined' && Array.isArray(HEADERS)) ? HEADERS.slice() : [];
+// NO ve İŞLEMLER hücrelerinde etiket gösterme
+function etiketle(kok){
+  if (!ETIKET.length) return;
+  (kok || document).querySelectorAll('table[id^="table-"] tr.data-row').forEach(function(tr){
+    if (tr._mobEt === tr.children.length) return;
+    Array.prototype.forEach.call(tr.children, function(td, i){
+      var ad = ETIKET[i] || '';
+      if (i === 0 || ad === 'İŞLEMLER') ad = '';
+      td.setAttribute('data-label', ad);
+    });
+    tr._mobEt = tr.children.length;
+  });
+}
+var _t = null;
+function planla(){ clearTimeout(_t); _t = setTimeout(function(){ etiketle(); }, 60); }
+function snEtiketle(){
+  var t = document.querySelector('#snPanel table'); if (!t) return;
+  var bas = Array.prototype.map.call(t.querySelectorAll('thead th'), function(th){ return th.textContent.replace(/[↑↓]/g,'').trim(); });
+  t.querySelectorAll('tbody tr').forEach(function(tr){
+    Array.prototype.forEach.call(tr.children, function(td, i){ if (!td.hasAttribute('colspan')) td.setAttribute('data-label', bas[i] === '#' ? '' : (bas[i] || '')); });
+  });
+}
+// Seri No / Servis Takip / Yedek Parça açık mı? (telefonda malzeme çubuklarını gizlemek için)
+function ozelDurum(){
+  var acik = ['snPanel','stPanel','ypanel'].some(function(id){ var e = document.getElementById(id); return e && e.isConnected && getComputedStyle(e).display !== 'none'; });
+  document.body.classList.toggle('mob-ozel', acik);
+}
+var sc = document.getElementById('sheetsContainer');
+if (sc && window.MutationObserver) new MutationObserver(function(){ planla(); clearTimeout(sc._snT); sc._snT = setTimeout(function(){ snEtiketle(); ozelDurum(); }, 60); })
+  .observe(sc, { childList:true, subtree:true, attributes:true, attributeFilter:['style'] });
+etiketle(); snEtiketle(); ozelDurum();
+setInterval(function(){ if (mobil()) ozelDurum(); }, 700);
+
+// Menü çekmecesi: arka plan karartması + seçimden sonra kapanma
+var bg = document.getElementById('mobDrawerBg');
+var tw = document.getElementById('tabsWrap');
+function senkron(){
+  if (!bg || !tw) return;
+  bg.classList.toggle('on', mobil() && tw.classList.contains('open'));
+  document.body.style.overflow = (mobil() && tw.classList.contains('open')) ? 'hidden' : '';
+}
+function kapat(){
+  if (!tw) return;
+  tw.classList.remove('open');
+  var tg = document.getElementById('sidebarToggle'); if (tg) tg.classList.remove('open');
+  senkron();
+}
+if (tw && window.MutationObserver) new MutationObserver(senkron).observe(tw, { attributes:true, attributeFilter:['class'] });
+if (bg) bg.addEventListener('click', kapat);
+// Menüden bir sayfa seçilince (telefonda) çekmeceyi kapat
+if (tw) tw.addEventListener('click', function(e){
+  if (!mobil()) return;
+  var b = e.target.closest('.tab-btn, .tab-machine-child');
+  if (b) setTimeout(kapat, 120);
+});
+// Sayfa açılışında/son sayfaya dönüşte telefonda menü kendiliğinden açık kalmasın
+var _ilk = true;
+function acilisKapat(){ if (mobil() && _ilk) { kapat(); } }
+['restoreLastPage','homeGoSheet','homeGoSpecial'].forEach(function(fn){
+  var o = window[fn]; if (typeof o !== 'function') return;
+  window[fn] = function(){ var r = o.apply(this, arguments); if (mobil()) setTimeout(kapat, 50); return r; };
+});
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && mobil()) kapat(); });
+if (mq.addEventListener) mq.addEventListener('change', senkron);
+setTimeout(acilisKapat, 1500);
+})();
+</script>
+
 </body>
 </html>
