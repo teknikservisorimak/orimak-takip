@@ -1685,9 +1685,7 @@ function onLoggedIn(u) {
   }
 
   // Sayfa kısıtlaması — UI hazır olunca uygula
-  if (u.sayfalar && u.sayfalar.length > 0) {
-    setTimeout(() => applySayfaKisitlama(u.sayfalar), 100);
-  }
+  setTimeout(() => applySayfaKisitlama(u.sayfalar || []), 100);
 
   // Firebase'den güncel veriyi yükle
   if (window.loadData) setTimeout(() => window.loadData(), 200);
@@ -1756,8 +1754,8 @@ function reapplySession() {
     }
 
     // Sayfa kısıtlaması
-    if (u.sayfalar && u.sayfalar.length > 0) {
-      applySayfaKisitlama(u.sayfalar);
+    if (true) {
+      applySayfaKisitlama(u.sayfalar || []);
     }
   } catch(e) {}
 }
@@ -1817,42 +1815,100 @@ function yetkiVar(sayfa, key) {
 }
 window.yetkiVar = yetkiVar;
 
-function applySayfaKisitlama(sayfalar) {
-  if (!sayfalar || sayfalar.length === 0) return;
-  const tabBtns = document.querySelectorAll('.tab-btn');
-  const panels = document.querySelectorAll('.sheet-panel');
-  let ilkGorunen = -1;
-  SHEETS.forEach((sheet, i) => {
-    const gorunur = sayfalar.includes(sheet.name);
-    if (tabBtns[i]) tabBtns[i].style.display = gorunur ? '' : 'none';
-    if (panels[i]) panels[i].style.display = gorunur ? '' : 'none';
-    if (gorunur && ilkGorunen === -1) ilkGorunen = i;
-  });
-  // Kullanıcıyı bulunduğu sayfadan atma: sadece ana sayfada değilsek VE
-  // aktif sayfa artık gizliyse ilk görünür sayfaya geç. Aksi halde olduğu yerde kal.
-  var _homeAktif = (function(){ var h = document.getElementById('homePanel'); return !!(h && h.classList.contains('active')); })();
-  var _aktifGorunur = (typeof activeSheet === 'number' && SHEETS[activeSheet] && sayfalar.includes(SHEETS[activeSheet].name));
-  if (!_homeAktif && !_aktifGorunur && ilkGorunen >= 0) switchTab(ilkGorunen);
-
-  // Özel panel sekmeleri — Servis Takip, Seri No, Yedek Parça
-  const ozelPaneller = [
-    { isim: 'SERVİS TAKİP', tabId: 'tabBtn-st' },
-    { isim: 'SERİ NO',      tabId: 'tabBtn-sn' },
-    { isim: 'YEDEK PARÇA',  tabId: 'tabBtn-yp' },
-  ];
+// ── SAYFA GÖRÜNÜRLÜĞÜ — tek merkezden ──
+// admin her şeyi görür. sayfalar listesi boşsa kullanıcı her sayfayı görür.
+// Liste doluysa SADECE listedeki sayfalar görünür (menü, panel, ana sayfa,
+// termin listesi, bildirim, JSON indirme, sayfa geçişi — hepsi bu kurala bakar).
+const ORIMAK_SAYFA_YOK = '__YOK__';           // "hiçbir sayfa" işareti
+const ORIMAK_ST_ALT_ON = 'SERVİS TAKİP › ';   // Servis Takip alt sayfa öneki
+const ORIMAK_ST_ALT = [
+  ['Servis Plan.html',     'Servis Plan'],
+  ['Faturalar.html',       'Faturalar'],
+  ['FaturaDetaylari.html', 'Fatura Detayları'],
+  ['Genel Rapor.html',     'Genel Rapor'],
+  ['Maliyet.html',         'Maliyet'],
+  ['FiyatListesi.html',    'Fiyat Listesi']
+];
+window.ORIMAK_ST_ALT = ORIMAK_ST_ALT;
+window.ORIMAK_ST_ALT_ON = ORIMAK_ST_ALT_ON;
+function orimakKisitliMi() {
+  if ((window._currentRole || 'viewer') === 'admin') return false;
+  const s = window._currentSayfalar || [];
+  return s.length > 0;
+}
+function sayfaGorur(ad) {
+  if (!orimakKisitliMi()) return true;
+  return (window._currentSayfalar || []).indexOf(ad) !== -1;
+}
+// Özel paneller (Servis Takip / Seri No / Yedek Parça): admin + manager rolü ve sayfa izni
+function ozelPanelGorur(ad) {
   const role = window._currentRole || 'viewer';
-  const canSeeSpecial = (role === 'admin' || role === 'manager');
-  ozelPaneller.forEach(function(p) {
-    const btn = document.getElementById(p.tabId);
-    if (!btn) return;
-    // Operator veya viewer: özel panelleri tamamen gizle
-    if (!canSeeSpecial) {
-      btn.style.display = 'none';
-      return;
+  if (role === 'admin') return true;
+  if (role !== 'manager') return false;
+  return sayfaGorur(ad);
+}
+// Servis Takip alt sayfası (dosya adına göre). Alt sayfa seçimi kaydedilmemişse tümü görünür.
+function stAltGorur(fname) {
+  if (!ozelPanelGorur('SERVİS TAKİP')) return false;
+  if (!orimakKisitliMi()) return true;
+  const s = window._currentSayfalar || [];
+  const alt = s.filter(x => x.indexOf(ORIMAK_ST_ALT_ON) === 0);
+  if (!alt.length) return true;
+  const e = ORIMAK_ST_ALT.find(a => a[0] === fname);
+  return !!e && alt.indexOf(ORIMAK_ST_ALT_ON + e[1]) !== -1;
+}
+function stAltKisitliMi() {
+  return orimakKisitliMi() && (window._currentSayfalar || []).some(x => x.indexOf(ORIMAK_ST_ALT_ON) === 0);
+}
+window.orimakKisitliMi = orimakKisitliMi;
+window.sayfaGorur = sayfaGorur;
+window.ozelPanelGorur = ozelPanelGorur;
+window.stAltGorur = stAltGorur;
+window.stAltKisitliMi = stAltKisitliMi;
+
+function applySayfaKisitlama(sayfalar) {
+  if (Array.isArray(sayfalar)) window._currentSayfalar = sayfalar;
+  if (typeof SHEETS === 'undefined' || !Array.isArray(SHEETS)) return;
+  // Sol menü (düz sekmeler + makine gruplarının alt sayfaları) ve sayfa panelleri
+  SHEETS.forEach((sheet, i) => {
+    const gorunur = sayfaGorur(sheet.name);
+    const btn = document.getElementById('tabBtn-' + i);
+    if (btn) btn.style.display = gorunur ? '' : 'none';
+    const panel = document.getElementById('panel-' + i);
+    if (panel) {
+      panel.style.display = gorunur ? '' : 'none';
+      if (!gorunur) panel.classList.remove('active');
     }
-    // Admin / manager: sayfa kısıtlamasına bak
-    btn.style.display = (sayfalar.length === 0 || sayfalar.includes(p.isim)) ? '' : 'none';
   });
+  // Tüm alt sayfaları gizli olan makine grubunu (başlığıyla) gizle
+  document.querySelectorAll('.tab-machine-group').forEach(grp => {
+    const gorunen = Array.from(grp.querySelectorAll('.tab-machine-child')).some(c => c.style.display !== 'none');
+    grp.style.display = gorunen ? '' : 'none';
+    const ayrac = grp.nextElementSibling;
+    if (ayrac && ayrac.classList.contains('tab-machine-divider')) ayrac.style.display = gorunen ? '' : 'none';
+  });
+  // Özel panel sekmeleri — Servis Takip, Seri No, Yedek Parça
+  [
+    { isim: 'SERVİS TAKİP', tabId: 'tabBtn-st', panelId: 'stPanel' },
+    { isim: 'SERİ NO',      tabId: 'tabBtn-sn', panelId: 'snPanel' },
+    { isim: 'YEDEK PARÇA',  tabId: 'tabBtn-yp', panelId: 'ypanel'  },
+  ].forEach(function(p) {
+    const g = ozelPanelGorur(p.isim);
+    const btn = document.getElementById(p.tabId);
+    if (btn) btn.style.display = g ? '' : 'none';
+    const pn = document.getElementById(p.panelId);
+    if (pn && !g) pn.style.display = 'none';
+  });
+  // Açık olan sayfa artık gizliyse: ilk görünür sayfaya, o da yoksa ana sayfaya
+  const homeAktif = (function(){ var h = document.getElementById('homePanel'); return !!(h && h.classList.contains('active')); })();
+  const ozelAcik = ['stPanel','snPanel','ypanel'].some(id => { var e = document.getElementById(id); return e && e.style.display !== 'none' && e.style.display !== ''; });
+  if (!homeAktif && !ozelAcik && typeof activeSheet === 'number' && SHEETS[activeSheet] && !sayfaGorur(SHEETS[activeSheet].name)) {
+    const ilk = SHEETS.findIndex(sh => sayfaGorur(sh.name));
+    if (ilk >= 0 && typeof switchTab === 'function') switchTab(ilk);
+    else if (typeof showHomePage === 'function') showHomePage();
+  }
+  // Ana sayfa kartları
+  if (typeof homeRenderSheetCards === 'function') { try { homeRenderSheetCards(); } catch(e){} }
 }
 window.applySayfaKisitlama = applySayfaKisitlama;
 
@@ -1900,6 +1956,31 @@ function closeAdminOutside(e) {
 }
 window.closeAdminOutside = closeAdminOutside;
 
+function sayfaHepsi(uid, durum) {
+  document.querySelectorAll(`input[data-uid="${uid}"][data-sayfa], input[data-uid="${uid}"][data-stalt]`).forEach(cb => { cb.checked = durum; });
+  sayfaCbDegisti(uid);
+}
+window.sayfaHepsi = sayfaHepsi;
+// Sayfa işareti değişince: yetki tablosunda o sayfanın satırını soluklaştır,
+// Servis Takip alt listesini aç/kapa, rol uyarısını göster
+function sayfaCbDegisti(uid) {
+  const sec = {};
+  document.querySelectorAll(`input[data-uid="${uid}"][data-sayfa]`).forEach(cb => { sec[cb.dataset.sayfa] = cb.checked; });
+  document.querySelectorAll(`input[data-uid="${uid}"][data-ypage]`).forEach(cb => {
+    const tr = cb.closest('tr'); if (tr) tr.style.opacity = (sec[cb.dataset.ypage] === false) ? '.35' : '';
+  });
+  const alt = document.getElementById('stAltWrap_' + uid);
+  if (alt) { alt.style.opacity = sec['SERVİS TAKİP'] ? '' : '.35'; alt.querySelectorAll('input').forEach(i => { i.disabled = !sec['SERVİS TAKİP']; }); }
+  const rolSel = document.getElementById('editrol_' + uid);
+  const uy = document.getElementById('rolUyari_' + uid);
+  if (rolSel && uy) {
+    const ozel = ['SERVİS TAKİP','SERİ NO','YEDEK PARÇA'].filter(a => sec[a]);
+    if (rolSel.value !== 'manager' && ozel.length) { uy.style.display = ''; uy.textContent = '⚠ ' + ozel.join(', ') + ' işaretli ama bu kişinin rolü Manager değil — bu paneller ona yine de görünmez.'; }
+    else uy.style.display = 'none';
+  }
+}
+window.sayfaCbDegisti = sayfaCbDegisti;
+
 async function renderUserList() {
   const list = document.getElementById('userList');
   list.innerHTML = '<div style="color:#666;font-size:12px;padding:8px;">⟳ Yükleniyor...</div>';
@@ -1907,19 +1988,28 @@ async function renderUserList() {
     const users = await sbGet('select=*&order=id.asc');
     list.innerHTML = '';
     users.forEach(u => {
-      const sayfalar = u.sayfalar ? u.sayfalar.split(',').map(s => s.trim()) : [];
+      const sayfalar = u.sayfalar ? u.sayfalar.split(',').map(s => s.trim()).filter(Boolean) : [];
       const yObj = parseYetkiler(u.yetkiler);
-      // Normal SHEETS sayfaları + özel paneller (yönetici rolleri için)
-      const tumSayfalar = [
-        ...SHEETS.filter(s => s.type !== 'siparis' && s.type !== 'teslim' && s.type !== 'satis').map(s => s.name),
-        ...SHEETS.filter(s => s.type === 'siparis' || s.type === 'teslim' || s.type === 'satis').map(s => s.name),
-        'SERVİS TAKİP', 'SERİ NO', 'YEDEK PARÇA'
-      ];
+      const tumAcik = sayfalar.length === 0;
+      const isaretli = (ad) => tumAcik || sayfalar.includes(ad);
+      const stAltlar = sayfalar.filter(x => x.indexOf(ORIMAK_ST_ALT_ON) === 0);
+      const stAltIsaretli = (ad) => tumAcik || (sayfalar.includes('SERVİS TAKİP') && (!stAltlar.length || stAltlar.includes(ORIMAK_ST_ALT_ON + ad)));
+      // Makine sayfalarını gruplarına göre, diğer sayfaları ayrı listele
+      const grpAd = { BC410PRO:'BC410 PRO', QSBOX:'QS-BOX', QBOX:'Q-BOX', HCUT:'H-CUT' };
+      const makineGrup = {}; const digerSayfa = [];
+      SHEETS.forEach(sh => {
+        const g = (sh.type ? null : getMachineGroup(sh.name));
+        if (g) { (makineGrup[g] = makineGrup[g] || []).push(sh.name); } else { digerSayfa.push(sh.name); }
+      });
+      const cb = (ad, etiket) => `<label class="sayfa-cb"><input type="checkbox" data-uid="${u.id}" data-sayfa="${ad}" ${isaretli(ad) ? 'checked' : ''} onchange="sayfaCbDegisti(${u.id})"> ${etiket || ad}</label>`;
+      const gorunenSayi = sayfalar.filter(x => x !== ORIMAK_SAYFA_YOK && x.indexOf(ORIMAK_ST_ALT_ON) !== 0);
       const erisimText = u.rol === 'admin'
         ? 'Tüm sayfalar'
-        : sayfalar.length === 0
-          ? '<span style="color:#e36400;">Tüm sayfalar</span>'
-          : sayfalar.join(', ');
+        : tumAcik
+          ? '<span style="color:#e36400;">Tüm sayfalar (kısıtlama yok)</span>'
+          : (gorunenSayi.length === 0
+              ? '<span style="color:#ff6666;">Hiçbir sayfa</span>'
+              : gorunenSayi.join(', ') + (stAltlar.length ? ' <span style="color:#777;">(Servis Takip: ' + stAltlar.map(x => x.slice(ORIMAK_ST_ALT_ON.length)).join(', ') + ')</span>' : ''));
 
       const div = document.createElement('div');
       div.style.cssText = 'margin-bottom:8px;';
@@ -1943,32 +2033,43 @@ async function renderUserList() {
           <div class="edit-panel-title">✏️ ${u.kullanici_adi} — Sayfa Erişimi & Rol</div>
           <div style="margin-bottom:10px;">
             <label style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#777;display:block;margin-bottom:6px;font-family:'Barlow Condensed',sans-serif;">Rol</label>
-            <select id="editrol_${u.id}" onchange="refreshYetkiMatrix(${u.id}, this.value)" style="background:#1a1a1a;border:1px solid #3a3a3a;border-radius:5px;padding:7px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;width:100%;">
+            <select id="editrol_${u.id}" onchange="refreshYetkiMatrix(${u.id}, this.value); sayfaCbDegisti(${u.id})" style="background:#1a1a1a;border:1px solid #3a3a3a;border-radius:5px;padding:7px 10px;color:#eee;font-size:13px;font-family:'Barlow',sans-serif;outline:none;width:100%;">
               <option value="viewer" ${u.rol==='viewer'?'selected':''}>👁 Viewer — Sadece görüntüler</option>
               <option value="operator" ${u.rol==='operator'?'selected':''}>⚙️ Operator — Onay/adet güncelleyebilir (satır ekleyemez, makine sayısı değiştiremez)</option>
               <option value="manager" ${u.rol==='manager'?'selected':''}>📋 Manager — Satır ekle, makine sayısı, parti, arşiv</option>
             </select>
           </div>
-          <label style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#777;display:block;margin-bottom:6px;font-family:'Barlow Condensed',sans-serif;">
-            Erişebileceği Sayfalar <span style="color:#555;font-weight:400;text-transform:none;letter-spacing:0;">(boşsa tümüne erişir)</span>
-          </label>
-          <div class="sayfa-grid">
-            ${tumSayfalar.slice(0, -4).map(s => `
-              <label class="sayfa-cb">
-                <input type="checkbox" data-uid="${u.id}" data-sayfa="${s}" ${sayfalar.length === 0 || sayfalar.includes(s) ? 'checked' : ''}>
-                ${s}
-              </label>`).join('')}
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+            <label style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#777;font-family:'Barlow Condensed',sans-serif;">
+              👁 Görebileceği Sayfalar <span style="color:#555;font-weight:400;text-transform:none;letter-spacing:0;">— işaretli olmayan sayfa bu kişiye hiçbir yerde görünmez</span>
+            </label>
+            <span style="display:flex;gap:6px;">
+              <button type="button" onclick="sayfaHepsi(${u.id}, true)" style="padding:4px 10px;background:#1d2a1d;border:1px solid #2e4a2e;color:#92D050;border-radius:5px;font-size:11px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;letter-spacing:.5px;">Tümünü seç</button>
+              <button type="button" onclick="sayfaHepsi(${u.id}, false)" style="padding:4px 10px;background:#2a1d1d;border:1px solid #4a2e2e;color:#ff8a8a;border-radius:5px;font-size:11px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;letter-spacing:.5px;">Hiçbiri</button>
+            </span>
           </div>
+          ${Object.keys(makineGrup).map(g => `
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;color:#888;text-transform:uppercase;margin:8px 0 2px;">🏭 ${grpAd[g] || g}</div>
+            <div class="sayfa-grid" style="margin-top:4px;">${makineGrup[g].map(ad => cb(ad)).join('')}</div>`).join('')}
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;color:#888;text-transform:uppercase;margin:10px 0 2px;">📄 Sipariş / Teslim / Satış</div>
+          <div class="sayfa-grid" style="margin-top:4px;">${digerSayfa.map(ad => cb(ad)).join('')}</div>
           <div style="font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;color:#555;text-transform:uppercase;margin:10px 0 6px;">
-            Özel Paneller (Sadece Admin/Manager Rolünde Görünür)
+            🔧 Özel Paneller <span style="text-transform:none;letter-spacing:0;font-weight:400;">(sadece Admin / Manager rolünde açılır)</span>
           </div>
           <div class="sayfa-grid">
-            ${['SERVİS TAKİP','SERİ NO','YEDEK PARÇA'].map(s => `
+            ${['SERVİS TAKİP','SERİ NO','YEDEK PARÇA'].map(ad => `
               <label class="sayfa-cb" style="border-color:#2a3a2a;">
-                <input type="checkbox" data-uid="${u.id}" data-sayfa="${s}" ${sayfalar.length === 0 || sayfalar.includes(s) ? 'checked' : ''}>
-                🔧 ${s}
+                <input type="checkbox" data-uid="${u.id}" data-sayfa="${ad}" ${isaretli(ad) ? 'checked' : ''} onchange="sayfaCbDegisti(${u.id})">
+                🔧 ${ad}
               </label>`).join('')}
           </div>
+          <div id="stAltWrap_${u.id}" style="margin:6px 0 0 14px;padding:8px 10px;border-left:2px solid #3a3a2a;background:#191915;border-radius:0 6px 6px 0;">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.2px;color:#a08a50;text-transform:uppercase;margin-bottom:4px;">Servis Takip içindeki sayfalar</div>
+            <div class="sayfa-grid" style="margin-top:4px;">
+              ${ORIMAK_ST_ALT.map(a => `<label class="sayfa-cb"><input type="checkbox" data-uid="${u.id}" data-stalt="${a[1]}" ${stAltIsaretli(a[1]) ? 'checked' : ''}> ${a[1]}</label>`).join('')}
+            </div>
+          </div>
+          <div id="rolUyari_${u.id}" style="display:none;margin-top:8px;font-size:11px;color:#f5a623;background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.25);border-radius:6px;padding:6px 10px;"></div>
           <div style="font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;letter-spacing:1.5px;color:#F5A623;text-transform:uppercase;margin:14px 0 6px;border-top:1px solid #333;padding-top:12px;">
             ⚡ Sayfa Bazlı Yetkiler <span style="color:#666;font-weight:400;text-transform:none;letter-spacing:0;">— her sayfada ayrı ayrı işaretle</span>
           </div>
@@ -2004,6 +2105,7 @@ async function renderUserList() {
         </div>` : ''}
       `;
       list.appendChild(div);
+      if (u.rol !== 'admin') sayfaCbDegisti(u.id);
     });
   } catch(e) {
     list.innerHTML = '<div style="color:#f77;font-size:12px;padding:8px;">Bağlantı hatası.</div>';
@@ -2032,12 +2134,19 @@ window.refreshYetkiMatrix = refreshYetkiMatrix;
 async function saveUserEdit(uid, username) {
   const rol = document.getElementById(`editrol_${uid}`).value;
   // Yalnızca sayfa erişimi checkbox'ları (data-sayfa) — yetki matrisiyle karışmasın
-  const checkboxes = document.querySelectorAll(`input[data-uid="${uid}"][data-sayfa]`);
-  const secili = [];
-  checkboxes.forEach(cb => { if (cb.checked) secili.push(cb.dataset.sayfa); });
-  // Tüm sayfalar seçiliyse boş bırak (tümüne erişim)
-  const toplamCheckbox = checkboxes.length;
-  const sayfalarVal = (secili.length === toplamCheckbox) ? '' : secili.join(',');
+  const checkboxes = Array.from(document.querySelectorAll(`input[data-uid="${uid}"][data-sayfa]`));
+  const secili = checkboxes.filter(cb => cb.checked).map(cb => cb.dataset.sayfa);
+  const altCbs = Array.from(document.querySelectorAll(`input[data-uid="${uid}"][data-stalt]`));
+  const altSecili = altCbs.filter(cb => cb.checked).map(cb => cb.dataset.stalt);
+  let liste = secili.slice();
+  if (liste.includes('SERVİS TAKİP')) {
+    if (altSecili.length === 0) liste = liste.filter(x => x !== 'SERVİS TAKİP');            // alt sayfa yoksa panel de kapalı
+    else if (altSecili.length < altCbs.length) liste = liste.concat(altSecili.map(a => ORIMAK_ST_ALT_ON + a));
+  }
+  const hepsiSecili = secili.length === checkboxes.length && altSecili.length === altCbs.length;
+  // Hepsi seçiliyse boş (kısıtlama yok). HİÇBİRİ seçili değilse "hiçbir sayfa" işareti
+  // (önceden boş kalıyor ve kişi TÜM sayfaları görüyordu).
+  const sayfalarVal = hepsiSecili ? '' : (liste.length ? liste.join(',') : ORIMAK_SAYFA_YOK);
 
   // Sayfa bazlı yetki matrisi → { "Sayfa": ["makine_sayisi", ...] }
   const yObj = {};
@@ -2107,8 +2216,19 @@ async function addUser() {
     await sbInsert({ kullanici_adi: u, sifre: p, rol });
     document.getElementById('newUser').value = '';
     document.getElementById('newPass').value = '';
-    renderUserList();
-    showAdminMsg(`"${u}" (${rol}) başarıyla eklendi!`, 'ok');
+    await renderUserList();
+    showAdminMsg(`"${u}" (${rol}) eklendi. Şimdi aşağıda hangi sayfaları görebileceğini seçip 💾 Kaydet'e basın — seçmezseniz TÜM sayfaları görür.`, 'ok');
+    // Yeni kullanıcının düzenleme panelini aç ki sayfa izinleri hemen ayarlansın
+    Array.from(document.querySelectorAll('#userList [id^="userrow_"]')).some(function(row){
+      var nm = row.querySelector('.u-name');
+      if (nm && nm.firstChild && String(nm.firstChild.textContent).trim() === u) {
+        var id = row.id.replace('userrow_', '');
+        toggleEditPanel(parseInt(id));
+        row.scrollIntoView({ behavior:'smooth', block:'center' });
+        return true;
+      }
+      return false;
+    });
   } catch(e) {
     const msg = e.message.includes('duplicate') ? 'Bu kullanıcı adı zaten mevcut.' : 'Hata: ' + e.message;
     showAdminMsg(msg, 'err');
@@ -2611,11 +2731,15 @@ function openJsonPanel() {
   ov.classList.add('open');
   const sel = document.getElementById('jsonSayfaSelect');
   sel.innerHTML = '';
-  const optAll = document.createElement('option');
-  optAll.value = 'ALL';
-  optAll.textContent = '📚 TÜM SAYFALAR (komple yedek)';
-  sel.appendChild(optAll);
+  const _kisitli = (typeof orimakKisitliMi === 'function') && orimakKisitliMi();
+  if (!_kisitli) {
+    const optAll = document.createElement('option');
+    optAll.value = 'ALL';
+    optAll.textContent = '📚 TÜM SAYFALAR (komple yedek)';
+    sel.appendChild(optAll);
+  }
   SHEETS.forEach((s, i) => {
+    if (_kisitli && !sayfaGorur(s.name)) return;
     const o = document.createElement('option');
     o.value = String(i);
     o.textContent = s.name;
@@ -2648,6 +2772,8 @@ function jsonYedekIndir() {
     const ts = now.toISOString().slice(0, 19).replace(/[:T]/g, '-');
     const temizle = (k, v) => k === '_pdfSel' ? undefined : v; // geçici seçim alanını yedeğe alma
     let payload, fname;
+    if (val === 'ALL' && typeof orimakKisitliMi === 'function' && orimakKisitliMi()) { showJsonMsg('Komple yedek için tüm sayfalara erişim gerekir.', 'err'); return; }
+    if (val !== 'ALL' && SHEETS[parseInt(val)] && typeof sayfaGorur === 'function' && !sayfaGorur(SHEETS[parseInt(val)].name)) { showJsonMsg('Bu sayfaya erişiminiz yok.', 'err'); return; }
     if (val === 'ALL') {
       payload = {
         app: 'orimak-malzeme-yedek', kind: 'all',
@@ -5296,10 +5422,10 @@ function renderNotifPermsPanel() {
   if (window.SHEETS) {
     window.SHEETS.forEach(function(sh) {
       var n = sh.name || '';
-      if (n && pages.indexOf(n) === -1) pages.push(n);
+      if (n && pages.indexOf(n) === -1 && (typeof sayfaGorur !== 'function' || sayfaGorur(n))) pages.push(n);
     });
   }
-  if (pages.indexOf('Fiyat Listesi') === -1) pages.push('Fiyat Listesi');
+  if (pages.indexOf('Fiyat Listesi') === -1 && (typeof stAltGorur !== 'function' || stAltGorur('FiyatListesi.html'))) pages.push('Fiyat Listesi');
 
   var html = '<div style="color:#888;font-size:11px;margin-bottom:14px;line-height:1.5;">Hangi sayfalardan bildirim almak istediğinizi seçin. Kapalı sayfalardan gelen bildirimler gösterilmez.</div>';
   html += '<div style="display:flex;flex-direction:column;gap:6px;">';
@@ -5350,6 +5476,7 @@ function getTerminUrunler(gunSinir = 7) {
   const sonuclar = [];
 
   SHEETS.forEach((sheet, si) => {
+    if (typeof sayfaGorur === 'function' && !sayfaGorur(sheet.name)) return; // görmediği sayfanın terminleri listelenmez
     // Sipariş formu sayfası — SHEETS üzerinden oku
     if (sheet.type === 'siparis') {
       (sheet.rows || []).forEach((r, ri) => {
@@ -11623,6 +11750,7 @@ function homeRenderSheetCards() {
 
   SHEETS.forEach(function(sheet, i) {
     if(sheet.type === 'siparis' || sheet.type === 'teslim' || sheet.type === 'satis') return;
+    if(!(typeof sayfaGorur!=='function'||sayfaGorur(sheet.name))) return;
     var card = document.createElement('div');
     card.className = 'home-card';
     var ico = icons[sheet.type] || defaultIcons[i % defaultIcons.length];
@@ -11638,6 +11766,7 @@ function homeRenderSheetCards() {
   // Sipariş / teslim sayfaları özel renk
   SHEETS.forEach(function(sheet, i) {
     if(sheet.type !== 'siparis' && sheet.type !== 'teslim') return;
+    if(!(typeof sayfaGorur!=='function'||sayfaGorur(sheet.name))) return;
     var card = document.createElement('div');
     card.className = 'home-card card-blue';
     var ico = icons[sheet.type] || '📄';
@@ -11649,6 +11778,23 @@ function homeRenderSheetCards() {
     card.addEventListener('click', (function(idx){ return function(){ homeGoSheet(idx); }; })(i));
     container.appendChild(card);
   });
+
+  // Özel panel kartları: yetkisi olmayan kişiye hiç gösterme
+  var _ozelKart = { st:'SERVİS TAKİP', sn:'SERİ NO', yp:'YEDEK PARÇA' };
+  Object.keys(_ozelKart).forEach(function(k){
+    var c = document.querySelector('#homeSpecialCards [onclick="homeGoSpecial(\''+k+'\')"]');
+    if (c) c.style.display = (typeof ozelPanelGorur!=='function' || ozelPanelGorur(_ozelKart[k])) ? '' : 'none';
+  });
+  var _satisSheet = SHEETS.find(function(sh){ return sh.type === 'satis'; });
+  var _sfKart = document.querySelector('#homeSpecialCards [onclick="homeGoSpecial(\'sf\')"]');
+  if (_sfKart) _sfKart.style.display = (_satisSheet && (typeof sayfaGorur!=='function' || sayfaGorur(_satisSheet.name))) ? '' : 'none';
+  var _ozelBolum = document.getElementById('homeSpecialCards');
+  if (_ozelBolum) {
+    var _gorunenOzel = Array.prototype.some.call(_ozelBolum.children, function(c){ return c.style.display !== 'none'; });
+    _ozelBolum.style.display = _gorunenOzel ? '' : 'none';
+    var _lbl = _ozelBolum.previousElementSibling;
+    if (_lbl && _lbl.classList.contains('home-section-label')) _lbl.style.display = _gorunenOzel ? '' : 'none';
+  }
 }
 
 function homeGoSheet(idx) {
@@ -11668,7 +11814,12 @@ function homeGoSpecial(panelKey) {
   var burger   = document.getElementById('sidebarToggle');
   if(tabsWrap){ tabsWrap.classList.add('open'); }
   if(burger)  { burger.classList.add('open'); }
-  var tabIds = { 'st':'tabBtn-st','sn':'tabBtn-sn','yp':'tabBtn-yp','sf':'tabBtn-sf' };
+  if (panelKey === 'sf') {
+    var _si = (typeof SHEETS !== 'undefined') ? SHEETS.findIndex(function(sh){ return sh.type === 'satis'; }) : -1;
+    if (_si >= 0 && typeof switchTab === 'function') switchTab(_si);
+    return;
+  }
+  var tabIds = { 'st':'tabBtn-st','sn':'tabBtn-sn','yp':'tabBtn-yp' };
   var tabId = tabIds[panelKey];
   if(tabId){
     var btn = document.getElementById(tabId);
@@ -12866,10 +13017,15 @@ function stCreatePanel() {
 function stRender() {
   var p = document.getElementById('stPanel');
   if (!p) return;
+  if (typeof window.stAltGorur === 'function' && ST_PAGES[stActiveIdx] && !window.stAltGorur(ST_PAGES[stActiveIdx][0])) {
+    var _ilkSt = ST_PAGES.findIndex(function(pg){ return window.stAltGorur(pg[0]); });
+    stActiveIdx = _ilkSt >= 0 ? _ilkSt : 0;
+  }
   var tabs = ST_PAGES.map(function(pg, i) {
     var fname = pg[0], label = pg[1];
+    if (typeof window.stAltGorur === 'function' && !window.stAltGorur(fname)) return '';
     var cnt = ((ST_DATA[fname]||{}).data||[]).length;
-    return '<button class="st-mtab'+(i===stActiveIdx?' active':'')+'" onclick="stSwitchPage('+i+')" '+
+    return '<button class="st-mtab'+(i===stActiveIdx?' active':'')+'" data-st-idx="'+i+'" onclick="stSwitchPage('+i+')" '+
       'style="background:'+(i===stActiveIdx?'rgba(245,166,35,.1)':'transparent')+';'+
       'color:'+(i===stActiveIdx?'var(--orange)':'#888')+';'+
       'border:none;border-bottom:2px solid '+(i===stActiveIdx?'var(--orange)':'transparent')+';'+
@@ -14590,11 +14746,13 @@ window.stKatChange = function(rowIdx, colIdx, sel) {
 };
 
 window.stSwitchPage = function(i) {
+  if (typeof window.stAltGorur === 'function' && ST_PAGES[i] && !window.stAltGorur(ST_PAGES[i][0])) return;
   stActiveIdx = i;
   stSearchQuery = '';
   // Tab butonlarının stilini güncelle (tam render yerine)
   var stTabs = document.querySelectorAll('.st-mtab');
   stTabs.forEach(function(btn, idx) {
+    if (btn.dataset && btn.dataset.stIdx !== undefined) idx = parseInt(btn.dataset.stIdx);
     var isActive = idx === i;
     btn.classList.toggle('active', isActive);
     btn.style.background = isActive ? 'rgba(245,166,35,.1)' : 'transparent';
@@ -19633,6 +19791,134 @@ function runFallback(key, res, file){
 // Dosya en sona kadar yüklendikten sonra UI'yi başlat
 try{ if(window.__orimakStartUI) window.__orimakStartUI(); }catch(e){ console.error('UI başlatılamadı:', e); }
 </script>
+<script>
+// ═══════════════════════════════════════════════════════════
+// SAYFA ERİŞİM KİLİDİ + CANLI YETKİ TAZELEME
+// • Görmediği sayfaya hiçbir yoldan geçilemez (menü, ana sayfa,
+//   termin listesi, son açılan sayfa, bildirim...)
+// • Yönetici bir kişinin yetkisini değiştirince, o kişinin
+//   çıkış-giriş yapmasına gerek kalmadan kısa sürede uygulanır.
+// • Silinen kullanıcı otomatik çıkış yapar.
+// ═══════════════════════════════════════════════════════════
+(function(){
+'use strict';
+
+// ── 1) Sayfa geçiş kilidi ──
+function kilitKur(){
+  var o = window.switchTab;
+  if (typeof o !== 'function' || o._erisimKilidi) return;
+  var k = function(idx){
+    var sh = (typeof SHEETS !== 'undefined') ? SHEETS[idx] : null;
+    if (sh && typeof sayfaGorur === 'function' && !sayfaGorur(sh.name)) {
+      var ilk = SHEETS.findIndex(function(x){ return sayfaGorur(x.name); });
+      if (ilk >= 0 && ilk !== idx) return window.switchTab(ilk);
+      if (typeof showHomePage === 'function') showHomePage();
+      return;
+    }
+    return o.apply(this, arguments);
+  };
+  k._erisimKilidi = true;
+  Object.keys(o).forEach(function(key){ try { k[key] = o[key]; } catch(e){} });
+  window.switchTab = k;
+}
+kilitKur();
+// Sonradan sarmalayan modüller kilidin üstüne eklenir (kilit zincirde kalır);
+// yine de buildUI sonrası kilidin yerinde olduğundan emin ol.
+var _oBUk = window.buildUI;
+if (_oBUk) {
+  window.buildUI = function(){
+    var r = _oBUk.apply(this, arguments);
+    kilitKur();
+    if (typeof applySayfaKisitlama === 'function') { try { applySayfaKisitlama(window._currentSayfalar || []); } catch(e){} }
+    return r;
+  };
+}
+
+// ── 2) Bildirimler: görmediği sayfanın bildirimi gelmesin ──
+var _oNotif = window._isNotifAllowed;
+if (typeof _oNotif === 'function') {
+  window._isNotifAllowed = function(pageName){
+    if (pageName && typeof sayfaGorur === 'function' && typeof SHEETS !== 'undefined') {
+      var ad = pageName;
+      if (pageName === 'Sipariş') { var s1 = SHEETS.find(function(x){ return x.type === 'siparis'; }); if (s1) ad = s1.name; }
+      if (pageName === 'Teslim')  { var s2 = SHEETS.find(function(x){ return x.type === 'teslim'; });  if (s2) ad = s2.name; }
+      if (pageName === 'Fiyat Listesi' && typeof stAltGorur === 'function') { if (!stAltGorur('FiyatListesi.html')) return false; }
+      else if (SHEETS.some(function(x){ return x.name === ad; }) && !sayfaGorur(ad)) return false;
+    }
+    return _oNotif.apply(this, arguments);
+  };
+}
+
+// ── 3) Servis Takip: alt sayfaları kısıtlı kişi toplu dışa/içe aktaramasın ──
+['stExportJSON','stImportJSON'].forEach(function(fn){
+  var o = window[fn];
+  if (typeof o !== 'function') return;
+  window[fn] = function(){
+    if (typeof stAltKisitliMi === 'function' && stAltKisitliMi()) {
+      alert('Bu işlem için Servis Takip\'in tüm sayfalarına erişim gerekir.');
+      return;
+    }
+    return o.apply(this, arguments);
+  };
+});
+
+// ── 4) Canlı yetki tazeleme (Supabase'deki güncel rol / sayfa / yetki) ──
+var _tazeleniyor = false, _sonTazele = 0;
+async function yetkiTazele(){
+  if (_tazeleniyor || typeof sbGet !== 'function') return;
+  if (Date.now() - _sonTazele < 15000) return;   // en fazla 15 sn'de bir
+  _sonTazele = Date.now();
+  var ham = null; try { ham = localStorage.getItem(SESSION_KEY); } catch(e){}
+  if (!ham) return;
+  var u; try { u = JSON.parse(ham); } catch(e){ return; }
+  _tazeleniyor = true;
+  try {
+    var filtre = u.id != null ? ('select=*&id=eq.' + encodeURIComponent(u.id))
+                              : ('select=*&kullanici_adi=eq.' + encodeURIComponent(u.user || ''));
+    var rows = await sbGet(filtre);
+    if (!Array.isArray(rows)) return;
+    if (rows.length === 0) {
+      // Kullanıcı silinmiş → oturumu kapat
+      try { localStorage.removeItem(SESSION_KEY); } catch(e){}
+      alert('Hesabınız sistemden kaldırılmış. Oturum kapatılıyor.');
+      location.reload();
+      return;
+    }
+    var r = rows[0];
+    var yeni = {
+      user: r.kullanici_adi, role: r.rol, id: r.id,
+      sayfalar: r.sayfalar ? String(r.sayfalar).split(',').map(function(x){ return x.trim(); }).filter(Boolean) : [],
+      yetkiler: r.yetkiler || null
+    };
+    var eski = JSON.stringify({ r: u.role || u.rol, s: u.sayfalar || [], y: u.yetkiler || null });
+    var simdi = JSON.stringify({ r: yeni.role, s: yeni.sayfalar, y: yeni.yetkiler });
+    if (eski === simdi && u.id === yeni.id) return;
+    try { localStorage.setItem(SESSION_KEY, JSON.stringify(yeni)); } catch(e){}
+    var rolDegisti = (u.role || u.rol) !== yeni.role;
+    if (rolDegisti) { location.reload(); return; } // rol değiştiyse tüm butonlar baştan kurulsun
+    window._currentSayfalar = yeni.sayfalar;
+    window._currentYetkiler = (typeof parseYetkiler === 'function') ? parseYetkiler(yeni.yetkiler) : {};
+    if (typeof reapplySession === 'function') { try { reapplySession(); } catch(e){} }
+    if (typeof applySayfaKisitlama === 'function') applySayfaKisitlama(yeni.sayfalar);
+    // Açık paneller yeni izinlerle yeniden çizilsin
+    var stp = document.getElementById('stPanel');
+    if (stp && stp.style.display !== 'none' && typeof window.stSwitchTo === 'function') { try { window.stSwitchTo(); } catch(e){} }
+    if (typeof activeSheet === 'number' && typeof switchTab === 'function') {
+      var hp = document.getElementById('homePanel');
+      if (!(hp && hp.classList.contains('active')) && SHEETS[activeSheet] && sayfaGorur(SHEETS[activeSheet].name)) { try { switchTab(activeSheet); } catch(e){} }
+    }
+  } catch(e) {
+    // Bağlantı yoksa mevcut yetkilerle devam (bir sonraki denemede tazelenir)
+  } finally { _tazeleniyor = false; }
+}
+window.orimakYetkiTazele = yetkiTazele;
+setTimeout(yetkiTazele, 2500);
+setInterval(yetkiTazele, 2 * 60 * 1000);
+document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') yetkiTazele(); });
+window.addEventListener('focus', function(){ yetkiTazele(); });
+})();
+</script>
+
 <style>
 #xiOverlay{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:21000;display:none;align-items:center;justify-content:center;padding:16px;}
 #xiOverlay.open{display:flex;}
