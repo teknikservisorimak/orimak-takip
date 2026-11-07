@@ -2961,11 +2961,17 @@ function ensureSiparisSids() {
   const si = getSiparisIdx();
   if (si < 0 || !SHEETS[si] || !Array.isArray(SHEETS[si].rows)) return false;
   let changed = false;
+  const gorulen = {};
   SHEETS[si].rows.forEach(function (r) {
-    if (r && !r._sid) {
-      r._sid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    if (!r) return;
+    // Kimliği yoksa ya da AYNI kimlik başka bir satırda zaten varsa (kopyalanmış satır)
+    // yeni benzersiz kimlik ver — teslim kaydı yalnızca İLK (asıl) satıra bağlı kalır,
+    // aynı kimliği taşıyan ikinci satır yanlışlıkla "teslim edildi" görünmez.
+    if (!r._sid || gorulen[r._sid]) {
+      r._sid = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
       changed = true;
     }
+    gorulen[r._sid] = true;
   });
   return changed;
 }
@@ -4137,7 +4143,9 @@ function terminKontrol() {
       if (!onayli) return;
 
       // localStorage: aynı satır aynı gün tekrar gönderilmesin
-      const rowKey = r.urunKodu || r['2'] || r['3'] || JSON.stringify(r).slice(0,40);
+      // Satır anahtarı: önce benzersiz kimlik (_sid) — aynı ürün kodlu farklı siparişler
+      // birbirinin termin mailini engellemesin; yoksa kod+ad
+      const rowKey = r._sid || ((r.urunKodu || r['2'] || '') + '|' + (r.urunAdi || r['3'] || '')) || JSON.stringify(r).slice(0,40);
       const terminKey = `orimak_termin_ls_${si}_${rowKey}_${terminStr}`;
       if (localStorage.getItem(terminKey) === bugunStr) return;
 
@@ -4310,7 +4318,17 @@ function autoFillSiparisAdi(kodVal) {
   // Sadece ad alanı boşsa otomatik doldur (kullanıcı kendi yazdıysa dokunma)
   if (adEl.value.trim()) return;
   const siparisRows = getSiparisRows();
-  const eslesme = siparisRows.find(s => s.urunKodu && s.urunKodu.toLowerCase() === (kodVal||'').trim().toLowerCase());
+  const _k = (kodVal||'').trim().toLowerCase();
+  const _hepsi = siparisRows.filter(s => s.urunKodu && s.urunKodu.toLowerCase() === _k && s.urunAdi);
+  const _adlar = Array.from(new Set(_hepsi.map(s => s.urunAdi.trim())));
+  if (_adlar.length > 1) {
+    // Aynı kodla farklı isimde ürünler var → yanlış ad yazmamak için otomatik doldurma
+    adEl.placeholder = 'Bu kodla ' + _adlar.length + ' farklı ürün var — adı elle yazın';
+    adEl.style.borderColor = '#f5a623';
+    setTimeout(function(){ adEl.style.borderColor = '#3a3a3a'; }, 2500);
+    return;
+  }
+  const eslesme = _hepsi[0];
   if (eslesme && eslesme.urunAdi) {
     adEl.value = eslesme.urunAdi;
     adEl.style.borderColor = '#92d050';
