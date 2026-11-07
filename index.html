@@ -13559,6 +13559,25 @@ function stFaturaFirmaMap(){
   }
   return map;
 }
+// Fatura no karşılaştırması için normalize (boşluk/büyük-küçük harf farkı önemsiz)
+function stFnoNorm(v){ return String(v||'').toLocaleUpperCase('tr-TR').replace(/\s+/g,''); }
+// Fatura No → Firma (Faturalar öncelikli, yoksa Servis Plan); anahtarlar normalize
+function stFirmaBul(fno, _map){
+  var k = stFnoNorm(fno); if (!k) return '';
+  var m = _map || stFaturaFirmaMap();
+  if (!m.__norm) { var n = {}; Object.keys(m).forEach(function(x){ if (x !== '__norm') n[stFnoNorm(x)] = m[x]; }); m.__norm = n; }
+  return m.__norm[k] || '';
+}
+window.stFirmaBul = stFirmaBul;
+// Fatura Detayları yeni kayıt: Fatura No yazılınca firma adını göster
+window.stDetayFirmaGoster = function(v){
+  var el = document.getElementById('stF_firmaGoster'); if (!el) return;
+  var f = stFirmaBul(v);
+  el.value = f || '';
+  el.placeholder = String(v||'').trim() ? 'Bu fatura no Faturalar\'da bulunamadı' : 'Fatura No yazınca gelir';
+  el.style.borderColor = f ? 'rgba(146,208,80,.55)' : 'rgba(245,166,35,.3)';
+  el.style.color = f ? '#92d050' : 'var(--orange)';
+};
 // Eşleşme yoksa: Servis Plan'dan firma aktivite dökümü (adet / onaylı / faturalı)
 function stFirmaAktivite(ay){
   var sp = ST_DATA['Servis Plan.html'] || {headers:[], data:[]};
@@ -14488,19 +14507,26 @@ function stRenderContent() {
 
   // Arama filtresi
   var q = stSearchQuery.toLowerCase();
+  // Fatura Detayları: tabloda 'Firma' sütunu (kayda yazılmaz, Fatura No ile Faturalar'dan okunur)
+  var _fdFnoIdx = isFaturaDetay ? stFnoColIdx(headers) : -1;
+  var _fdFirmaGoster = isFaturaDetay && _fdFnoIdx >= 0 && stFirmaColIdx(headers) < 0;
+  var _fdFirmaMap = _fdFirmaGoster ? stFaturaFirmaMap() : null;
+  var _fdFirma = function(r){ return _fdFirmaGoster ? stFirmaBul(r[_fdFnoIdx], _fdFirmaMap) : ''; };
   var filtered = q ? sortedRows.filter(function(r) {
-    return r.some(function(c) { return String(c||'').toLowerCase().includes(q); });
+    return r.some(function(c) { return String(c||'').toLowerCase().includes(q); }) ||
+           (_fdFirmaGoster && _fdFirma(r).toLowerCase().includes(q));
   }) : sortedRows;
 
   var thStyle = 'background:#0e0e0e;color:#555;font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:700;letter-spacing:1.5px;padding:8px 10px;text-align:left;white-space:nowrap;position:sticky;top:0;z-index:1;';
-  var faturaDetayWidths = {'Fatura No':'4%','Kategori':'8%','Barkod':'4%','Ürün Adı':'17%','Miktar':'4%','Birim':'3%','Birim Fiyat':'6%','Para Birimi':'3%','Ara Toplam':'5%','PB Kuru':'6%','Ara Toplam (TL)':'9%','KDV %':'3%','KDV (TL)':'8%','Genel Toplam (TL)':'9%','Ay':'4%'};
+  var faturaDetayWidths = {'Fatura No':'4%','Firma':'7%','Kategori':'7%','Barkod':'4%','Ürün Adı':'13%','Miktar':'4%','Birim':'3%','Birim Fiyat':'6%','Para Birimi':'3%','Ara Toplam':'5%','PB Kuru':'6%','Ara Toplam (TL)':'8%','KDV %':'3%','KDV (TL)':'8%','Genel Toplam (TL)':'8%','Ay':'4%'};
   var thStyleFD = 'background:#0e0e0e;color:#777;font-family:Barlow Condensed,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.3px;padding:6px 3px;text-align:center;white-space:normal;word-break:break-word;position:sticky;top:0;z-index:1;overflow:hidden;';
   var th = '<th style="'+thStyle+'width:20px;padding:8px 4px;">#</th>'+
-    headers.map(function(h){
+    headers.map(function(h, hi){
       if (isFaturaDetay) {
         var w = faturaDetayWidths[h] || 'auto';
         var al = (h === 'Ürün Adı') ? 'text-align:left;' : '';
-        return '<th style="'+thStyleFD+'width:'+w+';'+al+'">'+stEsc(h)+'</th>';
+        var _ekTh = (_fdFirmaGoster && hi === _fdFnoIdx) ? '<th style="'+thStyleFD+'width:'+faturaDetayWidths['Firma']+';text-align:left;color:#92d050;" title="Fatura No ile Faturalar sayfasından otomatik">Firma</th>' : '';
+        return '<th style="'+thStyleFD+'width:'+w+';'+al+'">'+stEsc(h)+'</th>' + _ekTh;
       }
       if (fname === 'Servis Plan.html') {
         if (h === 'ONAY') {
@@ -14612,10 +14638,16 @@ function stRenderContent() {
         '<input id="stF_'+ci+'" type="text" placeholder="'+_next+' (otomatik)" title="Boş bırakırsanız otomatik '+_next+' olarak atanacak" style="width:100%;background:#111;border:1px solid rgba(245,166,35,.3);border-radius:5px;padding:7px 10px;color:var(--orange);font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;font-weight:600;" />'+
       '</div>';
     }
+    var _fdFnoForm = isFaturaDetay && ci === stFnoColIdx(headers) && stFirmaColIdx(headers) < 0;
+    var _firmaKutu = _fdFnoForm ?
+      '<div style="flex:1.4;min-width:170px;">'+
+        '<div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#92d050;font-family:Barlow Condensed,sans-serif;margin-bottom:4px;">FİRMA ⟳</div>'+
+        '<input id="stF_firmaGoster" type="text" readonly tabindex="-1" placeholder="Fatura No yazınca gelir" style="width:100%;background:#111;border:1px solid rgba(245,166,35,.3);border-radius:5px;padding:7px 10px;color:var(--orange);font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;font-weight:600;"/>'+
+      '</div>' : '';
     return '<div style="flex:1;min-width:120px;">'+
       '<div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#555;font-family:Barlow Condensed,sans-serif;margin-bottom:4px;">'+stEsc(h)+'</div>'+
-      '<input id="stF_'+ci+'" type="text" placeholder="'+stEsc(h)+'" oninput="'+(isFaturaDetay?'stUpdateDetayCalc();':'')+((fname==='Faturalar.html'&&h==='Fatura Tarihi')?'stAutoFillAyFromTarih();':'')+'" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:7px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;" />'+
-    '</div>';
+      '<input id="stF_'+ci+'" type="text" placeholder="'+stEsc(h)+'" oninput="'+(_fdFnoForm?'stDetayFirmaGoster(this.value);':'')+(isFaturaDetay?'stUpdateDetayCalc();':'')+((fname==='Faturalar.html'&&h==='Fatura Tarihi')?'stAutoFillAyFromTarih();':'')+'" style="width:100%;background:#1e1e1e;border:1px solid #2e2e2e;border-radius:5px;padding:7px 10px;color:#eee;font-size:12px;font-family:Barlow,sans-serif;outline:none;box-sizing:border-box;" />'+
+    '</div>' + _firmaKutu;
   }).join('');
 
   var formBlock = '<div style="background:#161616;border:1px solid #222;border-top:2px solid var(--orange);border-radius:10px;padding:16px;margin-bottom:18px;">'+
@@ -14682,9 +14714,14 @@ function stRenderContent() {
       }
 
       var tdPad = isFaturaDetay ? '4px 3px' : '7px 10px';
+      var _ekTd = '';
+      if (_fdFirmaGoster && ci === _fdFnoIdx) {
+        var _fm = _fdFirma(r);
+        _ekTd = '<td title="'+stEsc(_fm)+'" style="padding:4px 5px;border-bottom:1px solid '+rowBC+';color:'+(_fm?'#9fd870':'#555')+';font-size:10.5px;font-weight:600;white-space:normal;word-break:break-word;line-height:1.3;">'+(_fm ? stEsc(_fm) : '—')+'</td>';
+      }
       var tdFs = isFaturaDetay ? '10.5px' : '12px';
       var tdMxw = isFaturaDetay ? (h === 'Ürün Adı' ? '999px' : '80px') : '200px';
-      return '<td contenteditable="true" oninput="stEdit('+actualIdx+','+ci+',this)" style="padding:'+tdPad+';border-bottom:1px solid '+rowBC+';color:'+textColor+';font-size:'+tdFs+';max-width:'+tdMxw+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;outline:none;cursor:text;" title="'+stEsc(val)+'">'+stEsc(val)+'</td>';
+      return '<td contenteditable="true" oninput="stEdit('+actualIdx+','+ci+',this)" style="padding:'+tdPad+';border-bottom:1px solid '+rowBC+';color:'+textColor+';font-size:'+tdFs+';max-width:'+tdMxw+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;outline:none;cursor:text;" title="'+stEsc(val)+'">'+stEsc(val)+'</td>' + _ekTd;
     }).join('');
 
     return '<tr data-strow="'+actualIdx+'" style="background:'+rowBg+';">'+
@@ -14920,6 +14957,7 @@ window.stClear = function() {
     var el = document.getElementById('stF_'+ci);
     if (el) el.value = '';
   });
+  if (window.stDetayFirmaGoster) window.stDetayFirmaGoster('');
 };
 
 // Faturalar: Fatura Tarihi yazılırken Ay alanını otomatik doldur
@@ -15059,6 +15097,8 @@ window.stParaBirimiChange = function(ci) {
   }
 };
 
+// Satır içi (oninput/onchange) çağrılar için genel erişim — önceden tanımsız olduğundan canlı hesap önizlemesi çalışmıyordu
+window.stUpdateDetayCalc = function(){ return stUpdateDetayCalc(); };
 function stUpdateDetayCalc() {
   var infoEl = document.getElementById('stDetayCalcInfo');
   var headers = (ST_DATA['FaturaDetaylari.html'] || {}).headers || [];
