@@ -12614,7 +12614,7 @@ function snCreatePanel() {
   if (!c) return;
   var p = document.createElement('div');
   p.id = 'snPanel';
-  p.style.cssText = 'display:none;padding:24px;max-width:1200px;margin:0 auto;';
+  p.style.cssText = 'display:none;padding:24px;max-width:none;width:100%;box-sizing:border-box;margin:0;';
   c.appendChild(p);
   snRender();
 }
@@ -12681,16 +12681,17 @@ function snRenderContent() {
   var body = sorted.map(function(obj, dispIdx){
     var r = obj.r, origIdx = obj.i;
     var tdStyle = 'padding:8px 12px;border-bottom:1px solid #1a1a1a;color:#ccc;font-size:12px;';
-    var seriTd = '<td style="'+tdStyle+'font-weight:700;color:#00c8c8;white-space:nowrap;">'+snEsc(r.seriNo||'—')+'</td>';
+    var seriTd = '<td style="'+tdStyle+'font-weight:700;color:#00c8c8;white-space:nowrap;vertical-align:top;">'+snEsc(r.seriNo||'—')+'</td>';
     var restTds = cols.filter(function(c){return c[0]!=='seriNo';}).map(function(c){
-      var mw = c[0]==='ozellikler' ? 320 : 180;
-      var txt = String(r[c[0]]||'').replace(/\s*\n\s*/g,' · ');
-      return '<td style="'+tdStyle+'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:'+mw+'px;" title="'+snEsc(r[c[0]]||'')+'">'+snEsc(txt)+'</td>';
+      // Tüm metin görünsün: kesme/kaydırma yok; Özellikler ve Açıklama satır satır
+      var uzun = (c[0]==='ozellikler' || c[0]==='aciklama');
+      var st = uzun ? 'white-space:pre-line;word-break:break-word;min-width:260px;line-height:1.5;' : 'white-space:normal;word-break:break-word;';
+      return '<td style="'+tdStyle+st+'vertical-align:top;">'+snEsc(r[c[0]]||'')+'</td>';
     }).join('');
     return '<tr onmouseover="this.style.background=\'rgba(0,200,200,.04)\'" onmouseout="this.style.background=\'\'">'+
-      '<td style="'+tdStyle+'color:#444;">'+(dispIdx+1)+'</td>'+
+      '<td style="'+tdStyle+'color:#444;vertical-align:top;">'+(dispIdx+1)+'</td>'+
       seriTd+restTds+
-      '<td style="'+tdStyle+'text-align:center;white-space:nowrap;">'+
+      '<td style="'+tdStyle+'text-align:center;white-space:nowrap;vertical-align:top;">'+
         '<button onclick="snEditRow('+origIdx+')" style="background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.3);color:#e0a020;border-radius:5px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;margin-right:4px;">✏️ Düzenle</button>'+
         '<button onclick="snDel('+origIdx+')" style="background:rgba(200,0,0,.12);border:1px solid rgba(200,0,0,.3);color:#ff6666;border-radius:5px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;">✕ Sil</button>'+
       '</td></tr>';
@@ -12739,8 +12740,8 @@ function snRenderContent() {
       '<span style="font-family:Barlow Condensed,sans-serif;font-size:11px;color:#555;">Sıralama: Seri No başlığına tıkla</span>'+
     '</div>'+
     // ── Tablo (geniş, min-width arttırıldı) ──
-    '<div style="overflow-x:auto;margin-bottom:20px;border-radius:8px;border:1px solid #1e1e1e;max-height:460px;overflow-y:auto;min-width:0;">'+
-      '<table style="width:100%;min-width:700px;border-collapse:collapse;font-size:12px;"><thead><tr>'+th+'</tr></thead><tbody id="snTbody">'+body+'</tbody></table>'+
+    '<div id="snTableWrap" style="margin-bottom:20px;border-radius:8px;border:1px solid #1e1e1e;min-width:0;">'+
+      '<table style="width:100%;min-width:0;table-layout:auto;border-collapse:collapse;font-size:12px;"><thead><tr>'+th+'</tr></thead><tbody id="snTbody">'+body+'</tbody></table>'+
     '</div>'+
     // ── Yeni kayıt formu ──
     '<div style="background:#161616;border:1px solid #222;border-top:2px solid #00c8c8;border-radius:10px;padding:18px 20px;">'+
@@ -20496,6 +20497,7 @@ document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && docu
   #snPanel table td:nth-child(2){font-size:16px !important;}
   #snPanel table td[data-label="İŞLEMLER"],#snPanel table td[data-label="Özellikler"],#snPanel table td[data-label="Açıklama"],#snPanel table td[colspan]{grid-column:1 / -1;}
   #snPanel table td[data-label="İŞLEMLER"]{flex-direction:row;justify-content:flex-end;gap:8px;}
+  #snPanel table td[data-label="Özellikler"],#snPanel table td[data-label="Açıklama"]{white-space:pre-line !important;min-width:0 !important;}
   #snPanel table td[data-label="İŞLEMLER"]::before{display:none;}
   #snPanel table td[data-label="İŞLEMLER"] button{padding:9px 14px !important;font-size:13px !important;}
   #snPanel #snSearch{width:100% !important;}
@@ -20512,7 +20514,7 @@ document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && docu
   .yp-table-wrap{overflow-x:auto !important;-webkit-overflow-scrolling:touch;}
   .yp-table-wrap table{min-width:720px !important;}
   .yp-table-wrap thead th{position:static !important;}
-  #snPanel div[style*="max-height:460px"]{max-height:none !important;overflow:visible !important;border:none !important;}
+  #snTableWrap{border:none !important;}
   #stPanel table{min-width:0;}
   #stPanel div[style*="overflow-x:auto"],#stPanel div[style*="overflow:auto"]{-webkit-overflow-scrolling:touch;}
 
