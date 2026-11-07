@@ -4699,7 +4699,10 @@ function openTeslimEkle(editIdx = -1) {
   // Düzenlenen kayıt bir siparişe mi bağlı, yoksa siparişsiz/manuel mi?
   const _isManualRecord = editIdx >= 0 && !r._siparisId && (r.siparisIdx === undefined || r.siparisIdx === null);
   const _placeholderSelected = editIdx < 0; // yeni kayıtta seçim zorunlu
-  const options = siparisRows.map((s, si) => {
+  const _teslimRowsAll = rows;
+  let _gizliSayisi = 0;
+  const _optBekleyen = [], _optHepsi = [];
+  siparisRows.forEach((s, si) => {
     const sid = s._sid || String(si); // _sid yoksa geriye dönük index
     // Ön-seçim YALNIZCA kalıcı kimlik (_siparisId) veya eski index ile yapılır;
     // ürün koduyla otomatik seçim YOK → yanlış siparişe bağlanma riski kalkar
@@ -4708,8 +4711,18 @@ function openTeslimEkle(editIdx = -1) {
       : (r.siparisIdx !== undefined && r.siparisIdx !== null)
         ? (r.siparisIdx === si)
         : false;
-    return `<option value="${sid}" ${isSelected?'selected':''}>Satır ${si+1}: ${s.urunKodu} — ${s.urunAdi}</option>`;
-  }).join('');
+    // Zaten teslim alınmış (teslim kaydı var) ya da geliş onayı verilmiş siparişler
+    // yeni teslim kaydında listelenmez. Düzenlenen kaydın kendi siparişi her zaman listede kalır.
+    const _bagliTeslim = findTeslimForSiparis(_teslimRowsAll, s, si);
+    const _tamam = !isSelected && (!!_bagliTeslim || s.gelisOnay === 'Onaylandı');
+    const _ek = _tamam ? (_bagliTeslim ? '  ✓ teslim alındı' : '  ✓ geliş onaylı') : '';
+    const opt = `<option value="${sid}" ${isSelected?'selected':''}>Satır ${si+1}: ${s.urunKodu} — ${s.urunAdi}${_ek}</option>`;
+    _optHepsi.push(opt);
+    if (_tamam) _gizliSayisi++; else _optBekleyen.push(opt);
+  });
+  const options = _optBekleyen.join('');
+  window._tkOptBekleyen = _optBekleyen.join('');
+  window._tkOptHepsi = _optHepsi.join('');
 
   const overlay = document.createElement('div');
   overlay.id = 'teslimModal';
@@ -4728,6 +4741,10 @@ function openTeslimEkle(editIdx = -1) {
             ${options}
             <option value="__manual__" ${_isManualRecord?'selected':''}>✎ Siparişsiz / manuel giriş</option>
           </select>
+          ${_gizliSayisi ? `<label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:#777;font-family:'Barlow',sans-serif;cursor:pointer;">
+            <input type="checkbox" id="tk_hepsi" onchange="tkHepsiniGoster(this.checked)" style="accent-color:#92d050;">
+            Teslim alınmış / geliş onaylı ${_gizliSayisi} siparişi de göster
+          </label>` : ''}
           <div id="tk_adi_preview" style="display:none;margin-top:6px;padding:6px 10px;background:rgba(146,208,80,.1);border:1px solid rgba(146,208,80,.3);border-radius:5px;font-size:12px;color:#92d050;font-family:'Barlow',sans-serif;"></div>
         </div>
         <div id="tk_manuel_wrap" style="display:none;flex-direction:column;gap:12px;">
@@ -4781,6 +4798,22 @@ function autoFillTeslimAdi() {
   }
 }
 window.autoFillTeslimAdi = autoFillTeslimAdi;
+
+// Teslim alınmış siparişleri listede göster/gizle (seçili değer korunur)
+function tkHepsiniGoster(hepsi) {
+  const sel = document.getElementById('tk_kod');
+  if (!sel) return;
+  const secili = sel.value;
+  const manuelSecili = secili === '__manual__';
+  sel.innerHTML = '<option value="" disabled>— Sipariş seçin —</option>' +
+    (hepsi ? (window._tkOptHepsi || '') : (window._tkOptBekleyen || '')) +
+    '<option value="__manual__">✎ Siparişsiz / manuel giriş</option>';
+  sel.querySelectorAll('option').forEach(o => { o.selected = false; });
+  const hedef = Array.prototype.find.call(sel.options, o => o.value === secili);
+  if (hedef && (secili !== '' || manuelSecili)) hedef.selected = true; else sel.options[0].selected = true;
+  autoFillTeslimAdi();
+}
+window.tkHepsiniGoster = tkHepsiniGoster;
 
 async function saveTeslim(editIdx) {
   if (getTeslimIdx() < 0) { alert('Teslim sayfası bulunamadı!'); return; }
@@ -4884,6 +4917,12 @@ async function saveTeslim(editIdx) {
   if (!_isYeniTeslim) rows[hedefIdx] = yeni;
   else rows.push(yeni);
   SHEETS[si].rows = rows;
+  // Teslim alınan siparişin Sipariş Formu'ndaki GELİŞ ONAYI otomatik "Onaylandı" olur
+  // (taze sunucu verisindeki satır; aynı kayıtla birlikte buluta yazılır)
+  if (siparis && siparis.gelisOnay !== 'Onaylandı') {
+    siparis.gelisOnay = 'Onaylandı';
+    siparis.gelisOnayKisi = (window._currentUser || '') + ' · ' + new Date().toLocaleDateString('tr-TR') + ' (teslim kaydı)';
+  }
   await fbSaveAll(); /* kayıt her zaman denenir — başarısızlıkta uyarır ve bekletir */
   // ── SATIR BELİRTECİ ──
   const _highlightTeslimIdx = _isYeniTeslim ? rows.length - 1 : hedefIdx;
