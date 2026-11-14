@@ -1705,6 +1705,7 @@ async function doLogin() {
       document.getElementById('loginOverlay').classList.add('hidden');
       err.classList.remove('show');
       onLoggedIn(match);
+      try { if (typeof window.asGirisSonrasi === 'function') window.asGirisSonrasi(match.user, p); } catch(e){}
     } else {
       err.classList.add('show');
       document.getElementById('loginPass').value = '';
@@ -13190,6 +13191,8 @@ function stRender() {
       'letter-spacing:1.5px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;">'+
       label+' <span style="font-size:10px;color:#666;background:#1e1e1e;padding:1px 6px;border-radius:8px;">'+cnt+'</span></button>';
   }).join('');
+  // Asistan › Notlar sekmesi (yalnızca izinli kullanıcılarda görünür)
+  if (typeof window.asNotSekmesi === 'function') { try { tabs += window.asNotSekmesi(); } catch(e){} }
 
   p.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px;">'+
     '<div style="display:flex;align-items:center;gap:14px;">'+
@@ -14279,6 +14282,8 @@ window.stRenderContent = stRenderContent; // inline onblur/onclick handlers glob
 function stRenderContent() {
   var box = document.getElementById('stContent');
   if (!box) return;
+  // Asistan › Notlar sekmesi açıkken içerik alanını asistan modülü çizer
+  if (window._asNotlarAcik && typeof window.asIcerikCiz === 'function') { window.asIcerikCiz(box); return; }
   var pg = ST_PAGES[stActiveIdx];
   var fname = pg[0], label = pg[1];
 
@@ -14941,6 +14946,8 @@ window.stKatChange = function(rowIdx, colIdx, sel) {
 
 window.stSwitchPage = function(i) {
   if (typeof window.stAltGorur === 'function' && ST_PAGES[i] && !window.stAltGorur(ST_PAGES[i][0])) return;
+  window._asNotlarAcik = false;
+  if (typeof window.asSekmeStil === 'function') { try { window.asSekmeStil(); } catch(e){} }
   stActiveIdx = i;
   stSearchQuery = '';
   // Tab butonlarının stilini güncelle (tam render yerine)
@@ -21210,6 +21217,536 @@ if (yuk) yuk.addEventListener('click', function(){ window.scrollTo({ top:0, beha
   var o = window[fn]; if (typeof o !== 'function') return;
   window[fn] = function(){ var r = o.apply(this, arguments); if (mobil()) { document.body.classList.remove('mob-arac-acik','mob-asagi'); } return r; };
 });
+})();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     ASİSTAN — Notlar + Telefon Bildirimi (Servis Takip › Notlar)
+     Sunucu parçası: supabase/functions/asistan  ·  Kurulum: supabase/KURULUM.md
+     Mevcut veriye (Firestore / malzeme) DOKUNMAZ; tamamen ayrı modüldür.
+     ═══════════════════════════════════════════════════════════════ -->
+<style>
+@keyframes asPop{0%{transform:scale(.86) translateY(14px);opacity:0}60%{transform:scale(1.02)}100%{transform:none;opacity:1}}
+@keyframes asKay{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+@keyframes asNabiz{0%{box-shadow:0 6px 22px rgba(245,166,35,.45),0 0 0 0 rgba(245,166,35,.55)}70%{box-shadow:0 6px 22px rgba(245,166,35,.45),0 0 0 16px rgba(245,166,35,0)}100%{box-shadow:0 6px 22px rgba(245,166,35,.45),0 0 0 0 rgba(245,166,35,0)}}
+@keyframes asTik{0%{transform:scale(.4)}60%{transform:scale(1.25)}100%{transform:scale(1)}}
+#asFab{position:fixed;right:22px;bottom:22px;z-index:8650;width:58px;height:58px;border-radius:50%;border:none;cursor:pointer;display:none;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#F5A623,#ff7b00);color:#111;font-size:26px;animation:asNabiz 2.6s infinite;transition:transform .18s;-webkit-tap-highlight-color:transparent;}
+#asFab:hover{transform:scale(1.1) rotate(-8deg);}
+#asFab:active{transform:scale(.92);}
+#asFab .as-rozet{position:absolute;top:-3px;right:-3px;min-width:20px;height:20px;border-radius:10px;background:#e53935;color:#fff;font:700 11px/20px Barlow,sans-serif;padding:0 5px;display:none;}
+@media (max-width:900px){#asFab{right:14px;bottom:calc(134px + env(safe-area-inset-bottom));width:54px;height:54px;}}
+@media (max-width:700px){.as-ortu{align-items:flex-start;padding-top:calc(12px + env(safe-area-inset-top));}.as-kutu{max-height:calc(100dvh - 24px);}}
+.as-ortu{position:fixed;inset:0;z-index:9600;background:rgba(0,0,0,.72);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);display:flex;align-items:center;justify-content:center;padding:14px;}
+.as-kutu{width:min(560px,100%);max-height:92vh;max-height:92dvh;overflow:auto;background:#171717;border:1px solid #333;border-top:3px solid var(--orange,#F5A623);border-radius:14px;padding:18px;animation:asPop .28s cubic-bezier(.2,.9,.3,1.2);color:#eee;font-family:Barlow,system-ui,sans-serif;box-shadow:0 24px 80px rgba(0,0,0,.7);}
+.as-kutu.genis{width:min(820px,100%);}
+.as-bas{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+.as-bas b{font-family:'Barlow Condensed',sans-serif;font-size:20px;letter-spacing:2px;color:var(--orange,#F5A623);}
+.as-x{background:#222;border:1px solid #3a3a3a;color:#aaa;width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:15px;}
+.as-yaz{width:100%;box-sizing:border-box;min-height:84px;max-height:40vh;resize:vertical;background:#0f0f0f;border:1px solid #3a3a3a;border-radius:10px;color:#fff;font:16px/1.45 Barlow,system-ui,sans-serif;padding:12px;outline:none;transition:border-color .15s,box-shadow .15s;}
+.as-yaz:focus{border-color:var(--orange,#F5A623);box-shadow:0 0 0 3px rgba(245,166,35,.18);}
+.as-satir{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;}
+.as-btn{background:#222;border:1px solid #3a3a3a;color:#ddd;border-radius:8px;padding:9px 14px;font:700 13px 'Barlow Condensed',sans-serif;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;}
+.as-btn:hover{border-color:var(--orange,#F5A623);color:var(--orange,#F5A623);}
+.as-btn.ana{background:linear-gradient(135deg,#F5A623,#ff8a00);border-color:#F5A623;color:#111;font-size:15px;padding:10px 22px;}
+.as-btn.ana:hover{color:#111;transform:translateY(-1px);box-shadow:0 6px 18px rgba(245,166,35,.4);}
+.as-btn.acik{background:rgba(146,208,80,.12);border-color:rgba(146,208,80,.5);color:#92D050;}
+.as-btn[disabled]{opacity:.5;pointer-events:none;}
+.as-cip{background:#1d1d1d;border:1px solid #3a3a3a;color:#aaa;border-radius:16px;padding:6px 12px;font:600 13px Barlow,sans-serif;cursor:pointer;transition:all .15s;user-select:none;}
+.as-cip.sec{background:rgba(245,166,35,.16);border-color:var(--orange,#F5A623);color:var(--orange,#F5A623);transform:scale(1.04);}
+.as-etiket{font:700 11px 'Barlow Condensed',sans-serif;letter-spacing:1.5px;color:#777;text-transform:uppercase;}
+.as-ipucu{font-size:12px;color:#777;margin-top:8px;line-height:1.5;}
+.as-ipucu code,.as-adim code{background:#0f0f0f;border:1px solid #2c2c2c;border-radius:4px;padding:1px 5px;color:#F5A623;font-size:12px;}
+.as-tarih{background:#0f0f0f;border:1px solid #3a3a3a;border-radius:8px;color:#ddd;padding:8px 10px;font:14px Barlow,sans-serif;color-scheme:dark;}
+#asKok{color:#eee;font-family:Barlow,system-ui,sans-serif;max-width:900px;}
+.as-ust{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+.as-kart{display:flex;gap:12px;align-items:flex-start;background:#161616;border:1px solid #2a2a2a;border-left:3px solid var(--orange,#F5A623);border-radius:10px;padding:12px 14px;margin-bottom:8px;animation:asKay .25s both;transition:border-color .15s,background .15s;}
+.as-kart:hover{background:#1b1b1b;border-color:#3a3a3a;border-left-color:var(--orange,#F5A623);}
+.as-kart.bitti{opacity:.55;border-left-color:#92D050;}
+.as-kart.bitti .as-metin{text-decoration:line-through;}
+.as-kart.vurgu{box-shadow:0 0 0 2px var(--orange,#F5A623);}
+.as-daire{flex:0 0 26px;width:26px;height:26px;border-radius:50%;border:2px solid #555;background:transparent;cursor:pointer;color:#111;font-size:14px;line-height:22px;padding:0;margin-top:1px;transition:all .15s;}
+.as-daire:hover{border-color:#92D050;}
+.as-kart.bitti .as-daire{background:#92D050;border-color:#92D050;animation:asTik .3s;}
+.as-metin{white-space:pre-wrap;word-break:break-word;font-size:15px;line-height:1.45;color:#f2f2f2;}
+.as-alt{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;align-items:center;}
+.as-mini{font:600 11px Barlow,sans-serif;color:#888;background:#101010;border:1px solid #262626;border-radius:10px;padding:2px 8px;}
+.as-mini.saat{color:#F5A623;border-color:rgba(245,166,35,.35);}
+.as-mini.gecti{color:#ff6b6b;border-color:rgba(255,107,107,.4);}
+.as-mini.kisi{color:#5aa0ff;border-color:rgba(90,160,255,.35);}
+.as-sil{margin-left:auto;background:none;border:none;color:#555;cursor:pointer;font-size:15px;padding:2px 6px;border-radius:6px;}
+.as-sil:hover{color:#ff6b6b;background:rgba(255,107,107,.1);}
+.as-bos{text-align:center;color:#666;padding:34px 10px;font-size:14px;}
+.as-uyari{background:rgba(245,166,35,.08);border:1px dashed rgba(245,166,35,.45);border-radius:10px;padding:14px;color:#ddd;font-size:14px;line-height:1.55;}
+.as-adim{counter-reset:a;list-style:none;padding:0;margin:10px 0 0;}
+.as-adim li{counter-increment:a;position:relative;padding:7px 0 7px 36px;font-size:14px;line-height:1.5;color:#ddd;border-bottom:1px solid #222;}
+.as-adim li:before{content:counter(a);position:absolute;left:0;top:7px;width:24px;height:24px;border-radius:50%;background:var(--orange,#F5A623);color:#111;font:700 13px/24px Barlow,sans-serif;text-align:center;}
+.as-link{display:block;background:#0f0f0f;border:1px solid #333;border-radius:8px;padding:10px;font:12px/1.4 ui-monospace,Menlo,monospace;color:#9fd;word-break:break-all;user-select:all;-webkit-user-select:all;}
+#asToast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translate(-50%,20px);z-index:9900;background:#111;border:1px solid var(--orange,#F5A623);color:#fff;border-radius:22px;padding:10px 20px;font:600 14px Barlow,sans-serif;opacity:0;pointer-events:none;transition:all .25s;max-width:90vw;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.6);}
+#asToast.on{opacity:1;transform:translate(-50%,0);}
+#asBant{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(74px + env(safe-area-inset-bottom));z-index:8640;background:#171717;border:1px solid var(--orange,#F5A623);border-radius:12px;padding:10px 12px;display:flex;align-items:center;gap:10px;color:#eee;font:14px Barlow,sans-serif;box-shadow:0 12px 34px rgba(0,0,0,.6);animation:asPop .3s;max-width:94vw;}
+</style>
+<button id="asFab" title="Hızlı not" aria-label="Hızlı not">📝<span class="as-rozet" id="asRozet"></span></button>
+<div id="asToast"></div>
+<script>
+(function(){
+'use strict';
+var AS = { token:null, o:null, notlar:[], filtre:'acik', kurulu:null, sifreGerek:false, secili:{}, vurgu:null, yukleniyor:false, abone:false };
+window._asNotlarAcik = false;
+var LS_TOKEN = 'orimak_as_token', LS_BANT = 'orimak_as_bant_kapali';
+var URL_FN = (typeof SB_URL !== 'undefined' ? SB_URL : '') + '/functions/v1/asistan';
+
+function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function kucuk(s){ return String(s || '').toLocaleLowerCase('tr-TR').trim(); }
+function ben(){ return window._currentUser || ''; }
+function adminMi(){ return (window._currentRole || '') === 'admin'; }
+function toast(m, sure){ var t = document.getElementById('asToast'); if (!t) return; t.textContent = m; t.classList.add('on'); clearTimeout(toast._z); toast._z = setTimeout(function(){ t.classList.remove('on'); }, sure || 2600); }
+function stAcabilir(){
+  var r = window._currentRole || 'viewer';
+  if (r !== 'admin' && r !== 'manager') return false;
+  var s = window._currentSayfalar || [];
+  return !(s.length > 0 && s.indexOf('SERVİS TAKİP') === -1);
+}
+
+// ───────── Sunucu ─────────
+async function api(islem, veri){
+  var govde = Object.assign({ islem: islem, token: AS.token }, veri || {});
+  var r;
+  try {
+    r = await fetch(URL_FN, { method:'POST', headers:{ 'Content-Type':'application/json', 'apikey': SB_KEY, 'Authorization':'Bearer ' + SB_KEY }, body: JSON.stringify(govde) });
+  } catch(e) { var h = new Error('Bağlantı kurulamadı.'); h.ag = true; throw h; }
+  var j = null; try { j = await r.json(); } catch(e){}
+  if (r.status === 404 && !(j && j.hata)) { var k = new Error('Asistan sunucusu kurulmamış.'); k.kurulumYok = true; throw k; }
+  if (!r.ok) { var e2 = new Error((j && (j.hata || j.message || j.msg)) || ('Hata ' + r.status)); e2.durum = r.status; e2.oturum = (r.status === 401 && j && j.hata === 'oturum'); throw e2; }
+  return j || {};
+}
+
+function tokenOku(){ try { var t = JSON.parse(localStorage.getItem(LS_TOKEN) || 'null'); if (t && kucuk(t.u) === kucuk(ben())) return t.t; } catch(e){} return null; }
+function tokenYaz(t){ AS.token = t; try { localStorage.setItem(LS_TOKEN, JSON.stringify({ u: ben(), t: t })); } catch(e){} }
+
+async function girisYap(sifre){
+  var s = await api('giris', { kullanici: ben(), sifre: sifre, token: undefined });
+  tokenYaz(s.token); AS.o = s; AS.kurulu = true; AS.sifreGerek = false;
+  return s;
+}
+
+// Oturum anahtarını sessizce al (gerekirse şifre sorulur)
+async function baglan(){
+  if (!ben() || typeof SB_KEY === 'undefined') return false;
+  AS.token = tokenOku();
+  try {
+    if (AS.token) {
+      try { AS.o = await api('oturum'); AS.kurulu = true; return true; }
+      catch(e){ if (!e.oturum) throw e; AS.token = null; try { localStorage.removeItem(LS_TOKEN); } catch(_){} }
+    }
+    var sifre = null;
+    try {
+      var u = JSON.parse(localStorage.getItem('orimak_auth') || 'null');
+      if (u && u.id != null && typeof sbGet === 'function') { var rows = await sbGet('select=sifre&id=eq.' + encodeURIComponent(u.id)); if (rows && rows[0]) sifre = rows[0].sifre; }
+    } catch(e){}
+    if (sifre == null) { AS.kurulu = true; AS.sifreGerek = true; return false; }
+    await girisYap(sifre);
+    return true;
+  } catch(e) {
+    if (e.kurulumYok || e.ag) AS.kurulu = false;
+    else if (e.durum === 401) { AS.kurulu = true; AS.sifreGerek = true; }
+    else { AS.kurulu = false; AS.hata = e.message; }
+    return false;
+  }
+}
+// Giriş anında şifre elimizdeyken anahtarı al (doLogin çağırır)
+window.asGirisSonrasi = function(kullanici, sifre){
+  setTimeout(function(){ if (!ben()) return; girisYap(sifre).then(function(){ hazir(); }).catch(function(){}); }, 400);
+};
+
+function sifreSor(){
+  return new Promise(function(coz){
+    var o = modal('<div class="as-bas"><b>🔐 ŞİFRE</b><button class="as-x" data-kapat>✕</button></div>' +
+      '<div style="font-size:14px;color:#bbb;margin-bottom:10px;">Notları açmak için site şifreni bir kez gir (<b>' + esc(ben()) + '</b>).</div>' +
+      '<input type="password" class="as-yaz" id="asSifre" style="min-height:0;height:46px;" autocomplete="current-password">' +
+      '<div class="as-satir" style="justify-content:flex-end;"><button class="as-btn ana" id="asSifreTamam">DEVAM</button></div>');
+    var inp = o.querySelector('#asSifre'); setTimeout(function(){ inp.focus(); }, 60);
+    async function dene(){
+      try { await girisYap(inp.value); o.remove(); coz(true); }
+      catch(e){ toast(e.message); inp.value = ''; inp.focus(); }
+    }
+    o.querySelector('#asSifreTamam').onclick = dene;
+    inp.onkeydown = function(e){ if (e.key === 'Enter') dene(); };
+    o._kapaninca = function(){ coz(false); };
+  });
+}
+async function hazirOl(){
+  if (AS.o && AS.token) return true;
+  if (await baglan()) { hazir(); return true; }
+  if (AS.sifreGerek) { if (await sifreSor()) { hazir(); return true; } }
+  return false;
+}
+
+// ───────── Modal iskeleti ─────────
+function modal(ic, genis){
+  var o = document.createElement('div'); o.className = 'as-ortu';
+  o.innerHTML = '<div class="as-kutu' + (genis ? ' genis' : '') + '">' + ic + '</div>';
+  o.addEventListener('mousedown', function(e){ if (e.target === o) kapat(); });
+  o.addEventListener('click', function(e){ if (e.target.closest('[data-kapat]')) kapat(); });
+  function kapat(){ o.remove(); if (o._kapaninca) o._kapaninca(); }
+  o.kapat = kapat;
+  document.body.appendChild(o);
+  return o;
+}
+
+// ───────── Not yazma kutusu (hem sekmede hem hızlı pencerede) ─────────
+function yazmaHTML(on){
+  var kisiler = '';
+  if (AS.o && AS.o.admin && AS.o.kullanicilar) {
+    var cipler = AS.o.kullanicilar.filter(function(k){ return kucuk(k.ad) !== kucuk(ben()); }).map(function(k){
+      return '<span class="as-cip' + (AS.secili[k.ad] ? ' sec' : '') + '" data-kisi="' + esc(k.ad) + '">' + esc(k.ad) + '</span>';
+    }).join('');
+    if (cipler) kisiler = '<div class="as-satir"><span class="as-etiket">🔔 Bildirim gitsin:</span>' + cipler + '</div>';
+  }
+  return '<textarea class="as-yaz" id="' + on + 'Metin" placeholder="Notunu yaz…  (örn: yarın 10:00 Ahmet Bey aranacak)" enterkeyhint="send"></textarea>' +
+    kisiler +
+    '<div class="as-satir"><span class="as-etiket">⏰ Hatırlat:</span><input type="datetime-local" class="as-tarih" id="' + on + 'Tarih">' +
+    '<span style="flex:1"></span><button class="as-btn ana" id="' + on + 'Kaydet">＋ KAYDET</button></div>' +
+    '<div class="as-ipucu">İpucu: Metne <code>yarın 10:00</code>, <code>15 dk sonra</code>, <code>cuma 9\'da</code> yazarsan hatırlatma kendiliğinden kurulur' +
+    (AS.o && AS.o.admin ? '; <code>@isim</code> yazarsan o kişiye gider' : '') + '. Enter = kaydet, Shift+Enter = alt satır.</div>';
+}
+function yazmaBagla(kok, on, sonra){
+  var ta = kok.querySelector('#' + on + 'Metin'), btn = kok.querySelector('#' + on + 'Kaydet'), tarih = kok.querySelector('#' + on + 'Tarih');
+  if (!ta) return;
+  kok.querySelectorAll('[data-kisi]').forEach(function(c){ c.onclick = function(){ var a = c.getAttribute('data-kisi'); AS.secili[a] = !AS.secili[a]; c.classList.toggle('sec', !!AS.secili[a]); }; });
+  async function kaydet(){
+    var metin = ta.value.trim(); if (!metin) { ta.focus(); return; }
+    btn.disabled = true; btn.textContent = '⟳ …';
+    try {
+      var alicilar = Object.keys(AS.secili).filter(function(k){ return AS.secili[k]; });
+      var s = await api('not_ekle', { metin: metin, alicilar: alicilar, ayristir: true, hatirlat_at: tarih.value ? new Date(tarih.value).toISOString() : null });
+      AS.notlar.unshift(s.not);
+      ta.value = ''; tarih.value = ''; AS.secili = {};
+      var m = '✓ Not kaydedildi';
+      if (s.not.hatirlat_at) m += ' · ⏰ ' + zaman(s.not.hatirlat_at);
+      if (s.not.alicilar && s.not.alicilar.length) m += ' · ' + (s.iletilen ? '🔔 ' + s.not.alicilar.join(', ') : s.not.alicilar.join(', ') + ' (bildirimi kapalı)');
+      toast(m, 3600);
+      if (sonra) sonra(s.not);
+    } catch(e){ toast('✗ ' + e.message, 4000); }
+    btn.disabled = false; btn.textContent = '＋ KAYDET';
+  }
+  btn.onclick = kaydet;
+  ta.onkeydown = function(e){ if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); kaydet(); } };
+}
+
+function zaman(iso){
+  var d = new Date(iso); if (isNaN(d)) return '';
+  var b = new Date(), p2 = function(n){ return (n < 10 ? '0' : '') + n; };
+  var s = p2(d.getHours()) + ':' + p2(d.getMinutes());
+  if (d.toDateString() === b.toDateString()) return 'bugün ' + s;
+  var y = new Date(b.getFullYear(), b.getMonth(), b.getDate() + 1);
+  if (d.toDateString() === y.toDateString()) return 'yarın ' + s;
+  return p2(d.getDate()) + '.' + p2(d.getMonth() + 1) + (d.getFullYear() === b.getFullYear() ? '' : '.' + d.getFullYear()) + ' ' + s;
+}
+
+// ───────── Hızlı not penceresi ─────────
+async function hizliAc(){
+  if (document.getElementById('asHizli')) return;
+  if (!(await hazirOl())) { if (AS.kurulu === false) kurulumUyarisi(); return; }
+  if (!AS.o.izin) { notlariAc(); return; }
+  var o = modal('<div class="as-bas"><b>📝 HIZLI NOT</b><button class="as-x" data-kapat>✕</button></div>' + yazmaHTML('asH') +
+    '<div class="as-satir" style="justify-content:space-between;margin-top:14px;border-top:1px solid #262626;padding-top:12px;">' +
+    '<button class="as-btn" id="asHTum">📋 Tüm notlar</button><button class="as-btn" id="asHBild"></button></div>');
+  o.id = 'asHizli';
+  yazmaBagla(o, 'asH', function(){ o.kapat(); tazeCiz(); });
+  o.querySelector('#asHTum').onclick = function(){ o.kapat(); notlariAc(); };
+  var bb = o.querySelector('#asHBild'); bildirimDugme(bb);
+  setTimeout(function(){ var t = o.querySelector('#asHMetin'); if (t) t.focus(); }, 80);
+}
+window.asHizliNot = hizliAc;
+
+// ───────── Not listesi ─────────
+function kokHTML(){
+  if (AS.kurulu === false) return '<div id="asKok">' + kurulumHTML() + '</div>';
+  if (!AS.o) return '<div id="asKok"><div class="as-bos">⟳ Notlar yükleniyor…</div></div>';
+  var acik = AS.notlar.filter(function(n){ return !n.tamam; }), bitti = AS.notlar.filter(function(n){ return n.tamam; });
+  var liste = AS.filtre === 'acik' ? acik : bitti;
+  var h = '<div id="asKok"><div class="as-ust"><div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+    '<span class="as-cip' + (AS.filtre === 'acik' ? ' sec' : '') + '" data-filtre="acik">Açık · ' + acik.length + '</span>' +
+    '<span class="as-cip' + (AS.filtre === 'bitti' ? ' sec' : '') + '" data-filtre="bitti">Tamamlanan · ' + bitti.length + '</span></div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+    '<button class="as-btn" id="asBild"></button>' +
+    (AS.o.izin ? '<button class="as-btn" id="asKisayol">📱 iPhone kısayolu</button>' : '') +
+    (AS.o.admin ? '<button class="as-btn" id="asAyar">⚙ Kimler görsün</button>' : '') +
+    '<button class="as-btn" id="asYenile" title="Yenile">⟳</button></div></div>';
+  if (AS.o.izin) h += '<div style="background:#131313;border:1px solid #2a2a2a;border-radius:12px;padding:14px;margin-bottom:16px;">' + yazmaHTML('asL') + '</div>';
+  if (!liste.length) h += '<div class="as-bos">' + (AS.filtre === 'acik' ? '🎉 Açık not yok.' : 'Tamamlanan not yok.') + '</div>';
+  liste.forEach(function(n, i){
+    var benim = kucuk(n.yazan) === kucuk(ben());
+    var gecti = n.hatirlat_at && !n.tamam && new Date(n.hatirlat_at) < new Date();
+    h += '<div class="as-kart' + (n.tamam ? ' bitti' : '') + (AS.vurgu == n.id ? ' vurgu' : '') + '" data-id="' + n.id + '" style="animation-delay:' + Math.min(i * 25, 300) + 'ms">' +
+      '<button class="as-daire" data-tamam="' + n.id + '" title="' + (n.tamam ? 'Geri al' : 'Tamamlandı') + '">' + (n.tamam ? '✓' : '') + '</button>' +
+      '<div style="flex:1;min-width:0;"><div class="as-metin">' + esc(n.metin) + '</div><div class="as-alt">' +
+      (benim ? '' : '<span class="as-mini kisi">✍ ' + esc(n.yazan) + '</span>') +
+      (n.alicilar && n.alicilar.length ? '<span class="as-mini kisi">→ ' + esc(n.alicilar.join(', ')) + '</span>' : '') +
+      (n.hatirlat_at ? '<span class="as-mini ' + (gecti ? 'gecti' : 'saat') + '">⏰ ' + esc(zaman(n.hatirlat_at)) + '</span>' : '') +
+      '<span class="as-mini">' + (n.kaynak === 'kisayol' ? '📱 ' : '') + esc(zaman(n.olusturma)) + '</span>' +
+      ((AS.o.admin || benim) ? '<button class="as-sil" data-sil="' + n.id + '" title="Sil">🗑</button>' : '') +
+      '</div></div></div>';
+  });
+  return h + '</div>';
+}
+function ciz(kap){
+  if (!kap) return;
+  kap.innerHTML = kokHTML();
+  var kok = kap.querySelector('#asKok'); if (!kok) return;
+  kok.querySelectorAll('[data-filtre]').forEach(function(c){ c.onclick = function(){ AS.filtre = c.getAttribute('data-filtre'); ciz(kap); }; });
+  yazmaBagla(kok, 'asL', function(){ AS.filtre = 'acik'; ciz(kap); rozet(); });
+  var b;
+  if ((b = kok.querySelector('#asBild'))) bildirimDugme(b);
+  if ((b = kok.querySelector('#asKisayol'))) b.onclick = kisayolAc;
+  if ((b = kok.querySelector('#asAyar'))) b.onclick = ayarAc;
+  if ((b = kok.querySelector('#asYenile'))) b.onclick = function(){ yukle().then(function(){ ciz(kap); toast('Güncellendi'); }); };
+  if ((b = kok.querySelector('#asKurTekrar'))) b.onclick = function(){ AS.kurulu = null; baglan().then(function(){ hazir(); return yukle(); }).then(function(){ ciz(kap); }); };
+  kok.querySelectorAll('[data-tamam]').forEach(function(d){ d.onclick = async function(){
+    var id = d.getAttribute('data-tamam'), n = AS.notlar.find(function(x){ return String(x.id) === id; }); if (!n) return;
+    n.tamam = !n.tamam; ciz(kap); rozet();
+    try { await api('not_guncelle', { id: n.id, tamam: n.tamam }); } catch(e){ n.tamam = !n.tamam; ciz(kap); toast('✗ ' + e.message); }
+  }; });
+  kok.querySelectorAll('[data-sil]').forEach(function(d){ d.onclick = async function(){
+    var id = d.getAttribute('data-sil'); if (!confirm('Bu not silinsin mi?')) return;
+    try { await api('not_sil', { id: +id }); AS.notlar = AS.notlar.filter(function(x){ return String(x.id) !== id; }); ciz(kap); rozet(); } catch(e){ toast('✗ ' + e.message); }
+  }; });
+  if (AS.vurgu) { var v = kok.querySelector('.as-kart.vurgu'); if (v) { try { v.scrollIntoView({ block:'center', behavior:'smooth' }); } catch(e){} } setTimeout(function(){ AS.vurgu = null; }, 4000); }
+}
+function acikKap(){
+  var st = document.getElementById('stContent');
+  if (window._asNotlarAcik && st && st.querySelector('#asKok')) return st;
+  var m = document.getElementById('asListeKap'); return m || null;
+}
+function tazeCiz(){ var k = acikKap(); if (k) ciz(k); rozet(); }
+async function yukle(){
+  if (!AS.token || AS.yukleniyor) return;
+  AS.yukleniyor = true;
+  try { var s = await api('notlar'); AS.notlar = s.notlar || []; } catch(e){ if (e.oturum) { AS.token = null; AS.o = null; } }
+  AS.yukleniyor = false; rozet();
+}
+function rozet(){
+  var r = document.getElementById('asRozet'); if (!r) return;
+  var n = AS.notlar.filter(function(x){ return !x.tamam && kucuk(x.yazan) !== kucuk(ben()); }).length;
+  r.textContent = n; r.style.display = n ? 'block' : 'none';
+}
+
+// Servis Takip içindeki "NOTLAR" sekmesi
+function sekmeStil(){
+  var b = document.getElementById('asNotTab'); if (!b) return;
+  var a = !!window._asNotlarAcik;
+  b.style.background = a ? 'rgba(245,166,35,.1)' : 'transparent';
+  b.style.color = a ? 'var(--orange)' : '#888';
+  b.style.borderBottom = '2px solid ' + (a ? 'var(--orange)' : 'transparent');
+  if (a) document.querySelectorAll('.st-mtab').forEach(function(t){ t.classList.remove('active'); t.style.background = 'transparent'; t.style.color = '#888'; t.style.borderBottom = '2px solid transparent'; });
+}
+window.asSekmeStil = sekmeStil;
+function sekmeGorunur(){ return (AS.o && AS.o.gorur) || (adminMi() && AS.kurulu === false); }
+// stRender sekme çubuğunu kurarken çağırır
+window.asNotSekmesi = function(){
+  if (!sekmeGorunur()) return '';
+  var a = !!window._asNotlarAcik;
+  return '<button id="asNotTab" onclick="window.asSekmeAc()" style="background:' + (a ? 'rgba(245,166,35,.1)' : 'transparent') + ';color:' + (a ? 'var(--orange)' : '#888') +
+    ';border:none;border-bottom:2px solid ' + (a ? 'var(--orange)' : 'transparent') + ';padding:11px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1.5px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;">📝 NOTLAR</button>';
+};
+function sekmeEkle(){
+  if (document.getElementById('asNotTab') || !sekmeGorunur()) return;
+  var ic = document.getElementById('stContent'), cubuk = ic && ic.previousElementSibling; if (!cubuk) return;
+  cubuk.insertAdjacentHTML('beforeend', window.asNotSekmesi());
+}
+window.asSekmeAc = function(){
+  window._asNotlarAcik = true;
+  var box = document.getElementById('stContent'); if (!box) return;
+  ciz(box); sekmeStil();
+  yukle().then(function(){ if (window._asNotlarAcik) ciz(box); });
+};
+// stRenderContent çağırır: Notlar sekmesi açıkken içerik alanını biz çizeriz
+window.asIcerikCiz = function(box){
+  sekmeStil();
+  if (box.querySelector('#asKok')) return;   // yazılmakta olan notu silme
+  ciz(box);
+};
+
+async function notlariAc(id){
+  if (!(await hazirOl())) { if (AS.kurulu === false) kurulumUyarisi(); return; }
+  if (id && id !== '1') AS.vurgu = id;
+  AS.filtre = 'acik';
+  await yukle();
+  if (id && id !== '1') { var n = AS.notlar.find(function(x){ return String(x.id) === String(id); }); if (n && n.tamam) AS.filtre = 'bitti'; }
+  if (stAcabilir() && typeof window.stSwitchTo === 'function') {
+    try { window.stSwitchTo(); } catch(e){}
+    if (!document.querySelector('#stPanel .st-mtab') && typeof stRender === 'function') { try { stRender(); } catch(e){} }
+    sekmeEkle();
+    if (document.getElementById('stContent')) { window.asSekmeAc(); return; }
+  }
+  // Servis Takip'e erişimi olmayan alıcılar için ayrı pencere
+  var eski = document.getElementById('asListeOrtu'); if (eski) eski.remove();
+  var o = modal('<div class="as-bas"><b>📝 NOTLAR</b><button class="as-x" data-kapat>✕</button></div><div id="asListeKap"></div>', true);
+  o.id = 'asListeOrtu';
+  ciz(o.querySelector('#asListeKap'));
+}
+window.asNotlariAc = notlariAc;
+
+// ───────── Kurulum uyarısı (sunucu parçası henüz yokken, sadece admin görür) ─────────
+function kurulumHTML(){
+  return '<div class="as-uyari"><b style="color:var(--orange);font-size:16px;">⚙ Asistan sunucusu henüz kurulmamış</b><br>' +
+    'Notlar ve telefon bildirimleri için Supabase tarafında bir kerelik kurulum gerekiyor ' +
+    '(bir SQL betiği + bir fonksiyon). Adımlar depodaki <code>supabase/KURULUM.md</code> dosyasında.' +
+    (AS.hata ? '<br><span style="color:#ff8a8a;font-size:12px;">' + esc(AS.hata) + '</span>' : '') +
+    '<div class="as-satir"><button class="as-btn" id="asKurTekrar">⟳ Tekrar dene</button></div></div>';
+}
+function kurulumUyarisi(){
+  if (!adminMi()) { toast('Notlar şu an kullanılamıyor.'); return; }
+  var o = modal('<div class="as-bas"><b>📝 NOTLAR</b><button class="as-x" data-kapat>✕</button></div>' + kurulumHTML());
+  o.querySelector('#asKurTekrar').onclick = function(){ o.kapat(); AS.kurulu = null; hizliAc(); };
+}
+
+// ───────── Ayarlar: Notlar bölümünü kimler kullanabilir (sadece admin) ─────────
+function ayarAc(){
+  var gorenler = (AS.o.gorenler || []).map(kucuk);
+  var satirlar = (AS.o.kullanicilar || []).map(function(k){
+    var adm = k.rol === 'admin';
+    return '<label style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid #222;cursor:pointer;">' +
+      '<input type="checkbox" data-goren="' + esc(k.ad) + '"' + (adm || gorenler.indexOf(kucuk(k.ad)) !== -1 ? ' checked' : '') + (adm ? ' disabled' : '') + ' style="width:18px;height:18px;accent-color:#F5A623;">' +
+      '<span style="flex:1;font-size:15px;">' + esc(k.ad) + '</span><span class="as-mini">' + esc(k.rol || '') + '</span></label>';
+  }).join('');
+  var o = modal('<div class="as-bas"><b>⚙ NOTLARI KİMLER GÖRSÜN</b><button class="as-x" data-kapat>✕</button></div>' +
+    '<div class="as-ipucu" style="margin:0 0 8px;">İşaretli kişiler Notlar bölümünü görür ve kendi notlarını yazabilir. İşaretsiz kişiler yalnızca senin onlara gönderdiğin notları görür. ' +
+    'Başkasına bildirim gönderme yetkisi her zaman yalnızca admindedir.</div>' + satirlar +
+    '<div class="as-satir" style="justify-content:flex-end;margin-top:14px;"><button class="as-btn ana" id="asAyarKaydet">KAYDET</button></div>');
+  o.querySelector('#asAyarKaydet').onclick = async function(){
+    var liste = []; o.querySelectorAll('[data-goren]').forEach(function(c){ if (c.checked && !c.disabled) liste.push(c.getAttribute('data-goren')); });
+    try { var s = await api('ayar_kaydet', { gorenler: liste }); AS.o.gorenler = s.gorenler; o.kapat(); toast('✓ Kaydedildi'); } catch(e){ toast('✗ ' + e.message); }
+  };
+}
+
+// ───────── iPhone kısayolu (widget benzeri hızlı not) ─────────
+async function kisayolAc(yenile){
+  var s; try { s = await api('kisayol', { yenile: yenile === true }); } catch(e){ toast('✗ ' + e.message); return; }
+  var o = modal('<div class="as-bas"><b>📱 iPHONE HIZLI NOT</b><button class="as-x" data-kapat>✕</button></div>' +
+    '<div class="as-ipucu" style="margin:0 0 10px;">iPhone, web sitelerinin kendi widget\'ını koymasına izin vermiyor. Bunun yerine <b>Kestirmeler (Shortcuts)</b> uygulamasıyla ana ekrana tek dokunuşluk bir <b>Hızlı Not</b> düğmesi/widget\'ı kurulur: dokun → yaz ya da söyle → kaydedilir. Siteyi açmaya gerek kalmaz.</div>' +
+    '<div class="as-etiket" style="margin-bottom:6px;">Sana özel bağlantı (kimseyle paylaşma)</div><span class="as-link" id="asLink">' + esc(s.url) + '</span>' +
+    '<div class="as-satir"><button class="as-btn ana" id="asKopya">📋 BAĞLANTIYI KOPYALA</button><button class="as-btn" id="asLinkYenile" title="Eski bağlantıyı iptal edip yenisini üretir">♻ Yenile</button></div>' +
+    '<ol class="as-adim">' +
+    '<li>Bu pencereyi iPhone\'da aç ve bağlantıyı kopyala.</li>' +
+    '<li><b>Kestirmeler</b> uygulaması → sağ üst <b>＋</b>.</li>' +
+    '<li>Eylem ara: <b>Girdi İste</b> (Ask for Input) → ekle. Soru: <code>Not?</code><br><span style="color:#888;font-size:12px;">Konuşarak not için bunun yerine <b>Metni Dikte Et</b> (Dictate Text) ekle.</span></li>' +
+    '<li>Eylem ara: <b>URL Kodla</b> (URL Encode) → ekle.</li>' +
+    '<li>Eylem ara: <b>URL İçeriğini Al</b> (Get Contents of URL) → ekle. URL kutusuna bağlantıyı yapıştır, hemen sonuna (<code>not=</code>\'ten sonra) <b>URL Kodlanmış Metin</b> değişkenini ekle.</li>' +
+    '<li>İstersen: <b>Bildirimi Göster</b> (Show Notification) ekle → “✓ Not kaydedildi” yanıtını görürsün.</li>' +
+    '<li>Adını <b>Hızlı Not</b> yap → paylaş simgesi → <b>Ana Ekrana Ekle</b>.<br><span style="color:#888;font-size:12px;">Widget için: ana ekranda boş yere basılı tut → ＋ → Kestirmeler → Hızlı Not\'u seç. Ayrıca “Hey Siri, Hızlı Not”, Eylem Düğmesi ve kilit ekranından da çalışır.</span></li>' +
+    '</ol><div class="as-ipucu">Kısayolla yazarken de <code>yarın 10:00</code> gibi ifadeler hatırlatma kurar' + (AS.o.admin ? ', <code>@isim</code> o kişiye bildirim gönderir' : '') + '.</div>', true);
+  o.querySelector('#asKopya').onclick = async function(){
+    try { await navigator.clipboard.writeText(s.url); toast('✓ Bağlantı kopyalandı'); }
+    catch(e){ var r = document.createRange(); r.selectNodeContents(o.querySelector('#asLink')); var se = getSelection(); se.removeAllRanges(); se.addRange(r); toast('Bağlantı seçildi — kopyala'); }
+  };
+  o.querySelector('#asLinkYenile').onclick = function(){ if (confirm('Eski bağlantı çalışmaz olacak. Yenilensin mi?')) { o.kapat(); kisayolAc(true); } };
+}
+
+// ───────── Telefon bildirimi (Web Push) ─────────
+function iosMu(){ return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+function anaEkranda(){ return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }
+function pushVar(){ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+function b64Dizi(s){ s = s.replace(/-/g,'+').replace(/_/g,'/'); while (s.length % 4) s += '='; var b = atob(s), a = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+function cihazAdi(){ var u = navigator.userAgent; return (/iphone/i.test(u) ? 'iPhone' : /ipad/i.test(u) ? 'iPad' : /android/i.test(u) ? 'Android' : /windows/i.test(u) ? 'Windows' : /mac/i.test(u) ? 'Mac' : 'Cihaz') + (anaEkranda() ? ' (uygulama)' : ''); }
+
+async function swKayit(){ return navigator.serviceWorker.register('sw.js', { scope: './' }); }
+async function aboneGonder(sub){ var j = sub.toJSON(); await api('abone', { abonelik: { endpoint: j.endpoint, keys: j.keys }, cihaz: cihazAdi() }); AS.abone = true; }
+
+// Zaten izin verilmişse aboneliği sessizce tazele (kullanıcı ↔ cihaz eşleşmesi güncel kalsın)
+async function aboneTazele(){
+  if (!pushVar() || Notification.permission !== 'granted' || !AS.o) return;
+  try {
+    var reg = await swKayit(); await navigator.serviceWorker.ready;
+    var sub = await reg.pushManager.getSubscription();
+    if (sub && sub.options && sub.options.applicationServerKey) {
+      var eski = btoa(String.fromCharCode.apply(null, new Uint8Array(sub.options.applicationServerKey))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+      if (eski !== AS.o.vapid) { await sub.unsubscribe(); sub = null; }
+    }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64Dizi(AS.o.vapid) });
+    await aboneGonder(sub);
+  } catch(e){}
+}
+async function bildirimAc(){
+  if (!(await hazirOl())) { if (AS.kurulu === false) kurulumUyarisi(); return false; }
+  if (!pushVar()) {
+    if (iosMu() && !anaEkranda()) {
+      modal('<div class="as-bas"><b>🔔 iPHONE BİLDİRİMİ</b><button class="as-x" data-kapat>✕</button></div>' +
+        '<div class="as-ipucu" style="margin:0;">iPhone\'da bildirim yalnızca ana ekrana eklenmiş sitede çalışır:</div><ol class="as-adim">' +
+        '<li>Bu siteyi <b>Safari</b>\'de aç.</li><li>Alttaki <b>Paylaş</b> simgesi → <b>Ana Ekrana Ekle</b>.</li>' +
+        '<li>Ana ekrandaki <b>Orimak Takip</b> simgesinden gir.</li><li>📝 düğmesi → <b>🔔 Bildirimleri aç</b>.</li></ol>');
+    } else toast('Bu tarayıcı telefon bildirimini desteklemiyor.', 4000);
+    return false;
+  }
+  try {
+    var izin = await Notification.requestPermission();
+    if (izin !== 'granted') { toast('Bildirim izni verilmedi. Tarayıcı/telefon ayarlarından açabilirsin.', 4500); return false; }
+    var reg = await swKayit(); await navigator.serviceWorker.ready;
+    var sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64Dizi(AS.o.vapid) });
+    await aboneGonder(sub);
+    try { await api('test_bildirim'); } catch(e){}
+    toast('🔔 Bildirimler açıldı — deneme bildirimi gönderildi', 4000);
+    bantKapat(true);
+    return true;
+  } catch(e){ toast('✗ Bildirim açılamadı: ' + e.message, 5000); return false; }
+}
+window.asBildirimAc = bildirimAc;
+function bildirimDugme(b){
+  function yaz(){
+    var acik = pushVar() && Notification.permission === 'granted' && AS.abone;
+    b.className = 'as-btn' + (acik ? ' acik' : '');
+    b.textContent = acik ? '🔔 Bildirim açık' : '🔔 Bildirimleri aç';
+    b.title = acik ? 'Deneme bildirimi gönder' : 'Bu cihaza bildirim gelsin';
+  }
+  yaz();
+  b.onclick = async function(){
+    var acik = pushVar() && Notification.permission === 'granted' && AS.abone;
+    if (acik) { try { var s = await api('test_bildirim'); toast(s.iletilen ? '🔔 Deneme bildirimi gönderildi' : 'Kayıtlı cihaz bulunamadı'); } catch(e){ toast('✗ ' + e.message); } }
+    else { await bildirimAc(); yaz(); }
+  };
+}
+// Bildirimi kapalı kullanıcıya bir kerelik hatırlatma bandı
+function bantKapat(kalici){ var b = document.getElementById('asBant'); if (b) b.remove(); if (kalici) { try { localStorage.setItem(LS_BANT, '1'); } catch(e){} } }
+function bantGoster(){
+  if (document.getElementById('asBant') || !AS.o) return;
+  try { if (localStorage.getItem(LS_BANT)) return; } catch(e){}
+  if (!pushVar() || Notification.permission !== 'default') return;
+  var b = document.createElement('div'); b.id = 'asBant';
+  b.innerHTML = '<span>🔔 Sana gönderilen notlar telefonuna bildirim olarak gelsin mi?</span><button class="as-btn ana" style="padding:7px 14px;font-size:13px;">AÇ</button><button class="as-x" style="width:30px;height:30px;">✕</button>';
+  b.children[1].onclick = function(){ bantKapat(false); bildirimAc(); };
+  b.children[2].onclick = function(){ bantKapat(true); };
+  document.body.appendChild(b);
+}
+
+// ───────── Başlangıç ─────────
+function hazir(){
+  var fab = document.getElementById('asFab');
+  if (fab) fab.style.display = (AS.o && AS.o.gorur) ? 'flex' : 'none';
+  sekmeEkle();
+  if (AS.o) { aboneTazele().then(function(){ tazeCiz(); }); yukle().then(tazeCiz); setTimeout(bantGoster, 2500); }
+}
+function urlIsle(){
+  var p; try { p = new URLSearchParams(location.search); } catch(e){ return; }
+  var hn = p.get('hizlinot'), nt = p.get('not');
+  if (!hn && !nt) return;
+  try { p.delete('hizlinot'); p.delete('not'); var q = p.toString(); history.replaceState(null, '', location.pathname + (q ? '?' + q : '') + location.hash); } catch(e){}
+  if (hn) hizliAc(); else notlariAc(nt);
+}
+var fabEl = document.getElementById('asFab');
+if (fabEl) fabEl.onclick = function(){ hizliAc(); };
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', function(e){ if (e.data && e.data.tip === 'not-ac') notlariAc(e.data.id); });
+document.addEventListener('visibilitychange', function(){ if (!document.hidden && AS.token && acikKap() && !document.querySelector('#asKok .as-yaz:focus')) yukle().then(function(){ var k = acikKap(); if (k && !(k.querySelector('.as-yaz') && k.querySelector('.as-yaz').value)) ciz(k); }); });
+setInterval(function(){ if (!document.hidden && AS.token) yukle().then(function(){ var k = acikKap(); if (k && !(k.querySelector('.as-yaz') && (k.querySelector('.as-yaz').value || document.activeElement === k.querySelector('.as-yaz')))) ciz(k); }); }, 60000);
+// Giriş tamamlanınca (ya da kayıtlı oturumla açılınca) bağlan
+var _bekle = setInterval(function(){
+  if (!ben()) return;
+  var giris = document.getElementById('loginOverlay');
+  if (giris && !giris.classList.contains('hidden') && getComputedStyle(giris).display !== 'none') return;
+  clearInterval(_bekle);
+  baglan().then(function(){ hazir(); urlIsle(); });
+}, 700);
 })();
 </script>
 
