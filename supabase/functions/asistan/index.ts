@@ -309,7 +309,7 @@ async function notEkle(k, girdi, kaynak) {
   if (girdi.ayristir) {
     const kl = await kullaniciListesi();
     const ks = kisiAyikla(metin, kl);
-    if (ks.alicilar.length && k.admin) {
+    if (ks.alicilar.length && k.admin && girdi.kisiSec) {   // kişi seçimi şimdilik kapalı (notlar kişisel)
       alicilar = alicilar.concat(ks.alicilar);
       if (ks.metin) metin = ks.metin;
     }

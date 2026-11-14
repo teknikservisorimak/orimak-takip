@@ -21396,19 +21396,12 @@ function modal(ic, genis){
 
 // ───────── Not yazma kutusu (hem sekmede hem hızlı pencerede) ─────────
 function yazmaHTML(on){
-  var kisiler = '';
-  if (AS.o && AS.o.admin && AS.o.kullanicilar) {
-    var cipler = AS.o.kullanicilar.filter(function(k){ return kucuk(k.ad) !== kucuk(ben()); }).map(function(k){
-      return '<span class="as-cip' + (AS.secili[k.ad] ? ' sec' : '') + '" data-kisi="' + esc(k.ad) + '">' + esc(k.ad) + '</span>';
-    }).join('');
-    if (cipler) kisiler = '<div class="as-satir"><span class="as-etiket">🔔 Bildirim gitsin:</span>' + cipler + '</div>';
-  }
+  var kisiler = '';   // Notlar kişiseldir: başkasına bildirim seçimi yok
   return '<textarea class="as-yaz" id="' + on + 'Metin" placeholder="Notunu yaz…  (örn: yarın 10:00 Ahmet Bey aranacak)" enterkeyhint="send"></textarea>' +
     kisiler +
     '<div class="as-satir"><span class="as-etiket">⏰ Hatırlat:</span><input type="datetime-local" class="as-tarih" id="' + on + 'Tarih">' +
     '<span style="flex:1"></span><button class="as-btn ana" id="' + on + 'Kaydet">＋ KAYDET</button></div>' +
-    '<div class="as-ipucu">İpucu: Metne <code>yarın 10:00</code>, <code>15 dk sonra</code>, <code>cuma 9\'da</code> yazarsan hatırlatma kendiliğinden kurulur' +
-    (AS.o && AS.o.admin ? '; <code>@isim</code> yazarsan o kişiye gider' : '') + '. Enter = kaydet, Shift+Enter = alt satır.</div>';
+    '<div class="as-ipucu">İpucu: Metne <code>yarın 10:00</code>, <code>15 dk sonra</code>, <code>cuma 9\'da</code> yazarsan hatırlatma kendiliğinden kurulur ve saati gelince telefonuna bildirim düşer. Enter = kaydet, Shift+Enter = alt satır.</div>';
 }
 function yazmaBagla(kok, on, sonra){
   var ta = kok.querySelector('#' + on + 'Metin'), btn = kok.querySelector('#' + on + 'Kaydet'), tarih = kok.querySelector('#' + on + 'Tarih');
@@ -21418,7 +21411,7 @@ function yazmaBagla(kok, on, sonra){
     var metin = ta.value.trim(); if (!metin) { ta.focus(); return; }
     btn.disabled = true; btn.textContent = '⟳ …';
     try {
-      var alicilar = Object.keys(AS.secili).filter(function(k){ return AS.secili[k]; });
+      var alicilar = [];
       var s = await api('not_ekle', { metin: metin, alicilar: alicilar, ayristir: true, hatirlat_at: tarih.value ? new Date(tarih.value).toISOString() : null });
       AS.notlar.unshift(s.not);
       ta.value = ''; tarih.value = ''; AS.secili = {};
@@ -21472,7 +21465,6 @@ function kokHTML(){
     '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
     '<button class="as-btn" id="asBild"></button>' +
     (AS.o.izin ? '<button class="as-btn" id="asKisayol">📱 iPhone kısayolu</button>' : '') +
-    (AS.o.admin ? '<button class="as-btn" id="asAyar">⚙ Kimler görsün</button>' : '') +
     '<button class="as-btn" id="asYenile" title="Yenile">⟳</button></div></div>';
   if (AS.o.izin) h += '<div style="background:#131313;border:1px solid #2a2a2a;border-radius:12px;padding:14px;margin-bottom:16px;">' + yazmaHTML('asL') + '</div>';
   if (!liste.length) h += '<div class="as-bos">' + (AS.filtre === 'acik' ? '🎉 Açık not yok.' : 'Tamamlanan not yok.') + '</div>';
@@ -21636,7 +21628,7 @@ async function kisayolAc(yenile){
     '<li>Eylem ara: <b>URL İçeriğini Al</b> (Get Contents of URL) → ekle. URL kutusuna bağlantıyı yapıştır, hemen sonuna (<code>not=</code>\'ten sonra) <b>URL Kodlanmış Metin</b> değişkenini ekle.</li>' +
     '<li>İstersen: <b>Bildirimi Göster</b> (Show Notification) ekle → “✓ Not kaydedildi” yanıtını görürsün.</li>' +
     '<li>Adını <b>Hızlı Not</b> yap → paylaş simgesi → <b>Ana Ekrana Ekle</b>.<br><span style="color:#888;font-size:12px;">Widget için: ana ekranda boş yere basılı tut → ＋ → Kestirmeler → Hızlı Not\'u seç. Ayrıca “Hey Siri, Hızlı Not”, Eylem Düğmesi ve kilit ekranından da çalışır.</span></li>' +
-    '</ol><div class="as-ipucu">Kısayolla yazarken de <code>yarın 10:00</code> gibi ifadeler hatırlatma kurar' + (AS.o.admin ? ', <code>@isim</code> o kişiye bildirim gönderir' : '') + '.</div>', true);
+    '</ol><div class="as-ipucu">Kısayolla yazarken de <code>yarın 10:00</code> gibi ifadeler hatırlatma kurar.</div>', true);
   o.querySelector('#asKopya').onclick = async function(){
     try { await navigator.clipboard.writeText(s.url); toast('✓ Bağlantı kopyalandı'); }
     catch(e){ var r = document.createRange(); r.selectNodeContents(o.querySelector('#asLink')); var se = getSelection(); se.removeAllRanges(); se.addRange(r); toast('Bağlantı seçildi — kopyala'); }
@@ -21710,11 +21702,11 @@ function bildirimDugme(b){
 // Bildirimi kapalı kullanıcıya bir kerelik hatırlatma bandı
 function bantKapat(kalici){ var b = document.getElementById('asBant'); if (b) b.remove(); if (kalici) { try { localStorage.setItem(LS_BANT, '1'); } catch(e){} } }
 function bantGoster(){
-  if (document.getElementById('asBant') || !AS.o) return;
+  if (document.getElementById('asBant') || !AS.o || !AS.o.gorur) return;
   try { if (localStorage.getItem(LS_BANT)) return; } catch(e){}
   if (!pushVar() || Notification.permission !== 'default') return;
   var b = document.createElement('div'); b.id = 'asBant';
-  b.innerHTML = '<span>🔔 Sana gönderilen notlar telefonuna bildirim olarak gelsin mi?</span><button class="as-btn ana" style="padding:7px 14px;font-size:13px;">AÇ</button><button class="as-x" style="width:30px;height:30px;">✕</button>';
+  b.innerHTML = '<span>🔔 Not hatırlatmaları telefonuna bildirim olarak gelsin mi?</span><button class="as-btn ana" style="padding:7px 14px;font-size:13px;">AÇ</button><button class="as-x" style="width:30px;height:30px;">✕</button>';
   b.children[1].onclick = function(){ bantKapat(false); bildirimAc(); };
   b.children[2].onclick = function(){ bantKapat(true); };
   document.body.appendChild(b);
