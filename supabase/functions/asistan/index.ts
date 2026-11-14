@@ -290,6 +290,85 @@ function kisiAyikla(metin, kullanicilar) {
   return { alicilar: Array.from(new Set(bulunan)), metin: temiz };
 }
 
+// ───────────── Komutlar: "servis plana 20.11 ABC Ambalaj ekle" ─────────────
+const kk = (s) => { const o = String(s); const l = o.toLocaleLowerCase('tr-TR'); return l.length === o.length ? l : o.toLowerCase(); };
+// Metindeki günü bulur → { gun:{y,a,g}, bas, uz }  (bas/uz: metin içindeki yeri)
+function gunBul(metin, simdi) {
+  const t = kk(metin);   // kırpma YOK → konumlar özgün metinle birebir aynı
+  const now = simdi || new Date();
+  const yerel = new Date(now.getTime() + TZ_SAAT * 3600000);
+  const gunEkle = (n) => {
+    const d = new Date(Date.UTC(yerel.getUTCFullYear(), yerel.getUTCMonth(), yerel.getUTCDate() + n));
+    return { y: d.getUTCFullYear(), a: d.getUTCMonth(), g: d.getUTCDate() };
+  };
+  const yilSec = (a, g) => {
+    let y = yerel.getUTCFullYear();
+    if (Date.UTC(y, a, g, 23, 59) < yerel.getTime()) y++;
+    return y;
+  };
+  const son = "(?:['’]?(?:de|da|te|ta|e|a|ye|ya|ne|na))?(?:\\s+(?:tarihinde|tarihine|tarihli|tarihi|günü|gününe))?";
+  let m;
+  const don = (gun) => ({ gun, bas: m.index, uz: m[0].length });
+  if ((m = new RegExp('(?:öbür gün|öbürgün|yarından sonra)' + son).exec(t))) return don(gunEkle(2));
+  if ((m = new RegExp('yarın(?:ki)?' + son + '(?=\\s|$|[.,!?])').exec(t))) return don(gunEkle(1));
+  if ((m = new RegExp('bugün(?:kü)?' + son + '(?=\\s|$|[.,!?])').exec(t))) return don(gunEkle(0));
+  if ((m = new RegExp('(\\d{1,2})[./](\\d{1,2})[./](\\d{4})' + son).exec(t))) {
+    if (+m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31) return don({ y: +m[3], a: +m[2] - 1, g: +m[1] });
+  }
+  if ((m = new RegExp('(?<![\\d.:/])(\\d{1,2})[./](\\d{1,2})(?![\\d:/]|\\.\\d)' + son).exec(t))) {
+    if (+m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31) return don({ y: yilSec(+m[2] - 1, +m[1]), a: +m[2] - 1, g: +m[1] });
+  }
+  if ((m = new RegExp('(\\d{1,2})\\s+(' + AYLAR.join('|') + ")(?:['’]?(?:da|de|ta|te|a|e))?(?:\\s+(\\d{4}))?" + '(?:\\s+(?:tarihinde|tarihine|günü))?').exec(t))) {
+    const a = AYLAR.indexOf(m[2]);
+    return don({ y: m[3] ? +m[3] : yilSec(a, +m[1]), a, g: +m[1] });
+  }
+  for (let i = 0; i < 7; i++) {
+    m = new RegExp('(?<![a-zçğıöşü])' + GUNLER[i] + '(?!r?tesi)(?:ya|ye|a|e|ı|i|sı|si|yı|yi)?(?:\\s+günü)?(?=\\s|$|[.,!?])').exec(t);
+    if (m) {
+      let fark = (i - yerel.getUTCDay() + 7) % 7;
+      if (fark === 0) fark = 7;
+      return don(gunEkle(fark));
+    }
+  }
+  return null;
+}
+const gunYaz = (g) => g.g + '.' + (g.a + 1) + '.' + g.y;   // sitedeki biçim: 6.11.2026
+
+const DOLGU = new Set(['ekle', 'ekleyin', 'eklesin', 'ekler', 'eklensin', 'kaydet', 'kaydı', 'kayıt', 'yaz', 'aç', 'için', 'icin', 'firma',
+  'firması', 'firmasını', 'firmasına', 'firmayı', 'firmaya', 'tarihinde', 'tarihine', 'tarihli', 'tarihi', 'tarih', 'günü', 'gününe', 'lütfen', 'bir', 'yeni', 'servis', 'servisi']);
+
+// Komut değilse null. Komutsa { tur, veri } ya da { hata }.
+function komutAyikla(metin, simdi) {
+  const ham = String(metin || '').trim();
+  const k = kucuk(ham);
+  const planli = /^servis\s*plan\S*/.exec(k);
+  const kisa = !planli && /^servise?\s/.test(k) && /\sekle\S*\s*[.!]?$/.test(k);
+  if (!planli && !kisa) return null;
+  let govde = planli ? ham.slice(planli[0].length) : ham.slice(k.indexOf(' ') + 1);
+  // açıklama:  "... - BC410 arıza"  /  "... ; ..."  /  "... açıklama ..."
+  let aciklama = '';
+  const ay = /\s[-–—]\s|;\s*|\s(?:açıklama|aciklama|not)\s*:?\s+/.exec(kk(govde));
+  if (ay) { aciklama = govde.slice(ay.index + ay[0].length).trim(); govde = govde.slice(0, ay.index); }
+  let tarih = '';
+  const g = gunBul(govde, simdi);
+  if (g) { tarih = gunYaz(g.gun); govde = govde.slice(0, g.bas) + ' ' + govde.slice(g.bas + g.uz); }
+  if (aciklama) { const g2 = !g && gunBul(aciklama, simdi); if (g2) tarih = gunYaz(g2.gun); }
+  const firma = govde.split(/\s+/).filter((w) => w && !DOLGU.has(kucuk(w.replace(/[.,!?:;'’"]+$/g, '').replace(/^['’"]+/, '')))).join(' ')
+    .replace(/^[\s,.:;-]+|[\s,:;-]+$/g, '').replace(/['’](?:yı|yi|yu|yü|ı|i|u|ü|a|e|ya|ye)$/i, '');
+  if (!firma) return { hata: "Firma adı anlaşılamadı. Örnek: servis plana 20.11 ABC Ambalaj ekle" };
+  const yerel = new Date((simdi || new Date()).getTime() + TZ_SAAT * 3600000);
+  const talep = gunYaz({ y: yerel.getUTCFullYear(), a: yerel.getUTCMonth(), g: yerel.getUTCDate() });
+  return { tur: 'servis_plan', veri: { firma: firma.slice(0, 200), tarih, talep, aciklama: aciklama.slice(0, 500) } };
+}
+function komutOzet(kmt) {
+  const v = kmt.veri || {};
+  return "Servis Plan'a eklenecek: " + v.firma + (v.tarih ? ' · ' + v.tarih : '') + (v.aciklama ? ' · ' + v.aciklama : '');
+}
+async function komutKaydet(k, kmt, kaynak, metin) {
+  const r = await ekle('st_komut', { kullanici: k.ad, tur: kmt.tur, veri: kmt.veri, metin: String(metin).slice(0, 1000), kaynak: kaynak || 'site', durum: 'bekliyor' });
+  return r[0];
+}
+
 function saatYaz(iso) {
   if (!iso) return '';
   const d = new Date(new Date(iso).getTime() + TZ_SAAT * 3600000);
@@ -411,6 +490,12 @@ async function isle(req) {
       }
     }
     if (!metin.trim()) return duz('✗ Not boş.', 400);
+    const kmt = k.admin ? komutAyikla(metin) : null;
+    if (kmt && kmt.hata) return duz('✗ ' + kmt.hata);
+    if (kmt) {
+      await komutKaydet(k, kmt, 'kisayol', metin);
+      return duz('✓ ' + komutOzet(kmt) + '\n(Site açıldığında tabloya işlenir)');
+    }
     const s = await notEkle(k, { metin, ayristir: true }, 'kisayol');
     let cevap = '✓ Not kaydedildi';
     if (s.not.hatirlat_at) cevap += '\n⏰ ' + saatYaz(s.not.hatirlat_at);
@@ -447,8 +532,30 @@ async function isle(req) {
 
   if (islem === 'notlar') return json({ notlar: await notlarAl(k) });
 
+  // ── Komut kuyruğu: site açıkken sıradaki komutları alır, uygular, sonucu bildirir ──
+  if (islem === 'komut_al') {
+    if (!k.admin) return json({ komutlar: [] });
+    const eski = new Date(Date.now() - 10 * 60000).toISOString();
+    // yarıda kalmış (10 dk'dan eski "işleniyor") komutları kuyruğa geri al
+    await guncelle('st_komut', 'durum=eq.isleniyor&kullanici=' + eq(k.ad) + '&alindi=lt.' + encodeURIComponent(eski), { durum: 'bekliyor' });
+    // atomik: aynı komutu iki cihaz birden alamaz
+    const al = await guncelle('st_komut', 'durum=eq.bekliyor&kullanici=' + eq(k.ad), { durum: 'isleniyor', alindi: new Date().toISOString() });
+    return json({ komutlar: (al || []).sort((a, b) => a.id - b.id) });
+  }
+  if (islem === 'komut_sonuc') {
+    if (!k.admin) return json({ hata: 'yetkisiz' }, 403);
+    const yama = g.tamam ? { durum: 'uygulandi', uygulama: new Date().toISOString() } : { durum: 'bekliyor' };
+    await guncelle('st_komut', 'id=' + eq(g.id) + '&kullanici=' + eq(k.ad) + '&durum=eq.isleniyor', yama);
+    return json({ tamam: true });
+  }
+
   if (islem === 'not_ekle') {
     if (!(await izinliMi(k))) return json({ hata: 'Not ekleme izniniz yok.' }, 403);
+    if (g.ayristir && k.admin) {
+      const kmt = komutAyikla(g.metin);
+      if (kmt && kmt.hata) return json({ hata: kmt.hata }, 400);
+      if (kmt) { const kk = await komutKaydet(k, kmt, 'site', g.metin); return json({ komut: kk, ozet: komutOzet(kmt) }); }
+    }
     return json(await notEkle(k, g, 'site'));
   }
 
@@ -532,4 +639,4 @@ Deno.serve(async (req) => {
 });
 
 // Test için (Deno'da etkisiz)
-export { zamanAyikla, kisiAyikla, sifrele, vapidBaslik };
+export { zamanAyikla, kisiAyikla, sifrele, vapidBaslik, komutAyikla, gunBul };

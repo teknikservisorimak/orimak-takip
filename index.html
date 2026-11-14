@@ -15628,6 +15628,51 @@ function _stFireLoadAll(cb, force) {
   });
 }
 
+// ── Asistan komutu: Servis Plan'a satır ekle (telefondaki kısayoldan / Notlar kutusundan) ──
+// VERİ GÜVENLİĞİ: Satır yalnızca buluttaki güncel Servis Plan bu cihaza yüklendiği
+// DOĞRULANDIKTAN sonra eklenir. Bulut okunamıyorsa ya da bu cihazdaki kopya eskiyse
+// hiçbir şey yazılmaz (false döner), komut kuyrukta kalır ve sonra tekrar denenir.
+window.stAsistanServisEkle = function(v) {
+  return new Promise(function(coz) {
+    var K = 'Servis Plan.html';
+    if (!v || !v.firma || !window._db || !window._fsGetDoc || !window._fsDoc || !window._fsSetDoc) { coz(false); return; }
+    if (navigator.onLine === false) { coz(false); return; }
+    var bitti = false;
+    function son(x) { if (!bitti) { bitti = true; coz(x); } }
+    setTimeout(function() { son(false); }, 25000);
+    _stFireLoadAll(function() {
+      window._fsGetDoc(window._fsDoc(window._db, 'malzeme', _stDocId(K))).then(function(snap) {
+        if (bitti) return;
+        if (snap && snap.metadata && snap.metadata.fromCache) { son(false); return; }        // çevrimdışı önbellek → güvenme
+        var bulutZaman = (snap && snap.exists()) ? ((snap.data() || {}).updatedAt || 0) : 0;
+        if (bulutZaman > (_stAppliedTime[K] || 0)) { son(false); return; }                    // bulut daha yeni → önce o yüklensin
+        var info = ST_DATA[K];
+        if (!info || !Array.isArray(info.headers) || !Array.isArray(info.data)) { son(false); return; }
+        if (snap && snap.exists() && info.data.length === 0) { son(false); return; }          // bulutta kayıt varken boş yerel üstüne yazma
+        var h = info.headers, fi = h.indexOf('FİRMA İSMİ');
+        if (fi < 0) { son(false); return; }
+        var row = h.map(function() { return ''; });
+        row[fi] = String(v.firma);
+        var i;
+        if ((i = h.indexOf('SERVİS TALEP TARİHİ')) >= 0 && v.talep) row[i] = String(v.talep);
+        if ((i = h.indexOf('SERVİS TARİHİ')) >= 0 && v.tarih) row[i] = String(v.tarih);
+        if (v.aciklama) { i = h.lastIndexOf('ACIKLAMA'); if (i < 0) i = h.indexOf('AÇIKLAMA'); if (i >= 0) row[i] = String(v.aciklama); }
+        var siraIdx = h.indexOf('SIRALAMA');
+        if (siraIdx >= 0) {
+          var maxN = 0;
+          info.data.forEach(function(r) { var m = String(r[siraIdx] || '').match(/(\d+)/); if (m) { var n = parseInt(m[1], 10); if (!isNaN(n) && n > maxN) maxN = n; } });
+          row[siraIdx] = (maxN + 1) + '-';
+        }
+        info.data.unshift(row);
+        stFireSave();
+        var pn = document.getElementById('stPanel');
+        if (pn && pn.style.display !== 'none') { try { stRender(); } catch(e) {} }
+        son(true);
+      }).catch(function() { son(false); });
+    });
+  });
+};
+
 // Buluttaki veriyi zorla yükle: yerel zaman damgalarını sıfırlar ve
 // Firestore'daki her sayfayı olduğu gibi uygular. Takılı kalmış
 // (bayat damgalı) cihazları kurtarmak için kullanılır.
@@ -21401,7 +21446,7 @@ function yazmaHTML(on){
     kisiler +
     '<div class="as-satir"><span class="as-etiket">⏰ Hatırlat:</span><input type="datetime-local" class="as-tarih" id="' + on + 'Tarih">' +
     '<span style="flex:1"></span><button class="as-btn ana" id="' + on + 'Kaydet">＋ KAYDET</button></div>' +
-    '<div class="as-ipucu">İpucu: Metne <code>yarın 10:00</code>, <code>15 dk sonra</code>, <code>cuma 9\'da</code> yazarsan hatırlatma kendiliğinden kurulur ve saati gelince telefonuna bildirim düşer. Enter = kaydet, Shift+Enter = alt satır.</div>';
+    '<div class="as-ipucu">İpucu: Metne <code>yarın 10:00</code>, <code>15 dk sonra</code>, <code>cuma 9\'da</code> yazarsan hatırlatma kendiliğinden kurulur ve saati gelince telefonuna bildirim düşer. <code>servis plana 20.11 ABC Ambalaj ekle</code> yazarsan Servis Plan\'a kayıt açılır. Enter = kaydet, Shift+Enter = alt satır.</div>';
 }
 function yazmaBagla(kok, on, sonra){
   var ta = kok.querySelector('#' + on + 'Metin'), btn = kok.querySelector('#' + on + 'Kaydet'), tarih = kok.querySelector('#' + on + 'Tarih');
@@ -21413,6 +21458,14 @@ function yazmaBagla(kok, on, sonra){
     try {
       var alicilar = [];
       var s = await api('not_ekle', { metin: metin, alicilar: alicilar, ayristir: true, hatirlat_at: tarih.value ? new Date(tarih.value).toISOString() : null });
+      if (s.komut) {            // "servis plana ... ekle" gibi bir komut → kuyruğa alındı
+        ta.value = ''; tarih.value = '';
+        toast('⏳ ' + s.ozet, 3000);
+        komutIsle();
+        if (sonra) sonra(null);
+        btn.disabled = false; btn.textContent = '＋ KAYDET';
+        return;
+      }
       AS.notlar.unshift(s.not);
       ta.value = ''; tarih.value = ''; AS.secili = {};
       var m = '✓ Not kaydedildi';
@@ -21712,12 +21765,32 @@ function bantGoster(){
   document.body.appendChild(b);
 }
 
+// ───────── Komut kuyruğu (telefondan verilen "servis plana … ekle" komutları) ─────────
+var _komutCalisiyor = false;
+async function komutIsle(){
+  if (_komutCalisiyor || !AS.token || !AS.o || !AS.o.admin) return;
+  if (typeof window.stAsistanServisEkle !== 'function' || !window._db) return;   // bulut hazır değilse hiç alma
+  _komutCalisiyor = true;
+  try {
+    var s = await api('komut_al');
+    var liste = s.komutlar || [];
+    for (var i = 0; i < liste.length; i++) {
+      var k = liste[i], tamam = false;
+      try { if (k.tur === 'servis_plan') tamam = await window.stAsistanServisEkle(k.veri || {}); } catch(e){ tamam = false; }
+      try { await api('komut_sonuc', { id: k.id, tamam: tamam }); } catch(e){}
+      if (tamam) toast("✓ Servis Plan'a eklendi: " + ((k.veri || {}).firma || '') + ((k.veri || {}).tarih ? ' · ' + k.veri.tarih : ''), 4500);
+    }
+  } catch(e){}
+  _komutCalisiyor = false;
+}
+window.asKomutIsle = komutIsle;
+
 // ───────── Başlangıç ─────────
 function hazir(){
   var fab = document.getElementById('asFab');
   if (fab) fab.style.display = (AS.o && AS.o.gorur) ? 'flex' : 'none';
   sekmeEkle();
-  if (AS.o) { aboneTazele().then(function(){ tazeCiz(); }); yukle().then(tazeCiz); setTimeout(bantGoster, 2500); }
+  if (AS.o) { aboneTazele().then(function(){ tazeCiz(); }); yukle().then(tazeCiz); setTimeout(bantGoster, 2500); setTimeout(komutIsle, 6000); }
 }
 function urlIsle(){
   var p; try { p = new URLSearchParams(location.search); } catch(e){ return; }
@@ -21730,6 +21803,8 @@ var fabEl = document.getElementById('asFab');
 if (fabEl) fabEl.onclick = function(){ hizliAc(); };
 if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', function(e){ if (e.data && e.data.tip === 'not-ac') notlariAc(e.data.id); });
 document.addEventListener('visibilitychange', function(){ if (!document.hidden && AS.token && acikKap() && !document.querySelector('#asKok .as-yaz:focus')) yukle().then(function(){ var k = acikKap(); if (k && !(k.querySelector('.as-yaz') && k.querySelector('.as-yaz').value)) ciz(k); }); });
+setInterval(function(){ if (!document.hidden) komutIsle(); }, 45000);
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) setTimeout(komutIsle, 1500); });
 setInterval(function(){ if (!document.hidden && AS.token) yukle().then(function(){ var k = acikKap(); if (k && !(k.querySelector('.as-yaz') && (k.querySelector('.as-yaz').value || document.activeElement === k.querySelector('.as-yaz')))) ciz(k); }); }, 60000);
 // Giriş tamamlanınca (ya da kayıtlı oturumla açılınca) bağlan
 var _bekle = setInterval(function(){

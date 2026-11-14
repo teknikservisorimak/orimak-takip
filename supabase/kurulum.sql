@@ -39,6 +39,22 @@ create table if not exists public.st_push (
   olusturma  timestamptz not null default now()
 );
 
+-- Telefondan/kısayoldan verilen komutlar (örn. "servis plana 20.11 ABC Ambalaj ekle").
+-- Site açıldığında sıradaki komutları alıp tabloya işler.
+create table if not exists public.st_komut (
+  id         bigint generated always as identity primary key,
+  kullanici  text not null,
+  tur        text not null,
+  veri       jsonb not null default '{}'::jsonb,
+  metin      text,
+  kaynak     text not null default 'site',
+  durum      text not null default 'bekliyor',   -- bekliyor | isleniyor | uygulandi
+  alindi     timestamptz,
+  uygulama   timestamptz,
+  olusturma  timestamptz not null default now()
+);
+alter table public.st_komut enable row level security;
+
 -- Tablolar kilitli: politika YOK → sitedeki açık (anon) anahtarla okunamaz/yazılamaz.
 -- Yalnızca "asistan" fonksiyonu (service role) erişir.
 alter table public.st_ayar   enable row level security;
