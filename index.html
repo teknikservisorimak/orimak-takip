@@ -13205,6 +13205,7 @@ function stRender() {
       '<button class="st-form-btn st-form-btn-teklif" onclick="window.openParcaTeklifFormu()">💰 Parça Teklif Formu</button>'+
       '<button class="st-form-btn" onclick="window.openPartsQuoteForm()" style="background:rgba(90,160,255,.12);color:#5aa0ff;border:1px solid rgba(90,160,255,.3);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">💰 Parts Quote Form</button>'+
       '<button onclick="window.openInvoiceModal()" style="background:rgba(127,218,158,.1);color:#7fda9e;border:1px solid rgba(127,218,158,.35);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">📄 Invoice / Packing</button>'+
+      '<button onclick="window.stFaturaRaporuAc()" title="Tarih aralığına göre faturaları ve detaylarını göster" style="background:rgba(192,132,252,.1);color:#c49ef5;border:1px solid rgba(192,132,252,.35);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;">🧾 FATURA RAPORU</button>'+
       '<button onclick="window.stExportJSON()" title="Tüm Servis Takip verisini (tüm sayfalar) JSON dosyası olarak bilgisayara indir" style="background:rgba(245,166,35,.1);color:var(--orange);border:1px solid rgba(245,166,35,.35);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">💾 Yedek Al</button>'+
       '<button onclick="window.stImportJSON()" title="Daha önce indirdiğin JSON yedeğini geri yükle" style="background:rgba(150,150,150,.1);color:#aaa;border:1px solid rgba(150,150,150,.3);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">📂 Geri Yükle</button>'+
       '<button onclick="window.stForceCloudLoad()" title="Firebase\'deki güncel veriyi zorla bu cihaza yükle (yereldeki gönderilmemiş değişiklikleri ezer)" style="background:rgba(90,160,255,.1);color:#5aa0ff;border:1px solid rgba(90,160,255,.3);border-radius:6px;padding:7px 14px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;">☁️ Buluttan Yükle</button>'+
@@ -13524,6 +13525,238 @@ function stFaturaCiro(fno){
   });
   return {gen:gen, ara:ara};
 }
+
+// ── FATURA RAPORU: tarih aralığına göre fatura + detay listesi ──
+function stFaturaTarihParse(s){
+  var t = String(s||'').trim(); if(!t) return null;
+  var m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+  m = t.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+  return null;
+}
+// Verilen tarih aralığındaki (dahil) faturaları ve kalemlerini döndürür
+function stFaturaRaporVeri(bas, bit){
+  var fat = ST_DATA['Faturalar.html'] || {headers:[], data:[]};
+  var fh = fat.headers || [];
+  var fni = stFnoColIdx(fh), fti = fh.indexOf('Fatura Tarihi');
+  var det = ST_DATA['FaturaDetaylari.html'] || {headers:[], data:[]};
+  var dh = det.headers || [];
+  var dni = dh.indexOf('Fatura No'), dUrun = dh.indexOf('Ürün Adı'), dMik = dh.indexOf('Miktar'),
+      dBirim = dh.indexOf('Birim'), dAra = dh.indexOf('Ara Toplam (TL)'),
+      dKdv = dh.indexOf('KDV (TL)'), dGen = dh.indexOf('Genel Toplam (TL)');
+  var map = {};
+  (fat.data || []).forEach(function(r){
+    var fno = String(r[fni] || '').trim(); if (!fno) return;
+    var tar = stFaturaTarihParse(r[fti]); if (!tar) return;
+    if (tar < bas || tar > bit) return;
+    map[fno] = { fno: fno, tarih: String(r[fti] || '').trim(), tarihObj: tar,
+                 firma: stFaturaFirma(fno) || '(Firma yok)',
+                 ara: 0, kdv: 0, gen: 0, kalemler: [] };
+  });
+  (det.data || []).forEach(function(r){
+    var f = map[String(r[dni] || '').trim()]; if (!f) return;
+    var ara = stParseTRYNum(r[dAra]), kdv = stParseTRYNum(r[dKdv]), gen = stParseTRYNum(r[dGen]);
+    f.ara += ara; f.kdv += kdv; f.gen += gen;
+    f.kalemler.push({ urun: String(r[dUrun] || '').trim(), miktar: String(r[dMik] || '').trim(),
+                      birim: String(r[dBirim] || '').trim(), ara: ara, kdv: kdv, gen: gen });
+  });
+  return Object.keys(map).map(function(k){ return map[k]; })
+    .sort(function(a, b){ return b.tarihObj - a.tarihObj; });
+}
+window.stFaturaRaporuAc = function(){
+  var eski = document.getElementById('stFatRapor'); if (eski) eski.remove();
+  var bugun = new Date();
+  var ayBas = new Date(bugun.getFullYear(), bugun.getMonth(), 1);
+  var iso = function(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+  var inpStil = 'background:#222;border:1px solid #444;border-radius:5px;padding:7px 10px;color:#eee;font-family:Barlow,sans-serif;font-size:13px;';
+  var ov = document.createElement('div');
+  ov.id = 'stFatRapor';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:10300;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px;';
+  ov.innerHTML =
+    '<div style="background:#1a1a1a;border:1px solid #2e2e2e;border-top:3px solid #c49ef5;border-radius:12px;width:860px;max-width:100%;color:#eee;font-family:Barlow,sans-serif;">' +
+      '<div style="display:flex;align-items:center;gap:12px;padding:16px 22px;border-bottom:1px solid #2a2a2a;flex-wrap:wrap;">' +
+        '<div style="font-family:Barlow Condensed,sans-serif;font-size:18px;font-weight:700;letter-spacing:2px;color:#c49ef5;flex:1;">🧾 FATURA RAPORU</div>' +
+        '<label style="font-size:12px;color:#888;">Başlangıç <input type="date" id="stFatBas" value="' + iso(ayBas) + '" style="' + inpStil + '"></label>' +
+        '<label style="font-size:12px;color:#888;">Bitiş <input type="date" id="stFatBit" value="' + iso(bugun) + '" style="' + inpStil + '"></label>' +
+        '<button onclick="window.stFaturaRaporPdfIndir()" style="background:rgba(245,166,35,.15);color:#F5A623;border:1px solid rgba(245,166,35,.45);border-radius:6px;padding:8px 16px;font-family:Barlow Condensed,sans-serif;font-weight:700;letter-spacing:1px;cursor:pointer;">📄 PDF İNDİR</button>' +
+        '<button onclick="window.stFaturaRaporuGoster()" style="background:rgba(192,132,252,.15);color:#c49ef5;border:1px solid rgba(192,132,252,.4);border-radius:6px;padding:8px 16px;font-family:Barlow Condensed,sans-serif;font-weight:700;letter-spacing:1px;cursor:pointer;">GÖSTER</button>' +
+        '<button onclick="document.getElementById(\'stFatRapor\').remove()" style="background:#2a2a2a;color:#aaa;border:1px solid #3a3a3a;border-radius:6px;padding:8px 12px;cursor:pointer;">✕</button>' +
+      '</div>' +
+      '<div id="stFatIcerik" style="padding:18px 22px;"></div>' +
+    '</div>';
+  ov.addEventListener('click', function(e){ if (e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+  window.stFaturaRaporuGoster();
+};
+window.stFaturaRaporuGoster = function(){
+  var b = document.getElementById('stFatBas').value, t = document.getElementById('stFatBit').value;
+  var out = document.getElementById('stFatIcerik');
+  if (!b || !t) { out.innerHTML = '<div style="color:#888;">Tarih seçin.</div>'; return; }
+  var bas = new Date(b + 'T00:00:00'), bit = new Date(t + 'T23:59:59');
+  if (bas > bit) { out.innerHTML = '<div style="color:#ff7777;">Başlangıç tarihi bitiş tarihinden sonra olamaz.</div>'; return; }
+  var liste = stFaturaRaporVeri(bas, bit);
+  var esc = stEsc, fm = stFmtTRY;
+  var genelToplam = liste.reduce(function(s, f){ return s + f.gen; }, 0);
+  var kutu = function(etiket, deger){
+    return '<div style="flex:1;min-width:160px;background:#222;border-radius:8px;padding:12px 14px;">' +
+      '<div style="font-size:11px;color:#777;letter-spacing:1px;">' + etiket + '</div>' +
+      '<div style="font-size:20px;font-weight:700;color:#eee;">' + deger + '</div></div>';
+  };
+  var html = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">' +
+    kutu('FATURA ADEDİ', liste.length) +
+    kutu('GENEL TOPLAM (KDV DAHİL)', fm(genelToplam) + ' TL') + '</div>';
+  if (!liste.length) {
+    out.innerHTML = html + '<div style="color:#666;padding:24px;text-align:center;letter-spacing:2px;">BU TARİHLER ARASINDA FATURA YOK</div>';
+    return;
+  }
+  var firmalar = {};
+  liste.forEach(function(f){
+    var x = firmalar[f.firma] || (firmalar[f.firma] = { firma: f.firma, adet: 0, ara: 0, kdv: 0, gen: 0 });
+    x.adet++; x.ara += f.ara; x.kdv += f.kdv; x.gen += f.gen;
+  });
+  var th = 'padding:8px 10px;font-family:Barlow Condensed,sans-serif;font-size:12px;letter-spacing:1px;color:#888;border-bottom:1px solid #2a2a2a;';
+  var td = 'padding:8px 10px;border-bottom:1px solid #222;font-size:13px;';
+  html += '<div style="font-family:Barlow Condensed,sans-serif;font-size:13px;letter-spacing:1px;color:#c49ef5;margin-bottom:6px;">FİRMALARA GÖRE</div>';
+  html += '<table style="width:100%;border-collapse:collapse;margin-bottom:20px;"><thead><tr>' +
+    '<th style="' + th + 'text-align:left;">FİRMA</th><th style="' + th + 'text-align:right;">ADET</th>' +
+    '<th style="' + th + 'text-align:right;">ARA TOPLAM</th><th style="' + th + 'text-align:right;">KDV</th>' +
+    '<th style="' + th + 'text-align:right;">GENEL TOPLAM</th></tr></thead><tbody>';
+  Object.keys(firmalar).map(function(k){ return firmalar[k]; })
+    .sort(function(a, b){ return b.gen - a.gen; })
+    .forEach(function(x){
+      html += '<tr><td style="' + td + '">' + esc(x.firma) + '</td>' +
+        '<td style="' + td + 'text-align:right;">' + x.adet + '</td>' +
+        '<td style="' + td + 'text-align:right;">' + fm(x.ara) + '</td>' +
+        '<td style="' + td + 'text-align:right;">' + fm(x.kdv) + '</td>' +
+        '<td style="' + td + 'text-align:right;font-weight:700;">' + fm(x.gen) + ' TL</td></tr>';
+    });
+  html += '</tbody></table>';
+  html += '<div style="font-family:Barlow Condensed,sans-serif;font-size:13px;letter-spacing:1px;color:#c49ef5;margin-bottom:6px;">FATURALAR VE DETAYLARI</div>';
+  liste.forEach(function(f){
+    html += '<details style="background:#202020;border:1px solid #2a2a2a;border-radius:8px;margin-bottom:8px;padding:10px 14px;">' +
+      '<summary style="cursor:pointer;display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:13px;">' +
+        '<b style="color:#c49ef5;">' + esc(f.fno) + '</b>' +
+        '<span>' + esc(f.firma) + '</span>' +
+        '<span style="color:#777;">' + esc(f.tarih) + '</span>' +
+        '<span style="margin-left:auto;font-weight:700;">' + fm(f.gen) + ' TL</span></summary>' +
+      '<table style="width:100%;border-collapse:collapse;margin-top:10px;"><thead><tr>' +
+        '<th style="' + th + 'text-align:left;">ÜRÜN</th><th style="' + th + 'text-align:right;">MİKTAR</th>' +
+        '<th style="' + th + 'text-align:left;">BİRİM</th><th style="' + th + 'text-align:right;">ARA TOPLAM</th>' +
+        '<th style="' + th + 'text-align:right;">GENEL TOPLAM</th></tr></thead><tbody>' +
+        f.kalemler.map(function(k){
+          return '<tr><td style="' + td + '">' + esc(k.urun) + '</td>' +
+            '<td style="' + td + 'text-align:right;">' + esc(k.miktar) + '</td>' +
+            '<td style="' + td + '">' + esc(k.birim) + '</td>' +
+            '<td style="' + td + 'text-align:right;">' + fm(k.ara) + '</td>' +
+            '<td style="' + td + 'text-align:right;">' + fm(k.gen) + '</td></tr>';
+        }).join('') +
+      '</tbody></table></details>';
+  });
+  out.innerHTML = html;
+};
+
+// ── FATURA RAPORU PDF: logolu, detaylı çıktı (html2pdf.js ile doğrudan indirme) ──
+var _stHtml2pdfPromise = null;
+function stHtml2pdfYukle(){
+  if (window.html2pdf) return Promise.resolve();
+  if (_stHtml2pdfPromise) return _stHtml2pdfPromise;
+  _stHtml2pdfPromise = new Promise(function(res, rej){
+    var sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js';
+    sc.onload = function(){ res(); };
+    sc.onerror = function(){ _stHtml2pdfPromise = null; rej(new Error('PDF kütüphanesi yüklenemedi (internet bağlantısını kontrol edin)')); };
+    document.head.appendChild(sc);
+  });
+  return _stHtml2pdfPromise;
+}
+function stFaturaRaporHtml(bas, bit, liste){
+  var esc = stEsc, fm = stFmtTRY;
+  var logo = (document.querySelector('img.logo-img') || {}).src || '';
+  var trTarih = function(iso){ return iso.split('-').reverse().join('.'); };
+  var genel = liste.reduce(function(s, f){ return s + f.gen; }, 0);
+  var araT = liste.reduce(function(s, f){ return s + f.ara; }, 0);
+  var kdvT = liste.reduce(function(s, f){ return s + f.kdv; }, 0);
+  var firmalar = {};
+  liste.forEach(function(f){
+    var x = firmalar[f.firma] || (firmalar[f.firma] = { firma: f.firma, adet: 0, ara: 0, kdv: 0, gen: 0 });
+    x.adet++; x.ara += f.ara; x.kdv += f.kdv; x.gen += f.gen;
+  });
+  var firmaSatir = Object.keys(firmalar).map(function(k){ return firmalar[k]; })
+    .sort(function(a, b){ return b.gen - a.gen; })
+    .map(function(x){
+      return '<tr><td>' + esc(x.firma) + '</td><td class="r">' + x.adet + '</td><td class="r">' + fm(x.ara) +
+             '</td><td class="r">' + fm(x.kdv) + '</td><td class="r"><b>' + fm(x.gen) + '</b></td></tr>';
+    }).join('');
+  var faturaBlok = liste.map(function(f){
+    return '<div class="fno">' + esc(f.fno) + ' &nbsp;·&nbsp; ' + esc(f.firma) + ' &nbsp;·&nbsp; ' + esc(f.tarih) +
+           '<span style="float:right;">' + fm(f.gen) + ' TL</span></div>' +
+           '<table><thead><tr><th>ÜRÜN</th><th class="r">MİKTAR</th><th>BİRİM</th><th class="r">ARA TOPLAM</th><th class="r">KDV</th><th class="r">GENEL TOPLAM</th></tr></thead><tbody>' +
+           f.kalemler.map(function(k){
+             return '<tr><td>' + esc(k.urun) + '</td><td class="r">' + esc(k.miktar) + '</td><td>' + esc(k.birim) +
+                    '</td><td class="r">' + fm(k.ara) + '</td><td class="r">' + fm(k.kdv) + '</td><td class="r">' + fm(k.gen) + '</td></tr>';
+           }).join('') + '</tbody></table>';
+  }).join('');
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Fatura Raporu</title><style>' +
+    'body{font-family:Arial,sans-serif;color:#222;margin:0;font-size:10px;}' +
+    '.head{display:flex;align-items:center;justify-content:space-between;background:#1A1A1A;color:#fff;padding:12px 16px;border-bottom:4px solid #F5A623;}' +
+    '.head h1{font-size:18px;margin:0;letter-spacing:2px;color:#F5A623;}' +
+    '.head .sub{font-size:10px;color:#ccc;margin-top:4px;}' +
+    '.head img{height:44px;background:#fff;border-radius:4px;padding:3px 8px;}' +
+    '.kutular{display:flex;gap:10px;margin:14px 0;}' +
+    '.kutu{flex:1;background:#f5f5f5;border-left:4px solid #F5A623;padding:8px 10px;}' +
+    '.kutu .e{font-size:9px;color:#777;letter-spacing:1px;}' +
+    '.kutu .d{font-size:15px;font-weight:bold;margin-top:2px;}' +
+    'h2{font-size:11px;letter-spacing:1px;color:#C0392B;margin:16px 0 6px;border-bottom:1px solid #eee;padding-bottom:3px;}' +
+    'table{width:100%;border-collapse:collapse;margin-bottom:8px;}' +
+    'th{background:#333;color:#fff;padding:5px 6px;text-align:left;font-size:9px;}' +
+    'td{border-bottom:1px solid #e5e5e5;padding:4px 6px;}' +
+    '.r{text-align:right;}' +
+    '.fno{background:#fff8f0;border-left:4px solid #F5A623;padding:5px 8px;margin:10px 0 4px;font-weight:bold;font-size:10px;}' +
+    '.fno span{font-size:11px;color:#C0392B;}' +
+    '.foot{margin-top:16px;font-size:8px;color:#888;border-top:1px solid #ddd;padding-top:5px;}' +
+    '</style></head><body>' +
+    '<div class="head"><div><h1>FATURA RAPORU</h1><div class="sub">ORİMAK MAKİNA · Servis Takip · Tarih aralığı: ' + trTarih(bas) + ' – ' + trTarih(bit) + '</div></div>' +
+    (logo ? '<img src="' + logo + '">' : '') + '</div>' +
+    '<div class="kutular">' +
+      '<div class="kutu"><div class="e">FATURA ADEDİ</div><div class="d">' + liste.length + '</div></div>' +
+      '<div class="kutu"><div class="e">ARA TOPLAM</div><div class="d">' + fm(araT) + ' TL</div></div>' +
+      '<div class="kutu"><div class="e">KDV</div><div class="d">' + fm(kdvT) + ' TL</div></div>' +
+      '<div class="kutu"><div class="e">GENEL TOPLAM (KDV DAHİL)</div><div class="d">' + fm(genel) + ' TL</div></div>' +
+    '</div>' +
+    '<h2>FİRMALARA GÖRE ÖZET</h2>' +
+    '<table><thead><tr><th>FİRMA</th><th class="r">ADET</th><th class="r">ARA TOPLAM</th><th class="r">KDV</th><th class="r">GENEL TOPLAM</th></tr></thead><tbody>' +
+    firmaSatir + '</tbody></table>' +
+    '<h2>FATURALAR VE DETAYLARI</h2>' + faturaBlok +
+    '<div class="foot">ORİMAK Makina · Servis Takip Sistemi · Oluşturma: ' + new Date().toLocaleString('tr-TR') + '</div>' +
+    '</body></html>';
+}
+window.stFaturaRaporPdfIndir = async function(){
+  var b = document.getElementById('stFatBas').value, t = document.getElementById('stFatBit').value;
+  if (!b || !t) { alert('Tarih seçin.'); return; }
+  var bas = new Date(b + 'T00:00:00'), bit = new Date(t + 'T23:59:59');
+  if (bas > bit) { alert('Başlangıç tarihi bitiş tarihinden sonra olamaz.'); return; }
+  var liste = stFaturaRaporVeri(bas, bit);
+  if (!liste.length) { alert('Bu tarihler arasında fatura yok.'); return; }
+  try {
+    await stHtml2pdfYukle();
+    var html = stFaturaRaporHtml(b, t, liste);
+    var fr = document.createElement('iframe');
+    fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:1000px;height:1400px;border:0;background:#fff;';
+    document.body.appendChild(fr);
+    try {
+      fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
+      await new Promise(function(r){ setTimeout(r, 500); });
+      var dosya = 'Fatura_Raporu_' + b + '_' + t + '.pdf';
+      await window.html2pdf().set({
+        margin: 8, filename: dosya,
+        image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      }).from(fr.contentDocument.body).save();
+    } finally { fr.remove(); }
+  } catch(e) { alert('PDF oluşturulamadı: ' + e.message); }
+};
 
 // Sistemde geçen tüm ayları (YYYY-MM) topla — yeni→eski
 function stMalAyListesi(){
