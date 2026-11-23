@@ -13605,7 +13605,7 @@ window.stFaturaRaporuGoster = function(){
   };
   var html = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">' +
     kutu('FATURA ADEDİ', liste.length) +
-    kutu('GENEL TOPLAM (KDV DAHİL)', fm(genelToplam) + ' TL') + '</div>';
+    kutu('GENEL TOPLAM (KDV DAHİL)', fm(genelToplam)) + '</div>';
   if (!liste.length) {
     out.innerHTML = html + '<div style="color:#666;padding:24px;text-align:center;letter-spacing:2px;">BU TARİHLER ARASINDA FATURA YOK</div>';
     return;
@@ -13670,66 +13670,103 @@ function stHtml2pdfYukle(){
   });
   return _stHtml2pdfPromise;
 }
-function stFaturaRaporHtml(bas, bit, liste){
-  var esc = stEsc, fm = stFmtTRY;
-  var logo = (document.querySelector('img.logo-img') || {}).src || '';
-  var trTarih = function(iso){ return iso.split('-').reverse().join('.'); };
-  var genel = liste.reduce(function(s, f){ return s + f.gen; }, 0);
-  var araT = liste.reduce(function(s, f){ return s + f.ara; }, 0);
-  var kdvT = liste.reduce(function(s, f){ return s + f.kdv; }, 0);
-  var firmalar = {};
-  liste.forEach(function(f){
-    var x = firmalar[f.firma] || (firmalar[f.firma] = { firma: f.firma, adet: 0, ara: 0, kdv: 0, gen: 0 });
+function stFaturaRaporHtml(bas, bit, liste) {
+  const esc = stEsc, fm = stFmtTRY;
+  const trTarih = iso => iso.split('-').reverse().join('.');
+  const logo = (document.querySelector('img.logo-img') || {}).src || '';
+  const genel = liste.reduce((s, f) => s + f.gen, 0);
+  const araT  = liste.reduce((s, f) => s + f.ara, 0);
+  const kdvT  = liste.reduce((s, f) => s + f.kdv, 0);
+  const firmalar = {};
+  liste.forEach(f => {
+    const x = firmalar[f.firma] || (firmalar[f.firma] = { firma: f.firma, adet: 0, ara: 0, kdv: 0, gen: 0 });
     x.adet++; x.ara += f.ara; x.kdv += f.kdv; x.gen += f.gen;
   });
-  var firmaSatir = Object.keys(firmalar).map(function(k){ return firmalar[k]; })
-    .sort(function(a, b){ return b.gen - a.gen; })
-    .map(function(x){
-      return '<tr><td>' + esc(x.firma) + '</td><td class="r">' + x.adet + '</td><td class="r">' + fm(x.ara) +
-             '</td><td class="r">' + fm(x.kdv) + '</td><td class="r"><b>' + fm(x.gen) + '</b></td></tr>';
-    }).join('');
-  var faturaBlok = liste.map(function(f){
-    return '<div class="fno">' + esc(f.fno) + ' &nbsp;·&nbsp; ' + esc(f.firma) + ' &nbsp;·&nbsp; ' + esc(f.tarih) +
-           '<span style="float:right;">' + fm(f.gen) + ' TL</span></div>' +
-           '<table><thead><tr><th>ÜRÜN</th><th class="r">MİKTAR</th><th>BİRİM</th><th class="r">ARA TOPLAM</th><th class="r">KDV</th><th class="r">GENEL TOPLAM</th></tr></thead><tbody>' +
-           f.kalemler.map(function(k){
-             return '<tr><td>' + esc(k.urun) + '</td><td class="r">' + esc(k.miktar) + '</td><td>' + esc(k.birim) +
-                    '</td><td class="r">' + fm(k.ara) + '</td><td class="r">' + fm(k.kdv) + '</td><td class="r">' + fm(k.gen) + '</td></tr>';
-           }).join('') + '</tbody></table>';
+  const firmaList = Object.values(firmalar).sort((a, b) => b.gen - a.gen);
+  const firmaSatir = firmaList.map((x, i) =>
+    `<tr class="${i % 2 ? 'alt' : ''}"><td class="firma">${esc(x.firma)}</td><td class="r">${x.adet}</td>` +
+    `<td class="r">${fm(x.ara)}</td><td class="r">${fm(x.kdv)}</td><td class="r strong">${fm(x.gen)}</td></tr>`).join('');
+  const firmaToplam = `<tr class="total"><td>TOPLAM</td><td class="r">${liste.length}</td><td class="r">${fm(araT)}</td><td class="r">${fm(kdvT)}</td><td class="r">${fm(genel)}</td></tr>`;
+
+  const faturaKart = liste.map(f => {
+    const satirlar = f.kalemler.map((k, i) =>
+      `<tr class="${i % 2 ? 'alt' : ''}"><td>${esc(k.urun)}</td><td class="r">${esc(k.miktar)}</td><td>${esc(k.birim)}</td>` +
+      `<td class="r">${fm(k.ara)}</td><td class="r">${fm(k.kdv)}</td><td class="r strong">${fm(k.gen)}</td></tr>`).join('');
+    return `<div class="kart">
+      <div class="kart-bas">
+        <div class="sol"><span class="no">${esc(f.fno)}</span><span class="firma-ad">${esc(f.firma)}</span></div>
+        <div class="sag"><span class="tarih">${esc(f.tarih)}</span><span class="tutar">${fm(f.gen)}</span></div>
+      </div>
+      <table class="detay">
+        <thead><tr><th>Ürün</th><th class="r">Miktar</th><th>Birim</th><th class="r">Ara Toplam</th><th class="r">KDV</th><th class="r">Genel Toplam</th></tr></thead>
+        <tbody>${satirlar}</tbody>
+        <tfoot><tr><td colspan="3">Fatura toplamı</td><td class="r">${fm(f.ara)}</td><td class="r">${fm(f.kdv)}</td><td class="r">${fm(f.gen)}</td></tr></tfoot>
+      </table>
+    </div>`;
   }).join('');
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Fatura Raporu</title><style>' +
-    'body{font-family:Arial,sans-serif;color:#222;margin:0;font-size:10px;}' +
-    '.head{display:flex;align-items:center;justify-content:space-between;background:#1A1A1A;color:#fff;padding:12px 16px;border-bottom:4px solid #F5A623;}' +
-    '.head h1{font-size:18px;margin:0;letter-spacing:2px;color:#F5A623;}' +
-    '.head .sub{font-size:10px;color:#ccc;margin-top:4px;}' +
-    '.head img{height:44px;background:#fff;border-radius:4px;padding:3px 8px;}' +
-    '.kutular{display:flex;gap:10px;margin:14px 0;}' +
-    '.kutu{flex:1;background:#f5f5f5;border-left:4px solid #F5A623;padding:8px 10px;}' +
-    '.kutu .e{font-size:9px;color:#777;letter-spacing:1px;}' +
-    '.kutu .d{font-size:15px;font-weight:bold;margin-top:2px;}' +
-    'h2{font-size:11px;letter-spacing:1px;color:#C0392B;margin:16px 0 6px;border-bottom:1px solid #eee;padding-bottom:3px;}' +
-    'table{width:100%;border-collapse:collapse;margin-bottom:8px;}' +
-    'th{background:#333;color:#fff;padding:5px 6px;text-align:left;font-size:9px;}' +
-    'td{border-bottom:1px solid #e5e5e5;padding:4px 6px;}' +
-    '.r{text-align:right;}' +
-    '.fno{background:#fff8f0;border-left:4px solid #F5A623;padding:5px 8px;margin:10px 0 4px;font-weight:bold;font-size:10px;}' +
-    '.fno span{font-size:11px;color:#C0392B;}' +
-    '.foot{margin-top:16px;font-size:8px;color:#888;border-top:1px solid #ddd;padding-top:5px;}' +
-    '</style></head><body>' +
-    '<div class="head"><div><h1>FATURA RAPORU</h1><div class="sub">ORİMAK MAKİNA · Servis Takip · Tarih aralığı: ' + trTarih(bas) + ' – ' + trTarih(bit) + '</div></div>' +
-    (logo ? '<img src="' + logo + '">' : '') + '</div>' +
-    '<div class="kutular">' +
-      '<div class="kutu"><div class="e">FATURA ADEDİ</div><div class="d">' + liste.length + '</div></div>' +
-      '<div class="kutu"><div class="e">ARA TOPLAM</div><div class="d">' + fm(araT) + ' TL</div></div>' +
-      '<div class="kutu"><div class="e">KDV</div><div class="d">' + fm(kdvT) + ' TL</div></div>' +
-      '<div class="kutu"><div class="e">GENEL TOPLAM (KDV DAHİL)</div><div class="d">' + fm(genel) + ' TL</div></div>' +
-    '</div>' +
-    '<h2>FİRMALARA GÖRE ÖZET</h2>' +
-    '<table><thead><tr><th>FİRMA</th><th class="r">ADET</th><th class="r">ARA TOPLAM</th><th class="r">KDV</th><th class="r">GENEL TOPLAM</th></tr></thead><tbody>' +
-    firmaSatir + '</tbody></table>' +
-    '<h2>FATURALAR VE DETAYLARI</h2>' + faturaBlok +
-    '<div class="foot">ORİMAK Makina · Servis Takip Sistemi · Oluşturma: ' + new Date().toLocaleString('tr-TR') + '</div>' +
-    '</body></html>';
+
+  return `<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>Fatura Raporu</title><style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #1f1f1f; margin: 0; font-size: 10px; background: #fff; }
+  .sayfa { padding: 0 30px 24px; }
+  .ust-cizgi { height: 7px; background: linear-gradient(90deg, #F5A623 0%, #E8731A 60%, #C0392B 100%); }
+  .hdr { display: flex; align-items: center; justify-content: space-between; padding: 22px 0 18px; border-bottom: 1px solid #e8e8e8; }
+  .logo-kutu { background: #fff; border: 1px solid #ececec; border-radius: 10px; padding: 8px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .logo-kutu img { height: 72px; display: block; }
+  .baslik { text-align: right; }
+  .baslik h1 { margin: 0; font-size: 24px; letter-spacing: 3px; color: #1A1A1A; }
+  .baslik .alt { margin-top: 8px; display: inline-block; background: #1A1A1A; color: #F5A623; font-weight: bold; font-size: 10px; letter-spacing: 1px; padding: 5px 10px; border-radius: 20px; }
+  .kpi { display: flex; gap: 10px; margin: 18px 0 6px; }
+  .kpi > div { flex: 1; background: #fff; border: 1px solid #ececec; border-top: 4px solid; border-radius: 8px; padding: 10px 12px; }
+  .kpi .e { font-size: 8.5px; color: #888; letter-spacing: 1px; text-transform: uppercase; }
+  .kpi .d { font-size: 15px; font-weight: bold; margin-top: 4px; color: #1A1A1A; }
+  .k1 { border-top-color: #3b82f6 !important; } .k2 { border-top-color: #F5A623 !important; }
+  .k3 { border-top-color: #8b5cf6 !important; } .k4 { border-top-color: #16a34a !important; }
+  h2 { font-size: 11px; letter-spacing: 2px; color: #1A1A1A; margin: 20px 0 8px; display: flex; align-items: center; gap: 8px; }
+  h2::before { content: ""; width: 10px; height: 10px; background: #F5A623; border-radius: 2px; display: inline-block; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #1A1A1A; color: #F5A623; font-size: 8.5px; letter-spacing: .5px; text-transform: uppercase; padding: 7px 8px; text-align: left; }
+  td { padding: 6px 8px; border-bottom: 1px solid #efefef; font-size: 9.5px; }
+  tr.alt td { background: #fafafa; }
+  thead { display: table-header-group; }
+  .r { text-align: right; white-space: nowrap; }
+  .strong { font-weight: bold; color: #111; }
+  .firma { font-weight: bold; }
+  tr.total td { background: #fff4e0; font-weight: bold; border-top: 2px solid #F5A623; border-bottom: none; }
+  .kart { border: 1px solid #e6e6e6; border-radius: 10px; margin-bottom: 12px; overflow: hidden; page-break-inside: avoid; }
+  .kart-bas { display: flex; justify-content: space-between; align-items: center; background: #fff8ec; padding: 9px 12px; border-bottom: 1px solid #f0e2c4; }
+  .sol { display: flex; align-items: center; gap: 10px; }
+  .no { background: #1A1A1A; color: #F5A623; font-weight: bold; font-size: 10px; padding: 4px 9px; border-radius: 5px; letter-spacing: .5px; }
+  .firma-ad { font-weight: bold; font-size: 11px; }
+  .sag { display: flex; align-items: center; gap: 14px; }
+  .tarih { color: #777; font-size: 9.5px; }
+  .tutar { font-weight: bold; font-size: 12px; color: #15803d; }
+  table.detay tfoot td { background: #f4f4f4; font-weight: bold; border-top: 1px solid #ddd; border-bottom: none; }
+  .alt-bilgi { margin-top: 18px; padding-top: 8px; border-top: 1px solid #e8e8e8; display: flex; justify-content: space-between; color: #999; font-size: 8px; }
+  </style></head><body>
+  <div class="ust-cizgi"></div>
+  <div class="sayfa">
+    <div class="hdr">
+      <div class="logo-kutu"><img src="${logo}" alt="ORİMAK"></div>
+      <div class="baslik"><h1>FATURA RAPORU</h1><div class="alt">${trTarih(bas)} &nbsp;–&nbsp; ${trTarih(bit)}</div></div>
+    </div>
+    <div class="kpi">
+      <div class="k1"><div class="e">Fatura adedi</div><div class="d">${liste.length}</div></div>
+      <div class="k2"><div class="e">Ara toplam</div><div class="d">${fm(araT)}</div></div>
+      <div class="k3"><div class="e">KDV</div><div class="d">${fm(kdvT)}</div></div>
+      <div class="k4"><div class="e">Genel toplam (KDV dahil)</div><div class="d">${fm(genel)}</div></div>
+    </div>
+    <h2>FİRMALARA GÖRE ÖZET</h2>
+    <table>
+      <thead><tr><th>Firma</th><th class="r">Adet</th><th class="r">Ara toplam</th><th class="r">KDV</th><th class="r">Genel toplam</th></tr></thead>
+      <tbody>${firmaSatir}${firmaToplam}</tbody>
+    </table>
+    <h2>FATURALAR VE DETAYLARI</h2>
+    ${faturaKart}
+    <div class="alt-bilgi"><span>ORİMAK Makina · Servis Takip Sistemi</span><span>Oluşturma: ${new Date().toLocaleString('tr-TR')}</span></div>
+  </div>
+  </body></html>`;
 }
 window.stFaturaRaporPdfIndir = async function(){
   var b = document.getElementById('stFatBas').value, t = document.getElementById('stFatBit').value;
